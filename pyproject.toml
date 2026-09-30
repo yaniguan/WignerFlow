@@ -1,0 +1,15 @@
+[project]
+name = "equitraj"
+version = "0.0.1"
+description = "Autoregressive E(3)-equivariant trajectory model (proof of concept)"
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["equitraj"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,23 @@
+# Full environment (Mac or Linux). OpenFF is only on conda-forge.
+# Create: conda env create -f environment.yml
+name: wignerflow
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - openmm>=8.1
+  - openff-toolkit>=0.16
+  - openff-interchange
+  - ambertools        # AM1-BCC charges for OpenFF
+  - mdtraj
+  - h5py
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - pytest
+  - pytorch           # from conda-forge, not pip: pip torch ships its own libomp and crashes next to conda-forge OpenMM
+  - tensorboard
+  - pip
+  - pip:
+      - e3nn

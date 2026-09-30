@@ -41,7 +41,7 @@ Every design choice aimed at preventing blow-up is tested with an ablation.
   - The model alone generates ≥10^4 steps.
   - Metrics: stability, RDF, VACF/VDOS, Li⁺ solvation-shell dynamics, energy drift, and momentum drift in vacuum.
   - The same metrics are reported as the stride n varies.
-  - Baselines: a non-equivariant transformer, and MACE with a Verlet integrator.
+  - Baselines: a non-equivariant transformer, MACE with a Verlet integrator, and TrajCast.
 
 ### Limits to keep in mind
 
@@ -88,7 +88,7 @@ conda activate wignerflow
 pip install -e .
 ```
 
-Argon, alanine dipeptide and the tests run on a laptop (CPU or Apple MPS). Li⁺/EC training and profiling need a CUDA GPU.
+MD data generation (OpenMM, OpenCL), tests, and training for the small systems run on a laptop (tested on an Apple M3 Pro with MPS). Li⁺/EC MD and all model training run on CUDA GPUs on HPC clusters (Slurm/UGE job templates in `jobs/`). Force-field files for OpenFF-parametrized systems are built once with conda (`python -m equitraj.build_systems`) and committed under `systems/`.
 
 ### Test
 
@@ -113,13 +113,7 @@ None yet. See [RESULTS.md](RESULTS.md) once the first stage is done.
 
 ## Related work
 
-- Klein et al., *Timewarp*, NeurIPS 2023
-- Schreiner et al., *Implicit Transfer Operator Learning*, NeurIPS 2023
-- Jing et al., *Generative Modeling of Molecular Dynamics Trajectories (MDGen)*, NeurIPS 2024
-- Thiemann et al., *Force-free molecular dynamics through autoregressive equivariant networks (TrajCast)*, 2025
-- Bigi et al., *FlashMD*, 2025
-- Passaro & Zitnick, *eSCN*, ICML 2023; Liao et al., *EquiformerV2*, ICLR 2024
-- Brandstetter et al., *Message Passing Neural PDE Solvers* (pushforward trick), ICLR 2022
+The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et al., NeurIPS 2025). Generative approaches include Timewarp, ITO, TITO and MDGen. See [docs/related_work.md](docs/related_work.md) for a comparison and for what this project does and does not add.
 
 ## License
 
