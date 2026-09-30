@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Large or generated files: trajectories, checkpoints, logs
+data/
+*.h5
+*.hdf5
+*.dcd
+*.pt
+*.ckpt
+runs/
+wandb/
+results/**/rollouts/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
