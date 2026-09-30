@@ -74,21 +74,25 @@ results/          one folder per experiment: config, metrics.json, figures
 
 ## How to run
 
-These commands are planned and will work once the code exists.
-
 ### Install
 
-OpenMM and the OpenFF toolkit are most reliable from conda-forge, so the environment is managed with conda.
+OpenMM and the OpenFF toolkit are most reliable from conda-forge, so the environment is managed with conda. PyTorch also comes from conda-forge: the pip wheel ships its own OpenMP library and crashes when imported next to conda-forge OpenMM.
 
 ```bash
-git clone https://github.com/<user>/WignerFlow.git
+git clone https://github.com/yaniguan/WignerFlow.git
 cd WignerFlow
 conda env create -f environment.yml
 conda activate wignerflow
 pip install -e .
 ```
 
-MD data generation (OpenMM, OpenCL), tests, and training for the small systems run on a laptop (tested on an Apple M3 Pro with MPS). Li⁺/EC MD and all model training run on CUDA GPUs on HPC clusters (Slurm/UGE job templates in `jobs/`). Force-field files for OpenFF-parametrized systems are built once with conda (`python -m equitraj.build_systems`) and committed under `systems/`.
+On a CUDA cluster, use the same file but ask for a CUDA build of PyTorch (`pytorch=*=cuda*`).
+
+Force-field files for the OpenFF-parametrized systems (Li⁺/EC variants, alanine dipeptide, aspirin) are already in `systems/`. To rebuild them:
+
+```bash
+python -m equitraj.build_systems
+```
 
 ### Test
 
@@ -96,13 +100,30 @@ MD data generation (OpenMM, OpenCL), tests, and training for the small systems r
 pytest tests/
 ```
 
-### Generate data, train, roll out
+### Ground-truth data
 
 ```bash
-python scripts/gen_data.py --config configs/data/argon.yaml
-python scripts/train.py    --config configs/argon/flow_s1.yaml
-python scripts/rollout.py  --run results/argon/flow_s1 --steps 10000 --seeds 5
-python scripts/make_results.py        # rebuilds RESULTS.md
+python scripts/gen_data.py --config configs/data/argon.yaml             # all trajectories of one system
+python scripts/gen_data.py --config configs/data/li_ec_q08.yaml --traj 3  # one trajectory (one cluster job)
+python scripts/gen_data.py --config configs/data/argon.yaml --benchmark   # OpenMM speed only
+python scripts/analyze_gt.py --data data/argon --out results/argon/ground_truth
+```
+
+### Training
+
+```bash
+python scripts/make_configs.py argon          # one YAML per experiment in configs/argon/
+python -m equitraj.train --config configs/argon/B_S3a.yaml
+```
+
+Training resumes from `ckpt.pt` in the output folder if it exists. `best.pt` is the checkpoint with the best short validation rollout.
+
+### Cluster jobs
+
+```bash
+sbatch -J B_S3a -t 24:00:00 jobs/expanse_gpu.sbatch python -m equitraj.train --config configs/argon/B_S3a.yaml   # Expanse (Slurm)
+qsub -N B_S3a -l gpu,A100,cuda=1,h_rt=24:00:00,h_data=32G jobs/hoffman2_gpu.sh python -m equitraj.train --config configs/argon/B_S3a.yaml   # Hoffman2 (UGE)
+bash jobs/expanse_submit_md.sh configs/data/li_ec_q08.yaml    # one MD job per trajectory
 ```
 
 Trajectory data (HDF5, tens of GB) and checkpoints are not stored in git.

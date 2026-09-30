@@ -1,0 +1,13 @@
+{
+  "system_name": "li_ec_q10",
+  "force_field": "openff-2.2.1.offxml; ion charges x1.0",
+  "composition": {
+    "Li": 1,
+    "EC": 100,
+    "PF6": 0
+  },
+  "ion_charge_scale": 1.0,
+  "packed_box_nm": 2.3017962589212213,
+  "periodic": true,
+  "li_index": 0
+}

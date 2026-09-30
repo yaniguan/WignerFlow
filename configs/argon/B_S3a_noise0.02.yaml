@@ -1,0 +1,43 @@
+data_dir: data/argon
+stride_steps: 10
+k: 3
+seed: 0
+model:
+  head: flow
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+train:
+  batch_size: 8
+  lr: 0.0003
+  steps: 40000
+  warmup: 1000
+  grad_clip: 1.0
+  noise_sigma: 0.02
+  unroll:
+  - - 0
+    - 1
+  - - 10000
+    - 4
+  - - 20000
+    - 16
+  backprop: truncated
+  unroll_sampling_steps: 2
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 20
+eval:
+  every: 2000
+  val_batches: 20
+  rollout_steps: 1000
+  rollout_starts: 4
+  sampling_steps: 10
+name: B_S3a_noise0.02
+out_dir: results/argon/B_S3a_noise0.02

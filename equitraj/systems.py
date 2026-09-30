@@ -4,6 +4,9 @@ Each builder returns (system, topology, positions_nm, info) where info is a
 dict of metadata that gets stored in the HDF5 file.
 """
 
+import json
+import os
+
 import numpy as np
 import openmm
 import openmm.app as app
@@ -88,4 +91,30 @@ def build_water_box(box_nm=2.25):
     return system, modeller.topology, np.array(positions), info
 
 
+SYSTEMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "systems")
+
+
+def load_saved(name):
+    """Load a system written by build_systems.py (systems/<name>.xml, .pdb, .json).
+
+    The CMMotionRemover is dropped: it edits velocities every step, which breaks NVE.
+    The center-of-mass velocity is removed once before production instead.
+    """
+    with open(os.path.join(SYSTEMS_DIR, f"{name}.xml")) as f:
+        system = openmm.XmlSerializer.deserialize(f.read())
+    for i in reversed(range(system.getNumForces())):
+        if isinstance(system.getForce(i), openmm.CMMotionRemover):
+            system.removeForce(i)
+    pdb = app.PDBFile(os.path.join(SYSTEMS_DIR, f"{name}.pdb"))
+    positions = pdb.getPositions(asNumpy=True).value_in_unit(u.nanometer)
+    with open(os.path.join(SYSTEMS_DIR, f"{name}.json")) as f:
+        info = json.load(f)
+    info = {k: (json.dumps(v) if isinstance(v, dict) else v) for k, v in info.items()}  # HDF5 attrs need flat values
+    return system, pdb.topology, np.asarray(positions), info
+
+
 BUILDERS = {"argon": build_argon, "water_box": build_water_box}
+
+
+def build(name):
+    return BUILDERS[name]() if name in BUILDERS else load_saved(name)

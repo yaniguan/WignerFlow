@@ -1,0 +1,9 @@
+# Tiny run to check that training works end to end (CPU/MPS, minutes)
+name: smoke
+data_dir: data/argon
+stride_steps: 10          # 50 fs
+k: 3
+model: {head: flow, lmax: 2, channels: 16, heads: 2, n_rbf: 8, cutoff: 7.0, n_spatial: 1, n_fusion: 1, n_denoiser: 1}
+train: {batch_size: 2, lr: 1.0e-3, steps: 60, warmup: 10, noise_sigma: 0.01, unroll: [[0, 1], [30, 3]], backprop: truncated, workers: 0, start_every: 50}
+eval: {every: 30, val_batches: 2, rollout_steps: 20, rollout_starts: 2, sampling_steps: 2}
+out_dir: results/argon/smoke

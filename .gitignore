@@ -20,3 +20,8 @@ results/**/rollouts/
 .DS_Store
 .idea/
 .vscode/
+
+# job logs and cluster-specific env files
+logs/
+.env_*.yml
+results/**/tb/

@@ -30,14 +30,14 @@ Changes in v3:
 | Hardware | Expanse V100 32 GB (Slurm, 48 h jobs, group allocation) for Li⁺/EC MD and all GPU training. Hoffman2 (UGE, 24 h campus jobs; group L40S node g19) for Stage 4 (bf16/tf32 need A100/L40S/H200) and overflow. The Mac for development, tests, and MD of the small systems. Colab Pro as last-resort backup. See "Compute". |
 | Order | Full pipeline on Argon first, then alanine dipeptide and aspirin, then Li⁺/EC. |
 | Default constraints | HBonds with 2 fs. No constraints with 0.5 fs is also tested. |
-| System 0b | Both alanine dipeptide (ff14SB) and aspirin (OpenFF Sage). |
+| System 0b | Both alanine dipeptide and aspirin, both with OpenFF Sage 2.2.1 (changed from ff14SB during R0: Sage builds both from SMILES, with no PDB templates needed). |
 | Li⁺ charge | 0.8 by default; 1.0 also tested. |
 | Neutralization | Uniform background by default; a PF₆⁻ counterion also tested. |
 | Temperature (Li⁺/EC) | 313 K (EC melts at 36.4 °C). |
 | Success criteria | VDOS compared against ground truth subsampled to the same Δt; RDF/CN errors judged against the ground truth's own spread over segments of the same length. |
 | Stride | One model per n by default; one n-conditioned model also tested. |
 | Logging | TensorBoard. Results are copied back to the Mac with rsync into `results/`. |
-| Git | Repo already at github.com/yaniguan/WignerFlow; one commit per stage. Package name `equitraj`. |
+| Git | Repo at github.com/yaniguan/WignerFlow. The user makes all commits; Claude only leaves changes in the working tree. Package name `equitraj`. |
 | Neighbor list | Brute force and cell list both implemented and checked against each other; the faster one is used. |
 | Job size limit | ≤24 h per job, checkpoint every 20 min, resumable. I report at every checkpoint before starting the next stage. |
 
@@ -66,7 +66,7 @@ How options are tested:
 | Group | Options (**default** in bold) | Where |
 |---|---|---|
 | Constraints and step | **HBonds, 2 fs** / none, 0.5 fs | ala2, Li⁺/EC |
-| Small molecule | **alanine dipeptide (ff14SB)** / aspirin (OpenFF Sage) | 0b |
+| Small molecule | **alanine dipeptide** / aspirin (both OpenFF Sage) | 0b |
 | Li⁺ charge | **0.8** / 1.0 | Li⁺/EC |
 | Neutralization | **background** / PF₆⁻ | Li⁺/EC |
 | Output head | A regression / **B flow matching** | all |
@@ -152,7 +152,7 @@ Force-field XML files are built once on the Mac and committed. On the Mac, anyth
 | | 0a Argon | 0b-1 Alanine dipeptide | 0b-2 Aspirin | 0c Li⁺ in EC |
 |---|---|---|---|---|
 | Atoms | 256 | 22 | 21 | 1001 (+7 with PF₆⁻) |
-| Force field | LJ, ε=0.996 kJ/mol, σ=3.405 Å | ff14SB | OpenFF Sage 2.2 | EC: Sage 2.2; Li⁺: Sage ions (Joung–Cheatham LJ); PF₆⁻: Sage |
+| Force field | LJ, ε=0.996 kJ/mol, σ=3.405 Å, switched 8.0–8.5 Å | OpenFF Sage 2.2.1 | OpenFF Sage 2.2.1 | EC: Sage 2.2; Li⁺: Sage ions (Joung–Cheatham LJ); PF₆⁻: Sage |
 | Box | cubic PBC, L≈23.1 Å, cutoff 8.5 Å | vacuum | vacuum | cubic PBC, L≈22.3 Å after NPT; PME, 9 Å cutoff |
 | Temperature | 94.4 K | 300 K | 300 K | 313 K |
 | Default step | 5 fs, no constraints | HBonds, 2 fs | HBonds, 2 fs | HBonds, 2 fs |
@@ -316,6 +316,16 @@ Each report covers what was done, numbers, plots, problems, and next steps. Miss
 | No exchange events inside a rollout | n=50 (1 ns rollouts); report honestly |
 | Overlap with TrajCast/FlashMD | position the work as a systematic study; TrajCast as a baseline |
 | Long cluster queues | many 1-GPU jobs on `gpu-shared`; Hoffman2 as overflow; `gpu-preempt` for resumable jobs |
+
+## Implementation notes (deviations found while building)
+
+- NVE production uses a custom velocity Verlet integrator. OpenMM's VerletIntegrator is leapfrog, so its velocities lag the positions by half a step.
+- Before NVE, velocities are rescaled so that the starting total energy equals the NVT average energy. Without this, the NVE temperature of 256-atom argon scattered between 86 and 96 K (mean 92.4 K instead of 94.4 K).
+- The CMMotionRemover is removed from OpenFF systems because it edits velocities every step, which breaks NVE. The center-of-mass velocity is removed once before production instead.
+- Li⁺/EC: each trajectory runs its own NPT (2 ns) → NVT (1 ns) → NVE, so trajectories are fully independent. Each one therefore has a slightly different box.
+- Temporal attention uses only the newest frame as the query. The model only predicts the next frame, so causality holds by construction, and the planned `test_causal` is not needed.
+- The equivariant RMS norm uses eps=1e-3. With 1e-6, atoms with near-zero l>0 features amplified float32 noise, giving up to 4e-3 equivariance error.
+- float32 equivariance error (untrained model, 40 random inputs): median ~4e-6, worst ~2e-5. This is slightly above the 1e-5 target in the worst case. float64 error is below 1e-10.
 
 ## Remaining questions
 

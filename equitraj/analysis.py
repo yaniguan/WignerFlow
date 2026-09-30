@@ -46,12 +46,15 @@ def rdf(positions, box, idx_a, idx_b, r_max, n_bins=200):
         hist += np.histogram(d, bins=edges)[0]
         volume += np.prod(lengths) if lengths is not None else np.nan
     n_frames = len(positions)
+    r = 0.5 * (edges[1:] + edges[:-1])
+    if box is None:
+        # No volume in vacuum, so no g(r): return the pair-distance density p(r), which integrates to 1.
+        return r, hist / (hist.sum() * (edges[1] - edges[0])), np.nan
     volume /= n_frames
     n_b = len(idx_b) - 1 if same else len(idx_b)
     rho_b = n_b / volume
     shell = 4.0 / 3.0 * np.pi * (edges[1:] ** 3 - edges[:-1] ** 3)
     g = hist / (n_frames * len(idx_a) * rho_b * shell)
-    r = 0.5 * (edges[1:] + edges[:-1])
     return r, g, rho_b
 
 
@@ -138,6 +141,27 @@ def diffusion_coefficient(t_fs, msd_values, t_min_fs, t_max_fs):
 
 
 # ---------------------------------------------------------------- energy
+
+def dihedral(p0, p1, p2, p3):
+    """Dihedral angle in degrees for arrays of points (..., 3)."""
+    b0, b1, b2 = p0 - p1, p2 - p1, p3 - p2
+    b1 = b1 / np.linalg.norm(b1, axis=-1, keepdims=True)
+    v = b0 - np.sum(b0 * b1, -1, keepdims=True) * b1
+    w = b2 - np.sum(b2 * b1, -1, keepdims=True) * b1
+    x = np.sum(v * w, -1)
+    y = np.sum(np.cross(b1, v) * w, -1)
+    return np.degrees(np.arctan2(y, x))
+
+
+def momenta(positions, velocities, masses):
+    """Total linear momentum (T, 3) and angular momentum about the center of mass (T, 3), in amu Å/fs and amu Å^2/fs."""
+    m = masses[None, :, None]
+    p = (m * velocities).sum(axis=1)
+    com = (m * positions).sum(axis=1) / masses.sum()
+    rel = positions - com[:, None, :]
+    l = (m * np.cross(rel, velocities)).sum(axis=1)
+    return p, l
+
 
 def n_dof(n_atoms, n_constraints, com_removed=True):
     return 3 * n_atoms - n_constraints - (3 if com_removed else 0)

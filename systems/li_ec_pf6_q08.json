@@ -1,0 +1,13 @@
+{
+  "system_name": "li_ec_pf6_q08",
+  "force_field": "openff-2.2.1.offxml; ion charges x0.8",
+  "composition": {
+    "Li": 1,
+    "EC": 100,
+    "PF6": 1
+  },
+  "ion_charge_scale": 0.8,
+  "packed_box_nm": 2.3143481008768396,
+  "periodic": true,
+  "li_index": 0
+}

@@ -37,7 +37,7 @@ def main():
     os.makedirs(os.path.join(args.out, "figs"), exist_ok=True)
 
     files = sorted(glob.glob(os.path.join(args.data, "traj_*.h5")))
-    per_traj, rdfs, vacfs, msds = [], [], [], []
+    per_traj, rdfs, vacfs, msds, dihedrals = [], [], [], [], []
     for path in files:
         t = read_traj(path)
         a = t["attrs"]
@@ -49,7 +49,8 @@ def main():
         dof = analysis.n_dof(n_atoms, int(a["n_constraints"]))
         x = t["positions"] * NM_TO_A
         v = t["velocities"] * NM_PER_PS_TO_A_PER_FS
-        box = t["box"] * NM_TO_A
+        periodic = bool(a.get("periodic", True))  # molecules in vacuum store periodic=False
+        box = t["box"] * NM_TO_A if periodic else None
         time_ps = t["time"]
         e_tot = t["potential_energy"] + t["kinetic_energy"]
         temp = analysis.temperature(t["kinetic_energy"], dof)
@@ -57,12 +58,12 @@ def main():
         # structure: RDF over all atoms of each element pair (argon: Ar-Ar only)
         elements = t["elements"]
         species = sorted(set(elements))
-        r_max = min(12.0, 0.5 * box[0].diagonal().min())
+        r_max = min(12.0, 0.5 * box[0].diagonal().min()) if periodic else 8.0
         rdf_pairs = {}
         for i, s1 in enumerate(species):
             for s2 in species[i:]:
                 ia, ib = np.where(elements == s1)[0], np.where(elements == s2)[0]
-                r, g, rho = analysis.rdf(x[:: args.rdf_stride], box[:: args.rdf_stride], ia, ib, r_max)
+                r, g, rho = analysis.rdf(x[:: args.rdf_stride], None if box is None else box[:: args.rdf_stride], ia, ib, r_max)
                 rdf_pairs[f"{s1}-{s2}"] = (r, g, rho)
         rdfs.append(rdf_pairs)
 
@@ -74,7 +75,19 @@ def main():
         msds.append(analysis.msd(x[::msd_stride], lags))
         msd_dt_fs = dt_fs * msd_stride
 
-        per_traj.append({
+        extra = {}
+        if not periodic:
+            p_tot, l_tot = analysis.momenta(x, v, t["masses"])
+            extra = {"linear_momentum_max_abs": float(np.abs(p_tot).max()),
+                     "angular_momentum_change_max": float(np.abs(l_tot - l_tot[0]).max()),
+                     "angular_momentum_norm_mean": float(np.linalg.norm(l_tot, axis=1).mean())}
+            if a["system_name"] == "ala2":
+                # heavy atoms follow the SMILES CC(=O)N[C@@H](C)C(=O)NC: 1 = C(ace), 3 = N, 4 = CA, 6 = C, 8 = N(nme)
+                phi = analysis.dihedral(x[:, 1], x[:, 3], x[:, 4], x[:, 6])
+                psi = analysis.dihedral(x[:, 3], x[:, 4], x[:, 6], x[:, 8])
+                dihedrals.append((phi[::10], psi[::10]))
+                extra["frac_phi_negative"] = float(np.mean(phi < 0))
+        per_traj.append({**extra, 
             "file": os.path.basename(path),
             "seed": int(a["seed"]),
             "T_mean_K": float(temp.mean()),
@@ -104,7 +117,7 @@ def main():
         g_mean = gs.mean(axis=0)
         peak_r, peak_g = analysis.first_peak(r, g_mean)
         r_min = analysis.first_minimum_after_peak(r, g_mean)
-        cn = analysis.coordination_number(r, g_mean, rho, r_min)
+        cn = analysis.coordination_number(r, g_mean, rho, r_min) if np.isfinite(rho) else float("nan")
         spread = [analysis.rdf_l1(r, g, g_mean) for g in gs]
         metrics["rdf"][pair] = {
             "first_peak_A": float(peak_r), "first_peak_height": float(peak_g),
@@ -135,6 +148,20 @@ def main():
     plots.line_plot(os.path.join(args.out, "figs", "vdos.png"), [("ground truth", k, s)],
                     "wavenumber (cm⁻¹)", "VDOS (normalized)", "Vibrational density of states", xlim=(0, kmax))
 
+    if dihedrals:
+        import matplotlib.pyplot as plt
+        phi = np.concatenate([d[0] for d in dihedrals]); psi = np.concatenate([d[1] for d in dihedrals])
+        fig, ax = plt.subplots(figsize=(4.5, 4))
+        ax.hist2d(phi, psi, bins=72, range=[[-180, 180], [-180, 180]], cmap="Blues", cmin=1)
+        ax.set_xlabel("φ (deg)"); ax.set_ylabel("ψ (deg)"); ax.set_title("Ramachandran, ground truth", loc="left", fontsize=11)
+        fig.tight_layout(); fig.savefig(os.path.join(args.out, "figs", "ramachandran.png"), dpi=150); plt.close(fig)
+        metrics["frac_phi_negative"] = float(np.mean(phi < 0))
+    if not periodic:
+        metrics["angular_momentum_change_max"] = float(max(p["angular_momentum_change_max"] for p in per_traj))
+        with open(os.path.join(args.out, "metrics.json"), "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(json.dumps({k: v for k, v in metrics.items() if k != "per_traj"}, indent=2))
+        return
     m = np.mean(msds, axis=0)
     t_msd = np.arange(len(m)) * msd_dt_fs
     d, d_cm2 = analysis.diffusion_coefficient(t_msd, m, args.diff_fit_ps[0] * 1000, args.diff_fit_ps[1] * 1000)

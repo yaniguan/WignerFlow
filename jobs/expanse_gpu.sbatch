@@ -12,8 +12,9 @@
 #SBATCH -o logs/%x-%j.out
 
 set -euo pipefail
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate wignerflow
+export MAMBA_ROOT_PREFIX=$HOME/micromamba
+eval "$(~/bin/bin/micromamba shell hook -s bash)"
+micromamba activate ~/envs/wignerflow   # built with micromamba (conda on Expanse is too old)
 cd ~/WignerFlow
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 echo "job $SLURM_JOB_ID on $(hostname): $*"

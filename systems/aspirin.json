@@ -1,0 +1,6 @@
+{
+  "system_name": "aspirin",
+  "force_field": "openff-2.2.1.offxml",
+  "periodic": false,
+  "smiles": "CC(=O)Oc1ccccc1C(=O)O"
+}
