@@ -12,6 +12,8 @@ data/
 *.dcd
 *.pt
 *.ckpt
+# small release checkpoints (~8 MB) are tracked
+!checkpoints/*.pt
 runs/
 wandb/
 results/**/rollouts/
@@ -25,3 +27,4 @@ results/**/rollouts/
 logs/
 .env_*.yml
 results/**/tb/
+demo_out/

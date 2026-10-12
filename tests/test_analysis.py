@@ -69,3 +69,22 @@ def test_energy_drift():
     t = np.linspace(0, 100, 101)  # ps
     e = 5.0 + 0.01 * t
     assert np.isclose(analysis.energy_drift(t, e, dof=10), 1.0)  # 0.01 kJ/mol/ps = 10 /ns, /10 dof
+
+
+def test_csvr_samples_canonical_kinetic_energy():
+    """Repeated CSVR steps give the canonical mean temperature and the right relative fluctuation sqrt(2/dof)."""
+    import torch
+    from equitraj.rollout import temperature
+    from equitraj.thermostat import csvr
+    torch.manual_seed(0)
+    n = 50
+    masses = torch.full((n,), 40.0)
+    v = torch.randn(200, n, 3) * 0.0001  # start very cold
+    temps = []
+    for i in range(400):
+        v = csvr(v, masses, 100.0, tau_fs=50.0, dt_fs=10.0, dof=3 * n - 3)
+        if i > 200:
+            temps.append(temperature(v, masses))
+    t = torch.cat(temps)
+    assert abs(t.mean().item() - 100.0) < 1.5
+    assert abs(t.std().item() / 100.0 - (2.0 / (3 * n - 3)) ** 0.5) < 0.02

@@ -12,6 +12,7 @@ source /u/local/Modules/default/init/modules.sh
 module load mamba
 eval "$(conda shell.bash hook)"
 conda activate /u/project/sautet/yaniguan/envs/wignerflow
+export PYTHONPATH=$PWD:${PYTHONPATH:-}   # so scripts/*.py can import equitraj
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 echo "job $JOB_ID on $(hostname): $*"
 "$@"

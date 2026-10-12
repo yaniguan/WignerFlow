@@ -9,6 +9,7 @@ import time
 import torch
 
 from equitraj.neighbors import minimum_image
+from equitraj.thermostat import csvr
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
 
 
@@ -38,7 +39,8 @@ def max_bond_deviation(pos, bonds, r0):
 
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
-            min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10):
+            min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
+            thermostat=None):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -46,6 +48,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     Crash criteria: NaN, a pair closer than min_dist Å, temperature above t_max, a bond off by more
     than max_bond_dev (relative). Crashed systems keep being integrated, but their frames after the
     crash should be ignored.
+    thermostat: None (model only) or dict(t_target, tau_fs, dt_fs) for the CSVR switch S6.
     """
     device = next(model.parameters()).device
     b = pos.shape[0]
@@ -58,6 +61,9 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     t0 = time.time()
     for step in range(1, n_steps + 1):
         dx, v_new = model.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
+        if thermostat is not None:
+            v_new = csvr(v_new, masses, thermostat["t_target"], thermostat["tau_fs"], thermostat["dt_fs"],
+                         dof=3 * v_new.shape[1] - 3)
         x_new = x[:, -1] + dx.double()
         x = torch.cat([x[:, 1:], x_new[:, None]], dim=1)
         v = torch.cat([v[:, 1:], v_new[:, None]], dim=1)

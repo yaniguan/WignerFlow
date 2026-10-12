@@ -2,7 +2,7 @@
 
 An autoregressive E(3)-equivariant model that generates molecular dynamics trajectories directly. Given the last k frames (positions and velocities), it predicts the frame Δt = n·δt later, without a numerical integrator.
 
-> **Status: planning.** No code has been written yet. This README describes the intended design. See [PLAN.md](PLAN.md) for the full plan and [RESULTS.md](RESULTS.md) for results once they exist.
+> **Status: v0 (argon only).** The full pipeline (ground-truth MD → equivariant model → training → 10⁴-step rollouts without an integrator → evaluation) runs on Lennard-Jones argon. Li⁺/EC, the stride sweep, the full ablation grid and the baselines come after v0. See [PLAN.md](PLAN.md) for the plan and [RESULTS.md](RESULTS.md) for the numbers.
 
 ## The question
 
@@ -28,14 +28,14 @@ Every design choice aimed at preventing blow-up is tested with an ablation.
 - **Model.**
   - Per-frame spatial encoder: equivariant graph attention, eSCN-style SO(2) convolutions with Wigner-D edge alignment, l_max = 2.
   - Causal attention over the past k frames for each atom. Attention weights come only from invariants, so the layer stays equivariant.
-  - The model predicts displacements and new velocities, not absolute positions.
+  - The model predicts displacements and new velocities, not absolute positions. By default it predicts them relative to coasting at constant velocity (Δx − vΔt and v_new − v). Predicting Δx and v_new directly made the first argon model lose ~4% of its kinetic energy every step, because an imperfect network shrinks its outputs toward zero.
 - **Two output heads.**
   - (A) Deterministic regression (MSE).
   - (B) Equivariant conditional flow matching in displacement space.
 - **Training against error accumulation**, added one step at a time:
   1. teacher forcing;
   2. input noise;
-  3. unrolled (pushforward) training with a curriculum over the unroll length;
+  3. unrolled (pushforward) training with a curriculum over the unroll length, capped at 200 fs of simulated time (longer unrolls of a chaotic liquid have no learnable target);
   4. optional constraint projection at inference, reported both on and off.
 - **Evaluation.**
   - The model alone generates ≥10^4 steps.
@@ -94,6 +94,16 @@ Force-field files for the OpenFF-parametrized systems (Li⁺/EC variants, alanin
 python -m equitraj.build_systems
 ```
 
+### Quickstart: run the v0 checkpoint
+
+No OpenMM and no data files are needed, only the install above:
+
+```bash
+python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt   # 200 steps (10 ps) on CPU in ~4 min; 1000 steps on GPU
+```
+
+It writes `demo_out/` with RDF, VACF and temperature plots against the ground truth, plus `summary.json`. See [checkpoints/README.md](checkpoints/README.md).
+
 ### Test
 
 ```bash
@@ -118,6 +128,14 @@ python -m equitraj.train --config configs/argon/B_S3a.yaml
 
 Training resumes from `ckpt.pt` in the output folder if it exists. `best.pt` is the checkpoint with the best short validation rollout.
 
+### Evaluation
+
+```bash
+python scripts/evaluate.py --run results/argon/B_S3a --steps 10000 --seeds 5 --starts 3   # model only
+python scripts/evaluate.py --run results/argon/B_S3a --thermostat_tau_fs 500              # with the CSVR switch (reported separately)
+python scripts/make_results.py                                                            # rebuild RESULTS.md
+```
+
 ### Cluster jobs
 
 ```bash
@@ -130,7 +148,7 @@ Trajectory data (HDF5, tens of GB) and checkpoints are not stored in git.
 
 ## Results
 
-None yet. See [RESULTS.md](RESULTS.md) once the first stage is done.
+See [RESULTS.md](RESULTS.md).
 
 ## Related work
 

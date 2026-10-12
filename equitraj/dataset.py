@@ -86,19 +86,22 @@ class TrajWindows(torch.utils.data.Dataset):
 
 
 def compute_stats(ds, n_samples=2000, seed=0):
-    """Per-element std of the stride displacement Δx and of the velocity (isotropic: over xyz).
-
-    Returns (dx_std, v_std), each (n_types,). These set the scale of the model's targets.
+    """Per-element scales (isotropic, over xyz), each (n_types,):
+        dx_std, v_std:          std of the stride displacement Δx and of the velocity (input scales)
+        res_dx_std, res_v_std:  std of Δx - v_t Δt and of v_new - v_t (scales of the residual targets)
     """
     rng = np.random.default_rng(seed)
     idx = rng.choice(len(ds), size=min(n_samples, len(ds)), replace=False)
-    dx, v = [], []
+    dx, v, v_next = [], [], []
     for i in idx:
         pos, vel, _ = ds[i]
         dx.append(pos[ds.k] - pos[ds.k - 1])
         v.append(vel[ds.k - 1])
-    dx, v = torch.stack(dx), torch.stack(v)  # (S, N, 3)
-    n_types = len(ds.elements)
-    dx_std = torch.stack([dx[:, ds.types == t].pow(2).mean().sqrt() for t in range(n_types)])
-    v_std = torch.stack([v[:, ds.types == t].pow(2).mean().sqrt() for t in range(n_types)])
-    return dx_std, v_std
+        v_next.append(vel[ds.k])
+    dx, v, v_next = torch.stack(dx), torch.stack(v), torch.stack(v_next)  # (S, N, 3)
+    res_dx, res_v = dx - v * ds.stride_fs, v_next - v
+
+    def per_type(x):
+        return torch.stack([x[:, ds.types == t].pow(2).mean().sqrt() for t in range(len(ds.elements))])
+
+    return {"dx_std": per_type(dx), "v_std": per_type(v), "res_dx_std": per_type(res_dx), "res_v_std": per_type(res_v)}

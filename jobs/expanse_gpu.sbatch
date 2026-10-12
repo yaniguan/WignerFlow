@@ -16,6 +16,7 @@ export MAMBA_ROOT_PREFIX=$HOME/micromamba
 eval "$(~/bin/bin/micromamba shell hook -s bash)"
 micromamba activate ~/envs/wignerflow   # built with micromamba (conda on Expanse is too old)
 cd ~/WignerFlow
+export PYTHONPATH=$PWD:${PYTHONPATH:-}   # so scripts/*.py can import equitraj
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 echo "job $SLURM_JOB_ID on $(hostname): $*"
 "$@"

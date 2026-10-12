@@ -111,8 +111,11 @@ def selection_score(m):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
-    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--device", default="cuda", help="cuda (default) or cpu/mps for small local tests")
     args = ap.parse_args()
+    if args.device == "cuda" and not torch.cuda.is_available():
+        # fail loudly: a cluster job that silently trains on CPU wastes a day
+        raise RuntimeError("CUDA requested but torch.cuda.is_available() is False (CPU-only torch build?)")
     cfg = yaml.safe_load(open(args.config))
     tc, ec = cfg["train"], cfg["eval"]
     out_dir = cfg["out_dir"]
@@ -130,7 +133,7 @@ def main():
                                          num_workers=workers, persistent_workers=workers > 0)
     types, masses = train_ds.types.to(device), train_ds.masses.to(device)
 
-    model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], **cfg["model"]).to(device)
+    model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
     step, best = 0, math.inf
@@ -141,10 +144,14 @@ def main():
         step, best = ck["step"], ck["best"]
         print(f"resumed from step {step}", flush=True)
     else:
-        dx_std, v_std = compute_stats(train_ds)
-        model.dx_std.copy_(dx_std)
-        model.v_std.copy_(v_std)
+        st = compute_stats(train_ds)
+        model.dx_std.copy_(st["dx_std"])
+        model.v_std.copy_(st["v_std"])
+        residual = model.target == "residual"
+        model.out_dx_std.copy_(st["res_dx_std"] if residual else st["dx_std"])
+        model.out_v_std.copy_(st["res_v_std"] if residual else st["v_std"])
     print(json.dumps({"elements": train_ds.elements, "dx_std": model.dx_std.tolist(), "v_std": model.v_std.tolist(),
+                      "out_dx_std": model.out_dx_std.tolist(), "out_v_std": model.out_v_std.tolist(), "target": model.target,
                       "n_params": sum(p.numel() for p in model.parameters()), "n_train_windows": len(train_ds)}), flush=True)
 
     def lr_at(s):
@@ -208,6 +215,11 @@ def main():
                 if score < best:
                     best = score
                     save(os.path.join(out_dir, "best.pt"))
+                # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
+                # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
+                os.makedirs(os.path.join(out_dir, "snapshots"), exist_ok=True)
+                torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+                           os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
                 log.write(json.dumps(metrics) + "\n")
                 log.flush()
                 print(json.dumps(metrics), flush=True)

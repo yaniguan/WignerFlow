@@ -31,7 +31,7 @@ def main():
         c, cut, bs = setting.split(":")
         mc = copy.deepcopy(cfg["model"])
         mc.update(channels=int(c), cutoff=float(cut))
-        model = EquiTraj(n_types=len(ds.elements), k=cfg["k"], **mc).to(dev)
+        model = EquiTraj(n_types=len(ds.elements), k=cfg["k"], stride_fs=ds.stride_fs, **mc).to(dev)
         opt = torch.optim.AdamW(model.parameters(), 3e-4)
         items = [ds[i] for i in range(int(bs))]
         pos = torch.stack([i[0] for i in items]).to(dev)

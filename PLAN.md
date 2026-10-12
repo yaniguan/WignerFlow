@@ -327,6 +327,10 @@ Each report covers what was done, numbers, plots, problems, and next steps. Miss
 - The equivariant RMS norm uses eps=1e-3. With 1e-6, atoms with near-zero l>0 features amplified float32 noise, giving up to 4e-3 equivariance error.
 - float32 equivariance error (untrained model, 40 random inputs): median ~4e-6, worst ~2e-5. This is slightly above the 1e-5 target in the worst case. float64 error is below 1e-10.
 
+- Targets are residuals relative to constant-velocity motion by default (Δx − vΔt, v_new − v). With direct targets, the first argon model under-predicted |v| by ~2.5% per step (T −5%), and rollouts froze to ~3 K within 200 steps. The CSVR switch could only hold ~30 K. Direct targets stay in the grid as `*_direct`.
+- The unroll horizon is capped at 200 fs of simulated time (m = 4 at 50 fs, 8 at 25 fs, 16 at 5 fs, none at 250 fs). The planned m = 16 at 50 fs (0.8 ps) diverged: loss ~1e5, every rollout crashed. After ~1 ps the model trajectory and the ground truth decorrelate, so "true frame minus model frame" is not a learnable target. `B_S3a_h400` tests the cap.
+- v0 = argon only (agreed 2026-09-30): B and A heads, 10^4-step rollouts × 5 seeds × 3 test starts, pass/fail on stability, T (5%), RDF peak (0.05 Å, 10%), VACF first zero (10%), D (20%).
+
 ## Remaining questions
 
 None blocking. Once you approve this plan, I start R0.

@@ -6,9 +6,18 @@ Data flow (see PLAN.md, Stage 1):
     -> fusion blocks on the newest frame's graph -> condition features c
     -> head A (regression) or head B (flow matching)
 
-Units: positions Å, velocities Å/fs. Targets are scaled per element:
-    dx_norm = Δx / dx_std[element],  v_norm = v / v_std[element]
-The stds come from the training data (see `compute_stats` in dataset.py) and are stored in the model.
+Units: positions Å, velocities Å/fs.
+
+Targets (option `target`):
+    "residual" (default): the model predicts the change relative to coasting at constant velocity,
+        a = Δx - v_t * Δt   and   b = v_new - v_t
+    "direct": the model predicts Δx and v_new themselves.
+Why residual: an imperfect network shrinks its outputs toward zero. With direct targets that means
+v_new -> 0, i.e. the system loses kinetic energy every step (seen in the first argon run: -4% per
+step, frozen after ~100 steps). With residual targets, shrinking toward zero means "keep the old
+velocity", so errors no longer cool the system systematically.
+Each target component is divided by its per-element std from the training data (out_dx_std,
+out_v_std); inputs use dx_std, v_std (see `compute_stats` in dataset.py).
 
 Shapes: B systems in a batch, all with the same N atoms; k frames of context.
 """
@@ -85,18 +94,22 @@ class Denoiser(nn.Module):
 class EquiTraj(nn.Module):
     def __init__(self, n_types, lmax=2, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3,
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
-                 use_velocity=True, neighbor_method="brute_force"):
+                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0):
         super().__init__()
         self.lmax, self.c, self.cutoff, self.k = lmax, channels, cutoff, k
         self.n_rbf = n_rbf
         self.head_type = head
         self.use_velocity = use_velocity
         self.neighbor_method = neighbor_method
+        self.target = target
+        self.stride_fs = stride_fs
         c = channels
 
         # per-element scales, filled from training data
         self.register_buffer("dx_std", torch.ones(n_types))
         self.register_buffer("v_std", torch.ones(n_types))
+        self.register_buffer("out_dx_std", torch.ones(n_types))
+        self.register_buffer("out_v_std", torch.ones(n_types))
 
         self.type_embed = nn.Embedding(n_types, c)
         self.vec_in = nn.Linear(2, c, bias=False)  # (velocity, displacement) -> c vector channels
@@ -163,25 +176,39 @@ class EquiTraj(nn.Module):
 
     # ------------------------------------------------------------ scaling helpers
 
-    def to_physical(self, y_norm, types, b):
-        """(B*N, 2, 3) normalized -> (dx, v) each (B, N, 3) in Å and Å/fs."""
+    def scale_up(self, y, types, b):
+        """(B*N, 2, 3) normalized outputs -> the two physical target vectors, each (B, N, 3)."""
         tb = types.repeat(b)
-        dx = y_norm[:, 0] * self.dx_std[tb][:, None]
-        v = y_norm[:, 1] * self.v_std[tb][:, None]
         n = types.shape[0]
-        return dx.view(b, n, 3), v.view(b, n, 3)
+        a = (y[:, 0] * self.out_dx_std[tb][:, None]).view(b, n, 3)
+        c = (y[:, 1] * self.out_v_std[tb][:, None]).view(b, n, 3)
+        return a, c
 
-    def to_normalized(self, dx, v, types):
-        b, n, _ = dx.shape
+    def scale_down(self, a, c, types):
+        b = a.shape[0]
         tb = types.repeat(b)
-        return torch.stack([dx.reshape(-1, 3) / self.dx_std[tb][:, None], v.reshape(-1, 3) / self.v_std[tb][:, None]], 1)
+        return torch.stack([a.reshape(-1, 3) / self.out_dx_std[tb][:, None],
+                            c.reshape(-1, 3) / self.out_v_std[tb][:, None]], 1)
+
+    def targets_to_y(self, dx, v_new, v_last, types):
+        """Physical (Δx, v_new) -> normalized model outputs, given the last context velocity."""
+        if self.target == "residual":
+            return self.scale_down(dx - v_last * self.stride_fs, v_new - v_last, types)
+        return self.scale_down(dx, v_new, types)
+
+    def y_to_targets(self, y, types, v_last):
+        """Normalized model outputs -> physical (Δx, v_new)."""
+        a, c = self.scale_up(y, types, v_last.shape[0])
+        if self.target == "residual":
+            return a + v_last * self.stride_fs, c + v_last
+        return a, c
 
     def com_free_noise(self, b, types, masses, generator=None, like=None):
-        """Standard normal noise in normalized units whose physical (dx, v) have no center-of-mass part."""
+        """Standard normal noise in normalized units whose physical counterpart has no center-of-mass part."""
         n = types.shape[0]
         eps = torch.randn(b * n, 2, 3, generator=generator, dtype=like.dtype, device=like.device)
-        dx, v = self.to_physical(eps, types, b)
-        return self.to_normalized(remove_com(dx, masses), remove_com(v, masses), types)
+        a, c = self.scale_up(eps, types, b)
+        return self.scale_down(remove_com(a, masses), remove_com(c, masses), types)
 
     # ------------------------------------------------------------ training losses
 
@@ -189,7 +216,7 @@ class EquiTraj(nn.Module):
         """MSE loss in normalized units. dx_target, v_target: (B, N, 3)."""
         b = pos.shape[0]
         cond, graph = self.encode(pos, vel, types, box)
-        y = self.to_normalized(dx_target, v_target, types)
+        y = self.targets_to_y(dx_target, v_target, vel[:, -1], types)
         if self.head_type == "regression":
             pred = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
             return ((pred - y) ** 2).mean()
@@ -220,5 +247,5 @@ class EquiTraj(nn.Module):
             for i in range(n_steps):  # Euler integration of the learned flow from tau=0 to 1
                 tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
                 y = y + self.denoiser(cond, graph, y, tau) / n_steps
-        dx, v = self.to_physical(y, types, b)
+        dx, v = self.y_to_targets(y, types, vel[:, -1])
         return remove_com(dx, masses), remove_com(v, masses)

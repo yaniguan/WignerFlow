@@ -1,0 +1,44 @@
+data_dir: data/argon
+eval:
+  every: 2000
+  rollout_starts: 4
+  rollout_steps: 1000
+  sampling_steps: 10
+  val_batches: 20
+k: 3
+model:
+  channels: 64
+  cutoff: 6.0
+  head: regression
+  heads: 8
+  lmax: 2
+  n_denoiser: 2
+  n_fusion: 2
+  n_rbf: 32
+  n_spatial: 2
+  parity: true
+  target: residual
+  use_velocity: true
+name: A_S3a_seed1
+out_dir: results/argon/A_S3a_seed1
+seed: 1
+stride_steps: 10
+train:
+  backprop: truncated
+  batch_size: 8
+  ckpt_minutes: 20
+  grad_clip: 1.0
+  lr: 0.0003
+  noise_sigma: 0.01
+  start_every: 1
+  steps: 40000
+  unroll:
+  - - 0
+    - 1
+  - - 10000
+    - 2
+  - - 20000
+    - 4
+  unroll_sampling_steps: 2
+  warmup: 1000
+  workers: 4

@@ -1,0 +1,111 @@
+{
+  "run": "results/argon/B_S3a_seed1",
+  "checkpoint": "snapshots/best_step10000.pt",
+  "train_step": 10000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 15,
+  "seeds_per_start": 5,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226378,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000
+    ],
+    "median_steps_before_crash": 10000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 89.22144042294642,
+    "rel_err": 0.05989615651394142,
+    "T_end_per_rollout": [
+      92.24086176209131,
+      91.81738357467499,
+      95.25776063039339,
+      88.15478273415268,
+      88.89043260543315,
+      90.94297081078169,
+      82.32539180256353,
+      80.53212702864667,
+      92.26817695406059,
+      91.4757246124204,
+      84.82071858124417,
+      88.58729591930954,
+      92.19448682319543,
+      96.4668201331582,
+      90.67319328503655
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0010388361988589168,
+    "step_10": 0.020265793427824974,
+    "step_20": 0.05945954471826553
+  },
+  "rdf": {
+    "l1": 0.07889769835512903,
+    "peak_pos_model_A": 3.7064922258747717,
+    "peak_pos_gt_A": 3.6818736455867627,
+    "peak_pos_err_A": 0.024618580288009007,
+    "peak_height_model": 2.891480537115996,
+    "peak_height_gt": 2.8886357066719905,
+    "peak_height_rel_err": 0.0009848353108129276
+  },
+  "vacf": {
+    "first_zero_model_fs": 305.5334307346421,
+    "first_zero_gt_fs": 307.4426188278517,
+    "first_zero_rel_err": 0.0062099005677499035,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.9694767603081146e-05,
+    "D_gt_cm2_s": 2.2192049045969977e-05,
+    "rel_err": 0.11253045799041847,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 5838.166158914566,
+    "s_per_step_batch": 0.5838166158914566,
+    "ns_per_day_per_rollout": 7.3995838460397225,
+    "ns_per_day_all_rollouts": 110.99375769059584,
+    "device": "Tesla V100-PCIE-32GB"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": true,
+    "rdf_peak_height": true,
+    "vacf_first_zero": true,
+    "diffusion": true,
+    "all_pass": false
+  }
+}
