@@ -57,10 +57,10 @@ So the temperature of a flow-head rollout depends strongly on which checkpoint i
 | regression (A) | residual | 1 | −39.1% | 13% | 38% |
 | regression (A) | residual | 2 | −46.4% | 16% | 47% |
 | regression (A) | direct | 0 | −60.8% | 63% | 92% |
-| flow (B) | direct | 0 | pending | pending | pending |
+| flow (B) | direct | 0 | +72.5% | 12.7% | 88% |
 
 - The regression head cools the system in both seeds; the flow head is better in its good checkpoint.
-- Direct targets are worse than residual targets for the regression head. In validation rollouts the flow head with direct targets froze to about 2.5 K; the test evaluation is pending.
+- Direct targets are worse than residual targets for both heads (D error 88–92% versus 11–47%), but the failure is not always cooling: the regression head runs 61% cold, while the flow head's selected checkpoint (step 8000) runs 73% hot. Its late validation rollouts (step 30000) froze to about 2.5 K. Direct targets give an uncontrolled temperature that depends on the checkpoint.
 - With a 400 fs unroll horizon (instead of 200 fs) training did not diverge; this run is listed in the table above.
 
 Run the checkpoint: `python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt` (see README, "Quickstart").
