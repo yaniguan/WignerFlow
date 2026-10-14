@@ -2,7 +2,7 @@
 
 An autoregressive E(3)-equivariant model that generates molecular dynamics trajectories directly. Given the last k frames (positions and velocities), it predicts the frame Δt = n·δt later, without a numerical integrator.
 
-> **Status: v0 (argon only).** The full pipeline (ground-truth MD → equivariant model → training → 10⁴-step rollouts without an integrator → evaluation) runs on Lennard-Jones argon. Li⁺/EC, the stride sweep, the full ablation grid and the baselines come after v0. See [PLAN.md](PLAN.md) for the plan and [RESULTS.md](RESULTS.md) for the numbers.
+> **Status: v0 (argon only).** One released checkpoint is stable for 10⁴ steps; other seeds and checkpoints are not (see [docs/release_v0.md](docs/release_v0.md), "How robust is this?"). The full pipeline (ground-truth MD → equivariant model → training → 10⁴-step rollouts without an integrator → evaluation) runs on Lennard-Jones argon. Li⁺/EC, the stride sweep, the full ablation grid and the baselines come after v0. See [PLAN.md](PLAN.md) for the plan and [RESULTS.md](RESULTS.md) for the numbers.
 
 ## The question
 

@@ -1,0 +1,88 @@
+{
+  "run": "results/argon/A_S3a_seed2",
+  "checkpoint": "best.pt",
+  "split": "test",
+  "train_step": 40000,
+  "head": "regression",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 3,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226377,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      10000,
+      10000,
+      10000
+    ],
+    "median_steps_before_crash": 10000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 50.87516172369834,
+    "rel_err": 0.4639412360112155,
+    "T_end_per_rollout": [
+      45.680697955082046,
+      45.56150227364348,
+      47.386786579405225
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0005550228524953127,
+    "step_10": 0.01683092676103115,
+    "step_20": 0.04940113425254822
+  },
+  "rdf": {
+    "l1": 0.772449360683443,
+    "peak_pos_model_A": 3.7657271811892294,
+    "peak_pos_gt_A": 3.6818736455867627,
+    "peak_pos_err_A": 0.08385353560246678,
+    "peak_height_model": 3.3578705001576132,
+    "peak_height_gt": 2.8886357066719905,
+    "peak_height_rel_err": 0.1624416649014666
+  },
+  "vacf": {
+    "first_zero_model_fs": 327.32362659430277,
+    "first_zero_gt_fs": 307.4426188278517,
+    "first_zero_rel_err": 0.06466575077407596,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.1709774715843971e-05,
+    "D_gt_cm2_s": 2.2192049045969983e-05,
+    "rel_err": 0.47234368977882035,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 1696.0159697532654,
+    "s_per_step_batch": 0.16960159697532654,
+    "ns_per_day_per_rollout": 25.471458270693457,
+    "ns_per_day_all_rollouts": 76.41437481208038,
+    "device": "Tesla P4"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": false,
+    "rdf_peak_height": false,
+    "vacf_first_zero": true,
+    "diffusion": false,
+    "all_pass": false
+  }
+}

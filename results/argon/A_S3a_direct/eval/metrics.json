@@ -1,0 +1,88 @@
+{
+  "run": "results/argon/A_S3a_direct",
+  "checkpoint": "best.pt",
+  "split": "test",
+  "train_step": 6000,
+  "head": "regression",
+  "target": "direct",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 3,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226378,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      10000,
+      10000,
+      10000
+    ],
+    "median_steps_before_crash": 10000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 37.16090550789652,
+    "rel_err": 0.6084448992328645,
+    "T_end_per_rollout": [
+      36.78822994350592,
+      35.7434919311741,
+      34.72437449623502
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.000743769109249115,
+    "step_10": 0.021411320194602013,
+    "step_20": 0.0648675188422203
+  },
+  "rdf": {
+    "l1": 2.150565714270397,
+    "peak_pos_model_A": 3.8078860123980895,
+    "peak_pos_gt_A": 3.6818736455867627,
+    "peak_pos_err_A": 0.12601236681132688,
+    "peak_height_model": 4.701210302647549,
+    "peak_height_gt": 2.8886357066719905,
+    "peak_height_rel_err": 0.6274846605921913
+  },
+  "vacf": {
+    "first_zero_model_fs": 281.3318672414443,
+    "first_zero_gt_fs": 307.4426188278517,
+    "first_zero_rel_err": 0.08492886147651425,
+    "vdos_peak_model_cm1": 29.186858329838305,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.7004060189327907e-06,
+    "D_gt_cm2_s": 2.2192049045969977e-05,
+    "rel_err": 0.9233776919197293,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 820.9955365657806,
+    "s_per_step_batch": 0.08209955365657806,
+    "ns_per_day_per_rollout": 52.61904368043867,
+    "ns_per_day_all_rollouts": 157.85713104131602,
+    "device": "NVIDIA GeForce GTX 1080 Ti"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": false,
+    "rdf_peak_height": false,
+    "vacf_first_zero": true,
+    "diffusion": false,
+    "all_pass": false
+  }
+}

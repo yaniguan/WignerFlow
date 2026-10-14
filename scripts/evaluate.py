@@ -119,9 +119,10 @@ def main():
                     "rollout time (ps)", "fraction not crashed", "Rollout stability", ylim=(0, 1.05))
 
     # ---- temperature ----
-    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses).numpy().reshape(args.steps, n_roll)
-    t_axis = np.arange(1, args.steps + 1) * dt / 1000
-    every = max(1, args.steps // 500)
+    n_done = x.shape[0]  # fewer than args.steps when every rollout crashed early
+    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses).numpy().reshape(n_done, n_roll)
+    t_axis = np.arange(1, n_done + 1) * dt / 1000
+    every = max(1, n_done // 500)
     curves = [("ground truth", t_axis[::every], np.full(len(t_axis[::every]), t_gt))]
     for j in range(min(n_roll, 4)):
         curves.append((f"rollout {j}", t_axis[::every], temp[::every, j]))

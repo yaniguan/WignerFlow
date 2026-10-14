@@ -1,0 +1,41 @@
+{
+  "run": "results/argon/B_S3a_seed2",
+  "checkpoint": "best.pt",
+  "split": "test",
+  "train_step": 32000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 15,
+  "seeds_per_start": 5,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226378,
+  "stability": {
+    "crashed": 15,
+    "steps_before_crash": [
+      3950,
+      4280,
+      4300,
+      4240,
+      4130,
+      4400,
+      4390,
+      3940,
+      3920,
+      4460,
+      4190,
+      4150,
+      4060,
+      4420,
+      4360
+    ],
+    "median_steps_before_crash": 4240.0
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0055146547965705395,
+    "step_10": 0.02747059054672718,
+    "step_20": 0.07561264932155609
+  },
+  "note": "every rollout crashed; structural and dynamical metrics skipped"
+}

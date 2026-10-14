@@ -1,0 +1,88 @@
+{
+  "run": "results/argon/A_S3a_seed1",
+  "checkpoint": "best.pt",
+  "split": "test",
+  "train_step": 40000,
+  "head": "regression",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 3,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226377,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      10000,
+      10000,
+      10000
+    ],
+    "median_steps_before_crash": 10000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 57.839551743894724,
+    "rel_err": 0.3905592126490516,
+    "T_end_per_rollout": [
+      48.28562327306595,
+      47.33844260815343,
+      49.918167023728174
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0004730329383164644,
+    "step_10": 0.016257937997579575,
+    "step_20": 0.04752018675208092
+  },
+  "rdf": {
+    "l1": 0.6061917384402887,
+    "peak_pos_model_A": 3.7592599306053214,
+    "peak_pos_gt_A": 3.6818736455867627,
+    "peak_pos_err_A": 0.07738628501855871,
+    "peak_height_model": 3.2732122410613607,
+    "peak_height_gt": 2.8886357066719905,
+    "peak_height_rel_err": 0.13313431441046694
+  },
+  "vacf": {
+    "first_zero_model_fs": 321.2333335628162,
+    "first_zero_gt_fs": 307.4426188278517,
+    "first_zero_rel_err": 0.04485622321180671,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.3682131986209517e-05,
+    "D_gt_cm2_s": 2.2192049045969983e-05,
+    "rel_err": 0.383466936384851,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 1708.856470823288,
+    "s_per_step_batch": 0.17088564708232878,
+    "ns_per_day_per_rollout": 25.280063444525116,
+    "ns_per_day_all_rollouts": 75.84019033357535,
+    "device": "Tesla P4"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": false,
+    "rdf_peak_height": false,
+    "vacf_first_zero": true,
+    "diffusion": false,
+    "all_pass": false
+  }
+}

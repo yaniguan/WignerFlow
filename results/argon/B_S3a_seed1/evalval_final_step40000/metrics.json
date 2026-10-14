@@ -1,0 +1,90 @@
+{
+  "run": "results/argon/B_S3a_seed1",
+  "checkpoint": "snapshots/final_step40000.pt",
+  "split": "val",
+  "train_step": 40000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 5000,
+  "n_rollouts": 4,
+  "seeds_per_start": 2,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 95.36339082399896,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      5000,
+      5000,
+      5000,
+      5000
+    ],
+    "median_steps_before_crash": 5000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 57.21782299299428,
+    "rel_err": 0.40000221784694595,
+    "T_end_per_rollout": [
+      49.835776937293566,
+      47.65870500782736,
+      46.023575354222785,
+      44.500573161884205
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.004910093732178211,
+    "step_10": 0.025411121547222137,
+    "step_20": 0.06938309967517853
+  },
+  "rdf": {
+    "l1": 0.6296248133970591,
+    "peak_pos_model_A": 3.758808635822483,
+    "peak_pos_gt_A": 3.7046700688720375,
+    "peak_pos_err_A": 0.05413856695044528,
+    "peak_height_model": 3.2413588226122294,
+    "peak_height_gt": 2.864784526824864,
+    "peak_height_rel_err": 0.13144943092970948
+  },
+  "vacf": {
+    "first_zero_model_fs": 321.6933569572963,
+    "first_zero_gt_fs": 303.5439419154816,
+    "first_zero_rel_err": 0.059791722171375884,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.3619953398438445e-05,
+    "D_gt_cm2_s": 2.17680874792279e-05,
+    "rel_err": 0.37431557037634916,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 976.6147854328156,
+    "s_per_step_batch": 0.1953229570865631,
+    "ns_per_day_per_rollout": 22.11721583800037,
+    "ns_per_day_all_rollouts": 88.46886335200148,
+    "device": "Tesla V100-PCIE-32GB"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": false,
+    "rdf_peak_height": false,
+    "vacf_first_zero": true,
+    "diffusion": false,
+    "all_pass": false
+  }
+}

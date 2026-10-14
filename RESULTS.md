@@ -17,5 +17,12 @@ Errors are relative unless marked Å; the temperature column shows the signed er
 
 | Run | Head | Target | Seed | Stride (fs) | Rollouts × steps | Not crashed | T model / truth (K) | RDF peak pos (Å) | RDF peak height | VACF zero | D | v0 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| argon/A_S3a_direct, step 6000 | regression | direct | 0 | 50 | 3 × 10000 | 3/3 | 37.2 / 94.9 (-60.8%) | 0.126 | 0.627 | 0.0849 | 0.923 | **fail** |
+| argon/A_S3a_seed1, step 40000 | regression | residual | 1 | 50 | 3 × 10000 | 3/3 | 57.8 / 94.9 (-39.1%) | 0.0774 | 0.133 | 0.0449 | 0.383 | **fail** |
+| argon/A_S3a_seed2, step 40000 | regression | residual | 2 | 50 | 3 × 10000 | 3/3 | 50.9 / 94.9 (-46.4%) | 0.0839 | 0.162 | 0.0647 | 0.472 | **fail** |
+| argon/B_S3a_h400, step 40000 | flow | residual | 0 | 50 | 15 × 10000 | 15/15 | 107.4 / 94.9 (+13.2%) | 0.00268 | 0.0378 | 0.024 | 0.153 | **fail** |
+| argon/B_S3a_seed1, step 38000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 160.9 / 94.9 (+69.6%) | 0.0445 | 0.122 | 0.0361 | 0.598 | **fail** |
+| argon/B_S3a_seed1 (eval_csvr500), step 38000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 95.1 / 94.9 (+0.2%) | 0.0136 | 0.00974 | 0.0106 | 0.0188 | pass |
 | argon/B_S3a_seed1 (eval_step10000), step 10000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 89.2 / 94.9 (-6.0%) | 0.0246 | 0.000985 | 0.00621 | 0.113 | **fail** |
 | argon/B_S3a_seed1 (eval_step10000_csvr500), step 10000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 94.8 / 94.9 (-0.1%) | 0.0216 | 0.00853 | 0.012 | 0.0283 | pass |
+| argon/B_S3a_seed2, step 32000 | flow | residual | 2 | 50 | 15 × 10000 | 0/15 | – / 94.9 (–) | – | – | – | – | – |

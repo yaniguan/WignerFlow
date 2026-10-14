@@ -34,7 +34,34 @@ The temperature is stable over 0.5 ns (no drift), but it settles about 6% below 
 
 With the CSVR thermostat switch on (500 fs, reported separately, not model only): T error 0.09%, D error −2.8%.
 
-This is one training seed. Multi-seed runs, the regression (A) head, and the direct-vs-residual ablation were still running when v0 was committed; their numbers go into RESULTS.md as they finish.
+## How robust is this? (read before citing the numbers)
+
+The result above is one checkpoint of one training run. Other checkpoints and seeds are much worse, and v0 should be read as "the pipeline works and a stable model exists", not "training reliably gives a stable model".
+
+All rows below are model only, 10⁴ steps, flow head, residual targets, test trajectories (except the val rows).
+
+| Run / checkpoint | Not crashed | T vs truth | RDF peak pos (Å) | D error |
+|---|---|---|---|---|
+| seed 1, step 10000 (released, chosen on val rollouts) | 15/15 | −6.0% | 0.025 | 11% |
+| seed 1, step 38000 (lowest val score, the default `best.pt`) | 15/15 | +69.6% | 0.044 | 60% |
+| seed 1, step 40000 (val only) | 15/15 | −39.7% | 0.054 | 37% |
+| seed 2, step 32000 (`best.pt`) | **0/15**, crash at 3920–4460 steps | – | – | – |
+| seed 0, 400 fs unroll horizon (`h400`) | 15/15 | +13.2% | 0.003 | 15% |
+
+So the temperature of a flow-head rollout depends strongly on which checkpoint is picked, and one of two seeds crashed in every rollout. The checkpoint was chosen by 10⁴-step validation rollouts among three candidates, and its test numbers match its validation numbers (89.3 K val, 89.2 K test), but this is still one seed and one pick.
+
+## Ablations so far (argon, 10⁴ steps, model only)
+
+| Head | Target | Seed | T vs truth | RDF peak height err | D error |
+|---|---|---|---|---|---|
+| regression (A) | residual | 1 | −39.1% | 13% | 38% |
+| regression (A) | residual | 2 | −46.4% | 16% | 47% |
+| regression (A) | direct | 0 | −60.8% | 63% | 92% |
+| flow (B) | direct | 0 | pending | pending | pending |
+
+- The regression head cools the system in both seeds; the flow head is better in its good checkpoint.
+- Direct targets are worse than residual targets for the regression head. In validation rollouts the flow head with direct targets froze to about 2.5 K; the test evaluation is pending.
+- With a 400 fs unroll horizon (instead of 200 fs) training did not diverge; this run is listed in the table above.
 
 Run the checkpoint: `python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt` (see README, "Quickstart").
 

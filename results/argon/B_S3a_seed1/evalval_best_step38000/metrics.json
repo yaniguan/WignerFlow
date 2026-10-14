@@ -1,0 +1,90 @@
+{
+  "run": "results/argon/B_S3a_seed1",
+  "checkpoint": "snapshots/best_step38000.pt",
+  "split": "val",
+  "train_step": 38000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 5000,
+  "n_rollouts": 4,
+  "seeds_per_start": 2,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 95.36339082399896,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      5000,
+      5000,
+      5000,
+      5000
+    ],
+    "median_steps_before_crash": 5000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 122.09028149584753,
+    "rel_err": 0.2802636361911173,
+    "T_end_per_rollout": [
+      129.6590236222118,
+      133.504871298418,
+      131.59576832048057,
+      144.12045329744677
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.004903184249997139,
+    "step_10": 0.02541940100491047,
+    "step_20": 0.0692797303199768
+  },
+  "rdf": {
+    "l1": 0.2796837728189389,
+    "peak_pos_model_A": 3.6720697603204253,
+    "peak_pos_gt_A": 3.7046700688720375,
+    "peak_pos_err_A": 0.03260030855161222,
+    "peak_height_model": 2.714115793650079,
+    "peak_height_gt": 2.864784526824864,
+    "peak_height_rel_err": 0.052593391148260664
+  },
+  "vacf": {
+    "first_zero_model_fs": 299.3835954081538,
+    "first_zero_gt_fs": 303.5439419154816,
+    "first_zero_rel_err": 0.013705911839565566,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 2.7488457765990822e-05,
+    "D_gt_cm2_s": 2.17680874792279e-05,
+    "rel_err": 0.26278699459571536,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 983.4579513072968,
+    "s_per_step_batch": 0.19669159026145935,
+    "ns_per_day_per_rollout": 21.96331828044852,
+    "ns_per_day_all_rollouts": 87.85327312179407,
+    "device": "Tesla V100-PCIE-32GB"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": true,
+    "rdf_peak_height": true,
+    "vacf_first_zero": true,
+    "diffusion": false,
+    "all_pass": false
+  }
+}
