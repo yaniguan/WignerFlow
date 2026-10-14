@@ -3,6 +3,7 @@ name = "equitraj"
 version = "0.0.1"
 description = "Autoregressive E(3)-equivariant trajectory model (proof of concept)"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
 
 [build-system]
 requires = ["setuptools>=61"]

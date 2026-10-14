@@ -156,4 +156,4 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 
 ## License
 
-Not chosen yet.
+Apache-2.0. See [LICENSE](LICENSE).
