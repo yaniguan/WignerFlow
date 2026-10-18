@@ -27,3 +27,12 @@ Errors are relative unless marked Å; the temperature column shows the signed er
 | argon/B_S3a_seed1 (eval_step10000), step 10000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 89.2 / 94.9 (-6.0%) | 0.0246 | 0.000985 | 0.00621 | 0.113 | **fail** |
 | argon/B_S3a_seed1 (eval_step10000_csvr500), step 10000 | flow | residual | 1 | 50 | 15 × 10000 | 15/15 | 94.8 / 94.9 (-0.1%) | 0.0216 | 0.00853 | 0.012 | 0.0283 | pass |
 | argon/B_S3a_seed2, step 32000 | flow | residual | 2 | 50 | 15 × 10000 | 0/15 | – / 94.9 (–) | – | – | – | – | – |
+| argon/B_S3a_seed3, step 12000 | flow | residual | 3 | 50 | 15 × 10000 | 15/15 | 92.2 / 94.9 (-2.9%) | 0.016 | 0.00671 | 0.0163 | 0.0644 | pass |
+| argon/B_S3a_seed4, step 10000 | flow | residual | 4 | 50 | 15 × 10000 | 15/15 | 92.6 / 94.9 (-2.4%) | 0.019 | 0.00288 | 0.00313 | 0.0256 | pass |
+| argon/B_S3a_seed5, step 14000 | flow | residual | 5 | 50 | 15 × 10000 | 15/15 | 82.3 / 94.9 (-13.3%) | 0.0267 | 0.026 | 0.0303 | 0.155 | **fail** |
+
+## Stability by training step
+
+![Validation rollouts by training step](results/argon/stability_vs_step.png)
+
+Each line is one training seed (flow head, residual targets, default `best.pt` selection). Rollouts are 1000 steps on validation trajectories, evaluated every 2000 training steps; the grey band is ±5% of the ground-truth temperature. Dots are the checkpoints that were tested with 10⁴-step rollouts (dot height = test temperature / truth); an x marks a checkpoint whose 10⁴-step test rollouts all crashed.

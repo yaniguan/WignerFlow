@@ -1,0 +1,112 @@
+{
+  "run": "results/argon/B_S3a_seed3",
+  "checkpoint": "best.pt",
+  "split": "test",
+  "train_step": 12000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 10000,
+  "n_rollouts": 15,
+  "seeds_per_start": 5,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.90594155226377,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000,
+      10000
+    ],
+    "median_steps_before_crash": 10000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 92.19838902317733,
+    "rel_err": 0.028528798985629572,
+    "T_end_per_rollout": [
+      91.77010669462511,
+      90.85746720328358,
+      95.6042379005482,
+      97.06539419007419,
+      98.2507177293393,
+      92.48064438657437,
+      92.04814762297872,
+      93.9201514542784,
+      90.84042713947048,
+      96.96006242021579,
+      91.08263139859069,
+      88.28140975741493,
+      86.0144337395145,
+      91.32342284158857,
+      97.18142042858288
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0022547554690390825,
+    "step_10": 0.025346389040350914,
+    "step_20": 0.07259231060743332
+  },
+  "rdf": {
+    "l1": 0.045127750728362684,
+    "peak_pos_model_A": 3.697887967136275,
+    "peak_pos_gt_A": 3.6818736455867627,
+    "peak_pos_err_A": 0.016014321549512545,
+    "peak_height_model": 2.869252216557347,
+    "peak_height_gt": 2.8886357066719905,
+    "peak_height_rel_err": 0.006710257742045038
+  },
+  "vacf": {
+    "first_zero_model_fs": 302.43393891196473,
+    "first_zero_gt_fs": 307.4426188278517,
+    "first_zero_rel_err": 0.016291430039800325,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 2.076283099949934e-05,
+    "D_gt_cm2_s": 2.2192049045969977e-05,
+    "rel_err": 0.06440225702052411,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "speed": {
+    "wall_s": 4289.777298927307,
+    "s_per_step_batch": 0.4289777298927307,
+    "ns_per_day_per_rollout": 10.070452843974559,
+    "ns_per_day_all_rollouts": 151.05679265961837,
+    "device": "NVIDIA L40S"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": true,
+    "rdf_peak_position": true,
+    "rdf_peak_height": true,
+    "vacf_first_zero": true,
+    "diffusion": true,
+    "all_pass": true
+  }
+}

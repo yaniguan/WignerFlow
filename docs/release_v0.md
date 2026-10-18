@@ -36,19 +36,20 @@ With the CSVR thermostat switch on (500 fs, reported separately, not model only)
 
 ## How robust is this? (read before citing the numbers)
 
-The result above is one checkpoint of one training run. Other checkpoints and seeds are much worse, and v0 should be read as "the pipeline works and a stable model exists", not "training reliably gives a stable model".
+Five seeds of the flow head with residual targets, each evaluated at its default `best.pt` (the checkpoint with the best validation score, no hand-picking). Model only, 15 rollouts × 10⁴ steps, test trajectories.
 
-All rows below are model only, 10⁴ steps, flow head, residual targets, test trajectories (except the val rows).
+| Seed | `best.pt` step | Not crashed | T vs truth | RDF peak pos (Å) | D error | All v0 criteria |
+|---|---|---|---|---|---|---|
+| 1 | 38000 | 15/15 | +69.6% | 0.044 | 60% | no |
+| 2 | 32000 | **0/15** (crash at 3920–4460 steps) | – | – | – | no |
+| 3 | 12000 | 15/15 | −2.9% | 0.016 | 6.4% | **yes** |
+| 4 | 10000 | 15/15 | −2.4% | 0.019 | 2.6% | **yes** |
+| 5 | 14000 | 15/15 | −13.3% | 0.027 | 15.5% | no (temperature) |
 
-| Run / checkpoint | Not crashed | T vs truth | RDF peak pos (Å) | D error |
-|---|---|---|---|---|
-| seed 1, step 10000 (released, chosen on val rollouts) | 15/15 | −6.0% | 0.025 | 11% |
-| seed 1, step 38000 (lowest val score, the default `best.pt`) | 15/15 | +69.6% | 0.044 | 60% |
-| seed 1, step 40000 (val only) | 15/15 | −39.7% | 0.054 | 37% |
-| seed 2, step 32000 (`best.pt`) | **0/15**, crash at 3920–4460 steps | – | – | – |
-| seed 0, 400 fs unroll horizon (`h400`) | 15/15 | +13.2% | 0.003 | 15% |
-
-So the temperature of a flow-head rollout depends strongly on which checkpoint is picked, and one of two seeds crashed in every rollout. The checkpoint was chosen by 10⁴-step validation rollouts among three candidates, and its test numbers match its validation numbers (89.3 K val, 89.2 K test), but this is still one seed and one pick.
+- 4 of 5 seeds run 10⁴ steps without a crash; 2 of 5 meet every v0 criterion.
+- The released checkpoint is seed 1 at step 10000 (a hand pick among three checkpoints, chosen on validation rollouts; −6.0% temperature). It is not the `best.pt` of seed 1. Seeds 3 and 4 above are the unpicked evidence.
+- Within one run the rollout temperature swings a lot between checkpoints only 2000 steps apart (see "Stability by training step" in RESULTS.md). There is no trend of getting steadier with more training. Selecting a checkpoint with validation rollouts is required, and 1000-step validation rollouts did not catch seed 2, whose test rollouts crash at about 4000 steps.
+- Another run, seed 0 with a 400 fs unroll horizon, finished 15/15 with +13.2% temperature and 15% D error.
 
 ## Ablations so far (argon, 10⁴ steps, model only)
 
