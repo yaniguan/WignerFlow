@@ -130,6 +130,14 @@ Training resumes from `ckpt.pt` in the output folder if it exists. `best.pt` is 
 
 ### Evaluation
 
+Pick the checkpoint with longer validation rollouts first (score = crashes + RDF error + temperature error; training saves every evaluated checkpoint in `snapshots/`):
+
+```bash
+python scripts/select_checkpoint.py --run results/argon/B_S3a --steps 4000 --starts 4   # writes selection.json and selected.pt
+```
+
+Then evaluate on the test trajectories:
+
 ```bash
 python scripts/evaluate.py --run results/argon/B_S3a --steps 10000 --seeds 5 --starts 3   # model only
 python scripts/evaluate.py --run results/argon/B_S3a --thermostat_tau_fs 500              # with the CSVR switch (reported separately)

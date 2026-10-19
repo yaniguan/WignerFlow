@@ -3,7 +3,7 @@
     python -m equitraj.train --config configs/argon/flow_s1_n10.yaml
 
 Resumable: a checkpoint is written every `ckpt_minutes` and at every evaluation; rerunning the
-same command continues from it. Model selection uses short validation rollouts, not the loss.
+same command continues from it. Model selection uses short validation rollouts (crashes, RDF error, temperature error), not the loss.
 """
 
 import argparse
@@ -87,6 +87,11 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     if not ok or out["positions"] is None:
         return metrics
     metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses).mean().item()
+    # temperature error averaged over the second half of each rollout (one frame is too noisy to rank checkpoints)
+    vel = out["velocities"]
+    half = vel.shape[0] // 2
+    t_traj = torch.stack([temperature(vel[i, ok], ds.masses) for i in range(half, vel.shape[0])])  # (frames, ok)
+    metrics["val_T_rel_err"] = ((t_traj.mean(0) - t_ref).abs() / t_ref).mean().item()
     # all-atom RDF of each rollout vs the ground-truth frames of the same trajectory over the same time span
     idx = np.arange(len(ds.types))
     l1 = []
@@ -103,9 +108,14 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     return metrics
 
 
-def selection_score(m):
-    """Lower is better: crashes dominate, then RDF error."""
-    return m["val_crash_frac"] * 100.0 + m.get("val_rdf_l1", 10.0)
+def selection_score(m, t_weight=1.0):
+    """Lower is better: crashes dominate, then RDF error plus t_weight times the relative temperature error.
+
+    The temperature term matters because the model has no energy conservation: in argon v0, validation rollouts
+    with a good RDF could still be 70% too hot. t_weight=0 gives the old score. Metrics from logs written before
+    val_T_rel_err existed count as zero temperature error.
+    """
+    return m["val_crash_frac"] * 100.0 + m.get("val_rdf_l1", 10.0) + t_weight * m.get("val_T_rel_err", 0.0)
 
 
 def main():
@@ -210,7 +220,7 @@ def main():
                 for key, value in metrics.items():
                     if key != "step":
                         writer.add_scalar(f"val/{key}", value, step)
-                score = selection_score(metrics)
+                score = selection_score(metrics, ec.get("t_weight", 1.0))
                 metrics["score"] = score
                 if score < best:
                     best = score
