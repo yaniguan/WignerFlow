@@ -18,6 +18,7 @@ import torch
 
 from equitraj import analysis, plots
 from equitraj.dataset import TrajWindows
+from equitraj.forcefield import EquiFF, verlet_rollout
 from equitraj.model import make_model
 from equitraj.rollout import rollout, temperature
 
@@ -43,7 +44,10 @@ def load_model(run_dir, ckpt, device, split="test"):
     ck = torch.load(os.path.join(run_dir, ckpt), map_location=device, weights_only=False)
     cfg = ck["cfg"]
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
-    model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+    if cfg.get("kind") == "ff":  # force-field baseline: forces from EquiFF, velocity Verlet (equitraj/forcefield.py)
+        model = EquiFF(n_types=len(ck["elements"]), **cfg["model"])
+    else:
+        model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), cfg, ds, ck["step"]
 
@@ -69,7 +73,8 @@ def main():
     model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split)
     k, f, dt = cfg["k"], ds.f, ds.stride_fs
     n_atoms = len(ds.types)
-    deterministic = model.head_type == "regression"
+    is_ff = cfg.get("kind") == "ff"
+    deterministic = is_ff or model.head_type == "regression"
     seeds = 1 if deterministic else args.seeds  # the regression head gives the same rollout for every seed
 
     # ---- ground-truth reference at the model stride, from the test trajectories ----
@@ -98,15 +103,19 @@ def main():
     thermostat = None
     if args.thermostat_tau_fs > 0:
         thermostat = {"t_target": t_gt, "tau_fs": args.thermostat_tau_fs, "dt_fs": dt}
-    out = rollout(model, pos, vel, ds.types, box, ds.masses, args.steps, sampling_steps=args.sampling_steps,
-                  save_every=1, t_max=3 * t_gt, thermostat=thermostat)
+    if is_ff:
+        out = verlet_rollout(model, pos[:, -1], vel[:, -1], ds.types, box, ds.masses, args.steps,
+                             substeps=cfg["stride_steps"], dt_fs=ds.meta["dt_fs"], save_every=1, t_max=3 * t_gt)
+    else:
+        out = rollout(model, pos, vel, ds.types, box, ds.masses, args.steps, sampling_steps=args.sampling_steps,
+                      save_every=1, t_max=3 * t_gt, thermostat=thermostat)
     x = out["positions"].numpy()   # (steps, B, N, 3)
     v = out["velocities"].numpy()
     crash = out["crash_step"].numpy()
     n_roll = len(labels)
     ok = crash < 0
-    m = {"run": args.run, "checkpoint": args.ckpt, "split": args.split, "train_step": int(step), "head": model.head_type,
-         "target": model.target, "stride_fs": dt, "steps": args.steps, "n_rollouts": n_roll,
+    m = {"run": args.run, "checkpoint": args.ckpt, "split": args.split, "train_step": int(step),
+         "head": "forcefield+verlet" if is_ff else model.head_type, "target": "-" if is_ff else model.target, "stride_fs": dt, "steps": args.steps, "n_rollouts": n_roll,
          "seeds_per_start": seeds, "thermostat_tau_fs": args.thermostat_tau_fs, "T_ground_truth_K": t_gt}
 
     # ---- stability ----
