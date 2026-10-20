@@ -14,6 +14,13 @@ Updated 2026-10-19: ICLR 2028 (deadline expected around late September 2027) is 
 
 All dates must be confirmed on the official call for papers before submitting.
 
+## Revision after external review (2026-10-20)
+
+See docs/review_round1.md. The review found that the working claim below is too broad: the released checkpoint saw no unrolled training, the temperature fix
+and checkpoint selection are the parts with evidence, and the real open question is why the regression head runs cold while the flow head is stable only for some
+checkpoints. The plan is re-centred on that mechanism (kinetic-energy decomposition, observation completeness, solver sensitivity), with the unroll claim to be re-tested
+by ablation, and the baselines kept. The work packages below still apply; the paper claim is decided after the ablations return.
+
 ## The paper's claim
 
 Working title: *What makes autoregressive equivariant MD generators stable for 10^4 steps?*

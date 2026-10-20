@@ -15,9 +15,11 @@ import os
 
 import numpy as np
 import torch
+import yaml
 
 from equitraj import analysis, plots
 from equitraj.dataset import TrajWindows
+from equitraj.energy import kinetic, lj_potential
 from equitraj.forcefield import EquiFF, verlet_rollout
 from equitraj.model import make_model
 from equitraj.rollout import rollout, temperature
@@ -143,6 +145,39 @@ def main():
         t_model = float(temp[half:, ok].mean())
         m["temperature"] = {"T_model_second_half_K": t_model, "rel_err": abs(t_model - t_gt) / t_gt,
                             "T_end_per_rollout": temp[-1].tolist()}
+
+    # ---- energy under the reference force field (argon only): the model has no Hamiltonian, so check it afterwards ----
+    if ds.periodic and yaml.safe_load(open(os.path.join(cfg["data_dir"], "config.yaml")))["system"] == "argon" and ok.any():
+        box0 = ds.boxes[0]
+        sub = np.arange(0, n_done, max(1, n_done // 200))
+        dof = 3 * n_atoms - 3
+
+        def total_energy(xx, vv):  # (F, N, 3) each -> (U, K) per frame, kJ/mol
+            return (lj_potential(torch.from_numpy(np.ascontiguousarray(xx)), box0).numpy(),
+                    kinetic(torch.from_numpy(np.ascontiguousarray(vv)), ds.masses).numpy())
+
+        ug, kg_ = zip(*[total_energy(xx[::max(1, len(xx) // 200)], vv[::max(1, len(vv) // 200)]) for xx, vv in zip(gt_x, gt_v)])
+        u_gt, k_gt = float(np.mean(ug)), float(np.mean(kg_))
+        rows, slopes, curves = [], [], []
+        for j in np.where(ok)[0]:
+            u, k_ = total_energy(x[sub, j], v[sub, j])
+            h = u + k_
+            late = len(sub) // 2
+            rows.append((u[late:].mean(), k_[late:].mean(), h[late:].mean(), np.abs(h - h[0]).max()))
+            slopes.append(np.polyfit(sub * dt * 1e-6, h, 1)[0] / dof)  # kJ/mol per ns per dof
+            curves.append(h / n_atoms)
+        rows = np.array(rows)
+        m["energy"] = {"U_gt_per_atom": u_gt / n_atoms, "K_gt_per_atom": k_gt / n_atoms, "H_gt_per_atom": (u_gt + k_gt) / n_atoms,
+                       "U_model_minus_gt_per_atom": float(rows[:, 0].mean() / n_atoms - u_gt / n_atoms),
+                       "K_model_minus_gt_per_atom": float(rows[:, 1].mean() / n_atoms - k_gt / n_atoms),
+                       "H_model_minus_gt_per_atom": float(rows[:, 2].mean() / n_atoms - (u_gt + k_gt) / n_atoms),
+                       "H_drift_kJ_mol_ns_dof_mean": float(np.mean(slopes)), "H_drift_kJ_mol_ns_dof_abs_max": float(np.abs(slopes).max()),
+                       "H_max_excursion_per_atom": float(rows[:, 3].max() / n_atoms),
+                       "note": "H = U_ref(x) + K(v) evaluated on rollout frames with the ground-truth LJ force field; an NVE ground truth conserves it"}
+        plots.line_plot(os.path.join(out_dir, "figs", "energy.png"),
+                        [("ground truth mean", sub * dt / 1000, np.full(len(sub), (u_gt + k_gt) / n_atoms))]
+                        + [(f"rollout {j}", sub * dt / 1000, curves[j]) for j in range(min(4, len(curves)))],
+                        "rollout time (ps)", "U_ref + K per atom (kJ/mol)", "Total energy under the reference force field")
 
     # ---- short-range error (first 20 steps vs the ground-truth continuation) ----
     n_short = min(20, args.steps)
