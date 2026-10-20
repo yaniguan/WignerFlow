@@ -10,6 +10,8 @@ The ICLR 2027 main-track deadline passed (abstract 2026-09-18, full paper 2026-0
 2. **ICLR 2027 workshop** (AI for science): contributions typically due around 2027-02-01.
 3. **NeurIPS 2027**: fallback for the full version.
 
+Updated 2026-10-19: ICLR 2028 (deadline expected around late September 2027) is also an option if the ICML 2027 window is too tight; the plan below is paced for ICML and leaves slack for ICLR 2028.
+
 All dates must be confirmed on the official call for papers before submitting.
 
 ## The paper's claim
@@ -45,7 +47,7 @@ Not claimed: speed-up over classical MD (OpenMM is far faster on argon), energy 
 
 Each package ends with numbers in `RESULTS.md` and a commit on a branch. Nothing is merged to `main` without a passing test suite.
 
-- **P1 Selection rule** (running). Re-evaluate seeds 1 and 2 at the new selection. Merge `feature/temperature-aware-selection` and `feature/seed-summary` if the results agree.
+- **P1 Selection rule.** Done in code and merged into `v1.0-dev` (temperature-aware score, `select_checkpoint.py`, `summarize_seeds.py`). Test evaluation of the new selection for seeds 1 and 2 is running; the result decides whether the rule goes into `main`.
 - **P2 Seeds.** Train 5 more flow + residual seeds (6 to 10). Re-select with `select_checkpoint.py`. Report stable fraction and criteria met, with intervals.
 - **P3 Ablation arms with 3 seeds each.** Regression vs flow, direct vs residual, horizon 200 vs 400 fs, noise σ, k, lmax, velocity input. One-factor-at-a-time around the default.
 - **P4 Non-equivariant baseline.** `equitraj/baselines.py`: a transformer on raw coordinates with the same inputs, residual targets and flow head, matched parameter count. Rotation test shows it is not equivariant. Same 3-seed protocol.
