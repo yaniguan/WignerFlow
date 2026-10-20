@@ -45,7 +45,8 @@ def eval_rows():
         st = m["stability"]
         cfg_path = os.path.join(*parts[:3], "config.yaml")
         cfg = yaml.safe_load(open(cfg_path)) if os.path.exists(cfg_path) else {}
-        target = cfg.get("model", {}).get("target", "?")
+        arch = "ff" if cfg.get("kind") == "ff" else cfg.get("model", {}).get("arch", "equi")
+        target = arch + "/" + cfg.get("model", {}).get("target", "-")
         seed = cfg.get("seed", "?")
         t_m = m.get("temperature", {}).get("T_model_second_half_K")
         t_err = None if t_m is None else (t_m - m["T_ground_truth_K"]) / m["T_ground_truth_K"]
@@ -114,7 +115,7 @@ def main():
     lines += ["", "## Model rollouts", "",
               "Errors are relative unless marked Å; the temperature column shows the signed error. v0 criteria (argon): no crash; |ΔT|/T < 5%; RDF peak position < 0.05 Å; "
               "peak height < 10%; VACF first zero < 10%; D < 20%.", "",
-              "| Run | Head | Target | Seed | Stride (fs) | Rollouts × steps | Not crashed | T model / truth (K) | RDF peak pos (Å) | RDF peak height | VACF zero | D | v0 |",
+              "| Run | Head | Arch/target | Seed | Stride (fs) | Rollouts × steps | Not crashed | T model / truth (K) | RDF peak pos (Å) | RDF peak height | VACF zero | D | v0 |",
               "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     rows = eval_rows()
     lines += rows if rows else ["| (no evaluated models yet) |" + " |" * 12]
