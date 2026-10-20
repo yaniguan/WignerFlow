@@ -175,3 +175,14 @@ def energy_drift(time_ps, total_energy, dof):
     """Linear drift of the total energy in kJ/mol per ns per degree of freedom."""
     slope_per_ps = np.polyfit(time_ps, total_energy, 1)[0]
     return slope_per_ps * 1000.0 / dof
+
+
+def wilson_interval(k, n, z=1.96):
+    """95% Wilson score interval for a proportion k/n (better than the normal approximation for small n)."""
+    if n == 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (float(max(0.0, centre - half)), float(min(1.0, centre + half)))
