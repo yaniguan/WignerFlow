@@ -202,6 +202,22 @@ def segment_softmax(logits, index, n):
     return ex / (denom[index] + 1e-16)
 
 
+def smooth_segment_softmax(logits, env, index, n):
+    """Attention weights that go to zero continuously when an edge leaves the cutoff.
+
+    alpha_ij = env_ij exp(l_ij) / (exp(0) + sum_j env_ij exp(l_ij)): the envelope is inside the normalization, and the
+    constant "sink" term in the denominator keeps the weights finite when no neighbor is left. The plain softmax followed by
+    an envelope (the v0 behaviour) renormalizes the other edges abruptly when one edge crosses the cutoff.
+    """
+    h = logits.shape[1]
+    idx = index[:, None].expand(-1, h)
+    mx = torch.zeros((n, h), dtype=logits.dtype, device=logits.device)  # the sink logit is 0, so the max is at least 0
+    mx = mx.scatter_reduce(0, idx, logits, reduce="amax", include_self=True)
+    w = env[:, None] * torch.exp(logits - mx[index])
+    denom = torch.exp(-mx).index_add(0, index, w)
+    return w / denom[index]
+
+
 class GraphAttention(nn.Module):
     """Equivariant attention over neighbors (a simplified Equiformer-v2 block).
 
@@ -214,10 +230,11 @@ class GraphAttention(nn.Module):
       6. sum of attention * envelope(d) * value into dst, then a linear layer
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, smooth=False):
         super().__init__()
         assert c % heads == 0
         self.lmax, self.c, self.heads, self.n_rbf, self.cutoff = lmax, c, heads, n_rbf, cutoff
+        self.smooth = smooth
         self.radial = MLP([n_rbf, 64, (lmax + 1) * 2 * c])
         self.so2_1 = SO2Linear(lmax, 2 * c, c, parity)
         self.logits = MLP([c, c, heads])
@@ -231,8 +248,11 @@ class GraphAttention(nn.Module):
         xe = torch.cat([so3.to_edge_frame(wigner, x[src]), so3.to_edge_frame(wigner, x[dst])], dim=-1)
         rad = self.radial(gaussian_rbf(dist, self.cutoff, self.n_rbf)).view(e, self.lmax + 1, 2 * self.c)
         h = self.so2_1(per_l_scale(xe, rad, self.lmax))
-        alpha = segment_softmax(self.logits(h[:, 0, :]), dst, x.shape[0])  # (E, heads)
-        alpha = alpha * envelope(dist, self.cutoff)[:, None]
+        if self.smooth:
+            alpha = smooth_segment_softmax(self.logits(h[:, 0, :]), envelope(dist, self.cutoff), dst, x.shape[0])
+        else:
+            alpha = segment_softmax(self.logits(h[:, 0, :]), dst, x.shape[0])  # (E, heads)
+            alpha = alpha * envelope(dist, self.cutoff)[:, None]
         v = so3.from_edge_frame(wigner, self.so2_2(self.gate(h)))  # (E, S, C)
         v = v.view(e, v.shape[1], self.heads, -1) * alpha[:, None, :, None]
         agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], -1))
@@ -242,10 +262,10 @@ class GraphAttention(nn.Module):
 class Block(nn.Module):
     """x + attention(norm(x)), then x + feedforward(norm(x))."""
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, smooth=False):
         super().__init__()
         self.norm1 = EquivariantRMSNorm(lmax, c)
-        self.attn = GraphAttention(lmax, c, heads, n_rbf, cutoff, parity)
+        self.attn = GraphAttention(lmax, c, heads, n_rbf, cutoff, parity, smooth)
         self.norm2 = EquivariantRMSNorm(lmax, c)
         self.ff = FeedForward(lmax, c, 2 * c)
 

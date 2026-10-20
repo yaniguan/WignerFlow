@@ -56,7 +56,7 @@ class EquiFF(nn.Module):
 
 
 def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs, save_every=1, min_dist=0.5, t_max=None,
-                   bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10):
+                   bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10, n_constraints=0):
     """Velocity Verlet with the learned forces. One output step = `substeps` Verlet steps of dt_fs (= one stride).
 
     pos, vel: (B, N, 3) the current frame (not a context window). Returns the same dict as rollout.rollout so that
@@ -91,7 +91,7 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
             bad = ~torch.isfinite(x).all(dim=(1, 2)) | ~torch.isfinite(v).all(dim=(1, 2))
             bad |= min_pair_distance(x.float(), box) < min_dist
             if t_max is not None:
-                bad |= temperature(v.float(), masses.float()) > t_max
+                bad |= temperature(v.float(), masses.float(), n_constraints) > t_max
             if bonds is not None:
                 bad |= max_bond_deviation(x.float(), bonds.to(device), bond_r0.to(device)) > max_bond_dev
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)

@@ -54,12 +54,12 @@ def main():
 
     torch.manual_seed(args.seed)
     out = rollout(model, demo["pos"][None], demo["vel"][None], ck["types"], box, ck["masses"], args.steps,
-                  sampling_steps=args.sampling_steps, t_max=3 * ref["T_K"])
+                  sampling_steps=args.sampling_steps, t_max=3 * ref["T_K"], n_constraints=ck.get("n_constraints", 0))
     crashed = int(out["crash_step"][0])
     x, v = out["positions"][:, 0].numpy(), out["velocities"][:, 0].numpy()
     n_ok = args.steps if crashed < 0 else crashed
     half = n_ok // 2
-    temp = temperature(torch.from_numpy(v[:n_ok]), ck["masses"]).numpy()
+    temp = temperature(torch.from_numpy(v[:n_ok]), ck["masses"], ck.get("n_constraints", 0)).numpy()
     summary = {"checkpoint": os.path.basename(args.ckpt), "train_step": ck["train_step"], "device": str(device),
                "steps": args.steps, "stride_fs": dt, "simulated_ps": args.steps * dt / 1000,
                "crashed_at_step": None if crashed < 0 else crashed, "wall_s": out["wall_s"],

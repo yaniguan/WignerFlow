@@ -44,6 +44,7 @@ def npy_cache(h5_path):
             "elements": np.array([e.decode() for e in f["elements"][:]]),
             "save_every": int(f.attrs["save_every"]),
             "dt_fs": float(f.attrs["dt_fs"]),
+            "n_constraints": int(f.attrs.get("n_constraints", 0)),  # bonds to H are constrained in ala2 and aspirin
             "periodic": bool(f.attrs.get("periodic", True)),  # molecules in vacuum store periodic=False
         }
         np.save(paths["meta"], meta, allow_pickle=True)
@@ -63,6 +64,7 @@ class TrajWindows(torch.utils.data.Dataset):
             self.boxes.append(torch.tensor(meta["box"], dtype=torch.float32))  # NPT gives each trajectory its own box
         self.meta = meta
         self.periodic = meta["periodic"]
+        self.n_constraints = meta.get("n_constraints", 0)  # caches written before this field existed are argon (none)
         save_every = meta["save_every"]
         assert stride_steps % save_every == 0, f"stride {stride_steps} is not a multiple of save_every {save_every}"
         self.f = stride_steps // save_every

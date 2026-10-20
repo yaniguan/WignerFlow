@@ -40,7 +40,7 @@ def max_bond_deviation(pos, bonds, r0):
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
-            thermostat=None):
+            thermostat=None, n_constraints=0):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -63,7 +63,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         dx, v_new = model.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
         if thermostat is not None:
             v_new = csvr(v_new, masses, thermostat["t_target"], thermostat["tau_fs"], thermostat["dt_fs"],
-                         dof=3 * v_new.shape[1] - 3)
+                         dof=3 * v_new.shape[1] - 3 - n_constraints)
         x_new = x[:, -1] + dx.double()
         x = torch.cat([x[:, 1:], x_new[:, None]], dim=1)
         v = torch.cat([v[:, 1:], v_new[:, None]], dim=1)
@@ -74,7 +74,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
             bad = ~torch.isfinite(x_new).all(dim=(1, 2)) | ~torch.isfinite(v_new).all(dim=(1, 2))
             bad |= min_pair_distance(x_new, box) < min_dist
             if t_max is not None:
-                bad |= temperature(v_new, masses) > t_max
+                bad |= temperature(v_new, masses, n_constraints) > t_max
             if bonds is not None:
                 bad |= max_bond_deviation(x_new, bonds.to(device), bond_r0.to(device)) > max_bond_dev
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)

@@ -86,12 +86,12 @@ class Denoiser(nn.Module):
     norms of y_tau into the l=0 channels; then a few graph attention blocks and a linear readout.
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity, smooth=False):
         super().__init__()
         self.c = c
         self.y_in = nn.Linear(2, c, bias=False)  # 2 input vectors -> c vector channels
         self.scalar_in = MLP([c + 3, c, c])
-        self.blocks = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity) for _ in range(n_blocks)])
+        self.blocks = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, smooth) for _ in range(n_blocks)])
         self.readout = EquivariantLinear(lmax, c, c)
         self.y_out = nn.Linear(c, 2, bias=False)
 
@@ -108,7 +108,8 @@ class Denoiser(nn.Module):
 class EquiTraj(nn.Module):
     def __init__(self, n_types, lmax=2, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3,
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
-                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0):
+                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
+                 smooth_attention=False):
         super().__init__()
         self.lmax, self.c, self.cutoff, self.k = lmax, channels, cutoff, k
         self.n_rbf = n_rbf
@@ -130,14 +131,14 @@ class EquiTraj(nn.Module):
         self.scalar_in = MLP([c + 3, c, c])
         self.edge_radial = MLP([n_rbf, 64, (lmax + 1) * c])
         self.edge_type = nn.Linear(c, c, bias=False)
-        self.spatial = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity) for _ in range(n_spatial)])
+        self.spatial = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, smooth_attention) for _ in range(n_spatial)])
         self.temporal = TemporalAttention(lmax, c, heads)
-        self.fusion = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity) for _ in range(n_fusion)])
+        self.fusion = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, smooth_attention) for _ in range(n_fusion)])
         if head == "regression":
             self.readout = EquivariantLinear(lmax, c, c)
             self.y_out = nn.Linear(c, 2, bias=False)
         else:
-            self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity)
+            self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity, smooth_attention)
 
     # ------------------------------------------------------------ encoder
 
@@ -190,6 +191,16 @@ class EquiTraj(nn.Module):
 
     # ------------------------------------------------------------ heads (overridden by the baseline in baselines.py)
 
+    def base_velocity(self, pos, vel):
+        """Velocity that the residual targets are measured from: the last true velocity, or, for a position-only model
+        (use_velocity=False), the average velocity over the last stride from the positions. A position-only model must
+        not receive the true velocity through the output path either (it used to, via vel[:, -1])."""
+        if self.use_velocity:
+            return vel[:, -1]
+        if pos.shape[1] < 2:
+            return torch.zeros_like(vel[:, -1])
+        return (pos[:, -1] - pos[:, -2]) / self.stride_fs
+
     def regress(self, cond):
         """Head A: condition features -> normalized outputs (B*N, 2, 3)."""
         return self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
@@ -240,7 +251,7 @@ class EquiTraj(nn.Module):
         """MSE loss in normalized units. dx_target, v_target: (B, N, 3)."""
         b = pos.shape[0]
         cond, graph = self.encode(pos, vel, types, box)
-        y = self.targets_to_y(dx_target, v_target, vel[:, -1], types)
+        y = self.targets_to_y(dx_target, v_target, self.base_velocity(pos, vel), types)
         if self.head_type == "regression":
             return ((self.regress(cond) - y) ** 2).mean()
         # flow matching: y_tau = (1 - tau) eps + tau y, target velocity y - eps
@@ -270,7 +281,7 @@ class EquiTraj(nn.Module):
             for i in range(n_steps):  # Euler integration of the learned flow from tau=0 to 1
                 tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
                 y = y + self.denoise(cond, graph, y, tau) / n_steps
-        dx, v = self.y_to_targets(y, types, vel[:, -1])
+        dx, v = self.y_to_targets(y, types, self.base_velocity(pos, vel))
         return remove_com(dx, masses), remove_com(v, masses)
 
 

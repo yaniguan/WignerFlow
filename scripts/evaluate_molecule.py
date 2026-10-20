@@ -87,7 +87,7 @@ def main():
 
     gt_x = [np.asarray(p[::f]) for p in ds.pos]
     gt_v = [np.asarray(v[::f]) for v in ds.vel]
-    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
+    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses, ds.n_constraints).mean().item() for v in gt_v]))
     bonds = find_bonds(gt_x[0][0], elements)
     r0 = np.concatenate([bond_lengths(x[:2000], bonds) for x in gt_x]).mean(0)  # reference length of each bond
 
@@ -103,7 +103,7 @@ def main():
     torch.manual_seed(0)
     out = rollout(model, pos, vel, ds.types, None, ds.masses, args.steps, sampling_steps=args.sampling_steps,
                   save_every=1, t_max=3 * t_gt, bonds=torch.from_numpy(bonds), bond_r0=torch.from_numpy(r0).float(),
-                  max_bond_dev=args.max_bond_dev, min_dist=args.min_dist)
+                  max_bond_dev=args.max_bond_dev, min_dist=args.min_dist, n_constraints=ds.n_constraints)
     x, v, crash = out["positions"].numpy(), out["velocities"].numpy(), out["crash_step"].numpy()
     n_roll, n_done = len(labels), x.shape[0]
     ok = crash < 0
@@ -118,7 +118,7 @@ def main():
                     [("model", surv_t * dt / 1000, [(steps_before >= s).mean() for s in surv_t])],
                     "rollout time (ps)", "fraction not crashed", "Rollout stability", ylim=(0, 1.05))
 
-    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses).numpy().reshape(n_done, n_roll)
+    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses, ds.n_constraints).numpy().reshape(n_done, n_roll)
     half = args.steps // 2
     if not ok.any():
         m["note"] = "every rollout crashed; structural and dynamical metrics skipped"

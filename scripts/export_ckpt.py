@@ -29,7 +29,7 @@ def reference_stats(ds, k):
     box = ds.boxes[0].numpy()
     n = len(ds.types)
     idx = np.arange(n)
-    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
+    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses, ds.n_constraints).mean().item() for v in gt_v]))
     r_max = min(10.0, 0.49 * float(np.diag(box).min())) if ds.periodic else 8.0
     g = []
     for x in gt_x:
@@ -67,6 +67,7 @@ def main():
         "types": ds.types,
         "masses": ds.masses,
         "periodic": bool(ds.periodic),
+        "n_constraints": int(ds.n_constraints),
         "demo": {"pos": pos[:k].clone(), "vel": vel[:k].clone(), "box": box.clone() if ds.periodic else None},
         "reference": reference_stats(ds, k),
     }

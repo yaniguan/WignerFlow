@@ -81,7 +81,7 @@ def main():
     gt_x = [np.asarray(p[::f]) for p in ds.pos]  # each (T, N, 3), frames dt apart
     gt_v = [np.asarray(v[::f]) for v in ds.vel]
     gt_box = [b.numpy() for b in ds.boxes]
-    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
+    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses, ds.n_constraints).mean().item() for v in gt_v]))
 
     # ---- starting windows: evenly spread over the test trajectories ----
     starts = []
@@ -105,10 +105,11 @@ def main():
         thermostat = {"t_target": t_gt, "tau_fs": args.thermostat_tau_fs, "dt_fs": dt}
     if is_ff:
         out = verlet_rollout(model, pos[:, -1], vel[:, -1], ds.types, box, ds.masses, args.steps,
-                             substeps=cfg["stride_steps"], dt_fs=ds.meta["dt_fs"], save_every=1, t_max=3 * t_gt)
+                             substeps=cfg["stride_steps"], dt_fs=ds.meta["dt_fs"], save_every=1, t_max=3 * t_gt,
+                             n_constraints=ds.n_constraints)
     else:
         out = rollout(model, pos, vel, ds.types, box, ds.masses, args.steps, sampling_steps=args.sampling_steps,
-                      save_every=1, t_max=3 * t_gt, thermostat=thermostat)
+                      save_every=1, t_max=3 * t_gt, thermostat=thermostat, n_constraints=ds.n_constraints)
     x = out["positions"].numpy()   # (steps, B, N, 3)
     v = out["velocities"].numpy()
     crash = out["crash_step"].numpy()
@@ -129,7 +130,7 @@ def main():
 
     # ---- temperature ----
     n_done = x.shape[0]  # fewer than args.steps when every rollout crashed early
-    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses).numpy().reshape(n_done, n_roll)
+    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses, ds.n_constraints).numpy().reshape(n_done, n_roll)
     t_axis = np.arange(1, n_done + 1) * dt / 1000
     every = max(1, n_done // 500)
     curves = [("ground truth", t_axis[::every], np.full(len(t_axis[::every]), t_gt))]

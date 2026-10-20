@@ -15,7 +15,7 @@ import math
 import torch
 import torch.nn as nn
 
-from equitraj.layers import MLP, envelope, gaussian_rbf
+from equitraj.layers import MLP, envelope, gaussian_rbf, smooth_segment_softmax
 from equitraj.model import EquiTraj, build_graph_plain, timestep_embedding
 
 
@@ -31,9 +31,9 @@ def segment_softmax(logits, index, n):
 class PlainBlock(nn.Module):
     """Graph attention with raw edge vectors as edge features, then a feed-forward layer. Both with residuals and LayerNorm."""
 
-    def __init__(self, c, heads, n_rbf, cutoff):
+    def __init__(self, c, heads, n_rbf, cutoff, smooth=False):
         super().__init__()
-        self.c, self.heads, self.cutoff, self.n_rbf = c, heads, cutoff, n_rbf
+        self.c, self.heads, self.cutoff, self.n_rbf, self.smooth = c, heads, cutoff, n_rbf, smooth
         self.edge = MLP([n_rbf + 3, 64, c])
         self.q, self.k, self.v, self.o = (nn.Linear(c, c) for _ in range(4))
         self.ek, self.ev = nn.Linear(c, c, bias=False), nn.Linear(c, c, bias=False)
@@ -47,8 +47,13 @@ class PlainBlock(nn.Module):
         q = self.q(h)[dst].view(-1, self.heads, hd)
         k = (self.k(h)[src] + self.ek(e)).view(-1, self.heads, hd)
         v = (self.v(h)[src] + self.ev(e)).view(-1, self.heads, hd)
-        alpha = segment_softmax((q * k).sum(-1) / math.sqrt(hd), dst, h.shape[0])  # (E, H)
-        msg = (alpha[..., None] * v * envelope(d, self.cutoff)[:, None, None]).reshape(-1, self.c)
+        logits = (q * k).sum(-1) / math.sqrt(hd)
+        if self.smooth:
+            alpha = smooth_segment_softmax(logits, envelope(d, self.cutoff), dst, h.shape[0])
+            msg = (alpha[..., None] * v).reshape(-1, self.c)
+        else:
+            alpha = segment_softmax(logits, dst, h.shape[0])  # (E, H)
+            msg = (alpha[..., None] * v * envelope(d, self.cutoff)[:, None, None]).reshape(-1, self.c)
         h = self.norm1(h + self.o(torch.zeros_like(h).index_add_(0, dst, msg)))
         return self.norm2(h + self.ff(h))
 
@@ -56,7 +61,7 @@ class PlainBlock(nn.Module):
 class PlainTraj(EquiTraj):
     def __init__(self, n_types, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3, n_spatial=2, n_fusion=2, n_denoiser=2,
                  head="flow", use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
-                 lmax=None, parity=None):
+                 lmax=None, parity=None, smooth_attention=False):
         nn.Module.__init__(self)  # not EquiTraj.__init__: none of the equivariant modules are wanted
         self.lmax, self.c, self.cutoff, self.k, self.n_rbf = 0, channels, cutoff, k, n_rbf
         self.head_type, self.use_velocity, self.neighbor_method = head, use_velocity, neighbor_method
@@ -66,16 +71,16 @@ class PlainTraj(EquiTraj):
             self.register_buffer(name, torch.ones(n_types))
         self.type_embed = nn.Embedding(n_types, c)
         self.vec_in = MLP([6, c, c])  # raw (velocity, displacement)
-        self.spatial = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff) for _ in range(n_spatial)])
+        self.spatial = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff, smooth_attention) for _ in range(n_spatial)])
         self.frame_embed = nn.Parameter(torch.zeros(k, c))
         self.temporal = nn.MultiheadAttention(c, heads, batch_first=True)
-        self.fusion = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff) for _ in range(n_fusion)])
+        self.fusion = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff, smooth_attention) for _ in range(n_fusion)])
         if head == "regression":
             self.readout = MLP([c, c, 6])
         else:
             self.y_in = nn.Linear(6, c)
             self.tau_in = MLP([c, c, c])
-            self.denoiser = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff) for _ in range(n_denoiser)])
+            self.denoiser = nn.ModuleList([PlainBlock(c, heads, n_rbf, cutoff, smooth_attention) for _ in range(n_denoiser)])
             self.readout = MLP([c, c, 6])
 
     def encode(self, pos, vel, types, box):

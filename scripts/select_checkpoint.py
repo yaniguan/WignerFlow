@@ -43,7 +43,7 @@ def main():
         cfg = ck["cfg"]
         if ds is None:
             ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1)
-            t_ref = temperature(torch.stack([ds[i][1][0] for i in range(0, len(ds), max(1, len(ds) // 20))]), ds.masses).mean().item()
+            t_ref = temperature(torch.stack([ds[i][1][0] for i in range(0, len(ds), max(1, len(ds) // 20))]), ds.masses, ds.n_constraints).mean().item()
         model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
         model.load_state_dict(ck["model"])
         model.to(device).eval()

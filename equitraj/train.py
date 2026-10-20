@@ -70,14 +70,19 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
 
 def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref):
     """Short rollouts from evenly spaced validation windows. Returns stability and RDF metrics."""
-    starts = np.linspace(0, len(ds) - 1, n_starts).astype(int)
+    # only windows whose ground-truth continuation is long enough: the RDF comparison needs n_steps frames after the start
+    need = (model.k - 1 + n_steps) * ds.f + 1
+    valid = [i for i, (t, s0) in enumerate(ds.index) if s0 + need <= len(ds.pos[t])]
+    if not valid:
+        raise ValueError(f"no validation window has {n_steps} steps of ground truth after it; use a shorter rollout")
+    starts = np.array(valid)[np.linspace(0, len(valid) - 1, n_starts).astype(int)]
     items = [ds[i] for i in starts]
     pos = torch.stack([it[0][:model.k] for it in items])
     vel = torch.stack([it[1][:model.k] for it in items])
     box = torch.stack([it[2] for it in items]) if ds.periodic else None
     every = max(1, n_steps // 50)
     out = rollout(model, pos, vel, ds.types, box, ds.masses, n_steps,
-                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref)
+                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref, n_constraints=ds.n_constraints)
     crash = out["crash_step"]
     crashed = crash >= 0
     metrics = {"val_crash_frac": crashed.float().mean().item(),
@@ -86,11 +91,11 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     ok = torch.nonzero(~crashed).flatten().tolist()
     if not ok or out["positions"] is None:
         return metrics
-    metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses).mean().item()
+    metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses, ds.n_constraints).mean().item()
     # temperature error averaged over the second half of each rollout (one frame is too noisy to rank checkpoints)
     vel = out["velocities"]
     half = vel.shape[0] // 2
-    t_traj = torch.stack([temperature(vel[i, ok], ds.masses) for i in range(half, vel.shape[0])])  # (frames, ok)
+    t_traj = torch.stack([temperature(vel[i, ok], ds.masses, ds.n_constraints) for i in range(half, vel.shape[0])])  # (frames, ok)
     metrics["val_T_rel_err"] = ((t_traj.mean(0) - t_ref).abs() / t_ref).mean().item()
     # all-atom RDF of each rollout vs the ground-truth frames of the same trajectory over the same time span
     idx = np.arange(len(ds.types))
@@ -177,7 +182,7 @@ def main():
 
     writer = SummaryWriter(os.path.join(out_dir, "tb"))
     log = open(os.path.join(out_dir, "log.jsonl"), "a")
-    t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses).mean().item()
+    t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses, val_ds.n_constraints).mean().item()
     last_ckpt, t_start, running = time.time(), time.time(), []
     model.train()
     while step < tc["steps"]:
