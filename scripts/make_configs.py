@@ -13,6 +13,9 @@ import yaml
 
 SYSTEMS = {
     "argon": {"data_dir": "data/argon", "cutoff": 6.0, "stride_steps": 10, "strides": [1, 5, 10, 50], "dt_fs": 5.0},
+    # molecules in vacuum, HBonds constraints, 2 fs MD step; stride 10 = 20 fs (200 fs unroll horizon -> m = 10)
+    "ala2": {"data_dir": "data/ala2", "cutoff": 6.0, "stride_steps": 10, "strides": [1, 5, 10, 25], "dt_fs": 2.0},
+    "aspirin": {"data_dir": "data/aspirin", "cutoff": 6.0, "stride_steps": 10, "strides": [1, 5, 10, 25], "dt_fs": 2.0},
 }
 
 # Unroll schedules: [[training step, m], ...].
