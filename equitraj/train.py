@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from equitraj import analysis
 from equitraj.dataset import TrajWindows, compute_stats
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.rollout import rollout, temperature
 
 
@@ -133,7 +133,7 @@ def main():
                                          num_workers=workers, persistent_workers=workers > 0)
     types, masses = train_ds.types.to(device), train_ds.masses.to(device)
 
-    model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
+    model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
     step, best = 0, math.inf

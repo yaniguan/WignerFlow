@@ -18,7 +18,7 @@ import torch
 
 from equitraj import analysis, plots
 from equitraj.dataset import TrajWindows
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.rollout import rollout, temperature
 
 V0_CRITERIA = {  # argon, model only (no thermostat)
@@ -43,7 +43,7 @@ def load_model(run_dir, ckpt, device, split="test"):
     ck = torch.load(os.path.join(run_dir, ckpt), map_location=device, weights_only=False)
     cfg = ck["cfg"]
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
-    model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+    model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), cfg, ds, ck["step"]
 
