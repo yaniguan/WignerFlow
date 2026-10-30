@@ -94,4 +94,14 @@ Use `equitraj.binding.py` for pocket-aligned ligand RMSD, ligand internal RMSD, 
 
 ## Measured numbers
 
-TBD (filled in by PR)
+All on the shared 8-core CPU box (other jobs were running, so timings are pessimistic), Oct 30 2026. NaCl proof system: 64 Na + 64 Cl, illustrative LJ+Coulomb PME, 1200 K, dt 1 fs, 4 x 20 ps NVE trajectories (`scripts/make_nacl_proof.py`, 4 min 39 s wall total).
+
+- NVE energy conservation of the reference (traj_000): E_total -47527.98 -> -47528.18 kJ/mol over 20 ps.
+- OpenMM CPU (4 threads): 1312 steps/s = 113 ns/day.
+- WignerFlow, random init, tiny model (16 channels, flow head, 2 sampling steps, stride 10 fs, batch 1, CPU): 0.29-0.52 steps/s = 0.25-0.45 ns/day, so 0.002x OpenMM. The neighbor list is about 34% of rollout step time (294 ms per build for 128 atoms).
+- Training step (batch 4, unroll 3, CPU): 84 s per step, split 49% backward, 39% forward, 12% neighbor list, under 0.1% data. A CPU training proof is infeasible, so training and the 20 ns evaluation run on the A100 notebook.
+- Validation suite, reference vs reference (traj_003 vs traj_002): partial RDF L1 0.056-0.063 Å. D(Na) 6.0e-5 vs 7.7e-5 cm²/s. Nernst-Einstein sigma 233 vs 363 S/m. Temperature drift -920 / -1547 K/ns: these runs start from a lattice and are not equilibrated, so use longer equilibration for real comparisons.
+- Steps for 20 ns: 400,000 at a 50 fs stride, 2,000,000 at a 10 fs stride.
+
+Raw JSON: `results/nacl/profiling/summary.json`, `results/nacl/profiling/openmm_bench_cpu.json`, `results/nacl/validation_ref_vs_ref.{json,md}`.
+

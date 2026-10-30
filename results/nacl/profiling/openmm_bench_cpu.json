@@ -1,0 +1,27 @@
+{
+  "atoms": 128,
+  "species": [
+    "Cl",
+    "Na"
+  ],
+  "batch": 1,
+  "openmm": {
+    "platform": "CPU",
+    "steps_per_s": 1311.9462127036122,
+    "ns_per_day": 113.3521527775921,
+    "steps_per_ns": 1000000.0,
+    "wall_s": 1.5244527409995499,
+    "step_fs": 1.0
+  },
+  "model": {
+    "device": "cpu",
+    "random_init": true,
+    "sampling_steps": 2,
+    "parameters": 32532,
+    "steps_per_s": 0.516294673072821,
+    "ns_per_day": 0.4460785975349173,
+    "steps_per_ns": 100000.0,
+    "wall_s": 38.73756798799877,
+    "step_fs": 10.0
+  }
+}
