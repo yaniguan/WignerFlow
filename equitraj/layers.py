@@ -179,7 +179,7 @@ class SO2Linear(nn.Module):
         out = x.new_zeros(e, so3.n_components(self.lmax), self.c_out)
         out[:, self.idx_m0, :] = self.lin_m0(
             x[:, self.idx_m0, :].reshape(e, len(self.idx_m0) * c_in)
-        ).view(e, len(self.idx_m0), self.c_out)
+        ).view(e, len(self.idx_m0), self.c_out).to(out.dtype)
         for k in range(self.lmax):
             xp = x[:, self.idx_plus[k], :].reshape(e, len(self.idx_plus[k]) * c_in)
             xm = x[:, self.idx_minus[k], :].reshape(e, len(self.idx_minus[k]) * c_in)
@@ -188,8 +188,8 @@ class SO2Linear(nn.Module):
             if not self.parity:
                 yp = yp - self.w2[k](xm)
                 ym = ym + self.w2[k](xp)
-            out[:, self.idx_plus[k], :] = yp.view(e, len(self.idx_plus[k]), self.c_out)
-            out[:, self.idx_minus[k], :] = ym.view(e, len(self.idx_minus[k]), self.c_out)
+            out[:, self.idx_plus[k], :] = yp.view(e, len(self.idx_plus[k]), self.c_out).to(out.dtype)
+            out[:, self.idx_minus[k], :] = ym.view(e, len(self.idx_minus[k]), self.c_out).to(out.dtype)
         return out
 
 
@@ -252,7 +252,7 @@ class GraphAttention(nn.Module):
         alpha = segment_softmax(self.logits(h[:, 0, :]) + log_env[:, None], dst, x.shape[0])  # (E, heads)
         v = so3.from_edge_frame(wigner, self.so2_2(self.gate(h)))  # (E, S, C)
         v = v.view(e, v.shape[1], self.heads, self.c // self.heads) * alpha[:, None, :, None]
-        agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], self.c))
+        agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], self.c).to(x.dtype))
         return self.out(agg)
 
 

@@ -149,11 +149,11 @@ class EquiTraj(nn.Module):
         rad = self.edge_radial(gaussian_rbf(graph["dist"], self.cutoff, self.n_rbf)).view(e, self.lmax + 1, self.c)
         rad = rad * self.edge_type(t[graph["src"]])[:, None, :] * envelope(graph["dist"], self.cutoff)[:, None, None]
         ye = torch.zeros(e, s, self.c, dtype=x.dtype, device=x.device)
-        ye[:, [so3.index(l, 0) for l in range(self.lmax + 1)], :] = rad
-        agg = torch.zeros_like(x).index_add_(0, graph["dst"], so3.from_edge_frame(graph["wigner"], ye))
+        ye[:, [so3.index(l, 0) for l in range(self.lmax + 1)], :] = rad.to(ye.dtype)
+        agg = torch.zeros_like(x).index_add_(0, graph["dst"], so3.from_edge_frame(graph["wigner"], ye).to(x.dtype))
         return x + agg / 10.0
 
-    def encode(self, pos, vel, types, box):
+    def encode(self, pos, vel, types, box, graphs=None):
         """pos, vel: (B, k, N, 3) in Å and Å/fs, oldest frame first. types: (N,). box: (B, 3, 3) or None.
 
         Returns condition features (B*N, S, c) for the newest frame and that frame's graph.
@@ -168,14 +168,16 @@ class EquiTraj(nn.Module):
         d_norm = disp.reshape(-1, 3) / self.dx_std[tf][:, None]
 
         box_f = None if box is None else box[:, None].expand(b, k, 3, 3).reshape(b * k, 3, 3)
-        graph = build_graph(pos.reshape(b * k, n, 3), box_f, self.cutoff, self.lmax, self.neighbor_method)
+        graph = (build_graph(pos.reshape(b * k, n, 3), box_f, self.cutoff, self.lmax, self.neighbor_method)
+                 if graphs is None else graphs[0])
         x = self.embed(tf, v_norm, d_norm, graph, b * k * n)
         for blk in self.spatial:
             x = blk(x, graph)
         x = self.temporal(x.view(b, k, n, *x.shape[1:]))  # (B, N, S, c)
 
         box_last = None if box is None else box
-        graph_last = build_graph(pos[:, -1], box_last, self.cutoff, self.lmax, self.neighbor_method)
+        graph_last = (build_graph(pos[:, -1], box_last, self.cutoff, self.lmax, self.neighbor_method)
+                      if graphs is None else graphs[1])
         x = x.reshape(b * n, *x.shape[2:])
         for blk in self.fusion:
             x = blk(x, graph_last)
@@ -242,10 +244,10 @@ class EquiTraj(nn.Module):
         """One autoregressive step. Returns (dx, v_new) each (B, N, 3), center-of-mass motion removed."""
         return self.predict_with_grad(pos, vel, types, box, masses, n_steps, noise)
 
-    def predict_with_grad(self, pos, vel, types, box, masses, n_steps=10, noise=None):
+    def predict_with_grad(self, pos, vel, types, box, masses, n_steps=10, noise=None, graphs=None):
         """Same as predict, but differentiable (used for unrolled training)."""
         b = pos.shape[0]
-        cond, graph = self.encode(pos, vel, types, box)
+        cond, graph = self.encode(pos, vel, types, box, graphs=graphs)
         if self.head_type == "regression":
             y = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
         else:
