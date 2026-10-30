@@ -16,7 +16,6 @@ import numpy as np
 import torch
 import yaml
 from torch.utils.checkpoint import checkpoint
-from torch.utils.tensorboard import SummaryWriter
 
 from equitraj import analysis
 from equitraj.dataset import TrajWindows, compute_stats
@@ -112,6 +111,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--device", default="cuda", help="cuda (default) or cpu/mps for small local tests")
+    ap.add_argument("--no_tensorboard", action="store_true", help="keep JSON logs without the optional tensorboard dependency")
     args = ap.parse_args()
     if args.device == "cuda" and not torch.cuda.is_available():
         # fail loudly: a cluster job that silently trains on CPU wastes a day
@@ -165,7 +165,14 @@ def main():
                     "elements": train_ds.elements}, path + ".tmp")
         os.replace(path + ".tmp", path)
 
-    writer = SummaryWriter(os.path.join(out_dir, "tb"))
+    if args.no_tensorboard:
+        class ScalarWriter:
+            def add_scalar(self, *args, **kwargs):
+                pass
+        writer = ScalarWriter()
+    else:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(os.path.join(out_dir, "tb"))
     log = open(os.path.join(out_dir, "log.jsonl"), "a")
     t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses).mean().item()
     last_ckpt, t_start, running = time.time(), time.time(), []

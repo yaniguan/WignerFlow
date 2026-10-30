@@ -39,13 +39,24 @@ def first_zero(t, c):
     return t[i - 1] + (t[i] - t[i - 1]) * c[i - 1] / (c[i - 1] - c[i])
 
 
-def load_model(run_dir, ckpt, device, split="test"):
+def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     ck = torch.load(os.path.join(run_dir, ckpt), map_location=device, weights_only=False)
-    cfg = ck["cfg"]
+    if "cfg" in ck:
+        cfg = dict(ck["cfg"])
+        step = ck["step"]
+    else:
+        if data_dir is None:
+            raise ValueError("Released checkpoints require --data_dir for ground-truth evaluation")
+        cfg = {"model": ck["model_cfg"], "k": ck["k"], "stride_steps": ck["stride_steps"]}
+        step = ck["train_step"]
+    if data_dir is not None:
+        cfg["data_dir"] = data_dir
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
+    if "stride_fs" in ck and not np.isclose(ds.stride_fs, ck["stride_fs"]):
+        raise ValueError("Dataset stride does not match released checkpoint")
     model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
     model.load_state_dict(ck["model"])
-    return model.to(device).eval(), cfg, ds, ck["step"]
+    return model.to(device).eval(), cfg, ds, step
 
 
 def main():
@@ -60,13 +71,17 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--split", default="test", help="test for reporting; val for choosing among checkpoints")
+    ap.add_argument("--data_dir", default=None, help="ground-truth data override; required for release checkpoints")
+    ap.add_argument("--threads", type=int, default=None, help="explicit PyTorch CPU thread count")
     args = ap.parse_args()
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
     device = torch.device(args.device)
     tag = "eval" if args.thermostat_tau_fs <= 0 else f"eval_csvr{int(args.thermostat_tau_fs)}"
     out_dir = args.out or os.path.join(args.run, tag)
     os.makedirs(os.path.join(out_dir, "figs"), exist_ok=True)
 
-    model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split)
+    model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split, args.data_dir)
     k, f, dt = cfg["k"], ds.f, ds.stride_fs
     n_atoms = len(ds.types)
     deterministic = model.head_type == "regression"
