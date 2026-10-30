@@ -1,0 +1,310 @@
+{
+  "seed": 20261029,
+  "trials": 3,
+  "sampling_steps": 10,
+  "threads": 2,
+  "data": "data/argon",
+  "split": "test",
+  "method": "Rotate box and COM-free flow noise with inputs; compare dx and v_new with rotated original outputs.",
+  "checkpoint_sha256": {
+    "checkpoints/argon_flow_v0.pt": "4c8e035ee177bb8ad7d9abe45a95d047b5e5d49996ad8a38bff9ae9619ec3372",
+    "checkpoints/argon_flow_v1_cpu_reduced.pt": "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f"
+  },
+  "summary": [
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "max_abs_dx_error_A": 1.862645149230957e-06,
+      "max_abs_velocity_error_A_per_fs": 4.313187673687935e-08,
+      "max_abs_output_error": 1.862645149230957e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "max_abs_dx_error_A": 1.9012569296705806e-15,
+      "max_abs_velocity_error_A_per_fs": 4.705437428587089e-17,
+      "max_abs_output_error": 1.9012569296705806e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "max_abs_dx_error_A": 1.9278377294540405e-06,
+      "max_abs_velocity_error_A_per_fs": 2.635351847857237e-08,
+      "max_abs_output_error": 1.9278377294540405e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "max_abs_dx_error_A": 2.96637714392034e-15,
+      "max_abs_velocity_error_A_per_fs": 6.548581121812447e-17,
+      "max_abs_output_error": 2.96637714392034e-15
+    }
+  ],
+  "measurements": [
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": false,
+      "determinant": 0.9999999403953552,
+      "max_abs_dx_error_A": 1.862645149230957e-06,
+      "max_abs_velocity_error_A_per_fs": 4.313187673687935e-08,
+      "max_abs_output_error": 1.862645149230957e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": true,
+      "determinant": -0.9999999403953552,
+      "max_abs_dx_error_A": 1.8589198589324951e-06,
+      "max_abs_velocity_error_A_per_fs": 4.3102772906422615e-08,
+      "max_abs_output_error": 1.8589198589324951e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": false,
+      "determinant": 1.0000001192092896,
+      "max_abs_dx_error_A": 5.885958671569824e-07,
+      "max_abs_velocity_error_A_per_fs": 1.83936208486557e-08,
+      "max_abs_output_error": 5.885958671569824e-07
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": true,
+      "determinant": -1.0000001192092896,
+      "max_abs_dx_error_A": 5.923211574554443e-07,
+      "max_abs_velocity_error_A_per_fs": 1.8510036170482635e-08,
+      "max_abs_output_error": 5.923211574554443e-07
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": false,
+      "determinant": 1.0,
+      "max_abs_dx_error_A": 5.476176738739014e-07,
+      "max_abs_velocity_error_A_per_fs": 1.7826096154749393e-08,
+      "max_abs_output_error": 5.476176738739014e-07
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": true,
+      "determinant": -1.0,
+      "max_abs_dx_error_A": 5.513429641723633e-07,
+      "max_abs_velocity_error_A_per_fs": 1.7811544239521027e-08,
+      "max_abs_output_error": 5.513429641723633e-07
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": false,
+      "determinant": 0.9999999999999973,
+      "max_abs_dx_error_A": 1.9012569296705806e-15,
+      "max_abs_velocity_error_A_per_fs": 4.705437428587089e-17,
+      "max_abs_output_error": 1.9012569296705806e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": true,
+      "determinant": -0.9999999999999973,
+      "max_abs_dx_error_A": 1.9012569296705806e-15,
+      "max_abs_velocity_error_A_per_fs": 4.705437428587089e-17,
+      "max_abs_output_error": 1.9012569296705806e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": false,
+      "determinant": 0.9999999999999991,
+      "max_abs_dx_error_A": 1.27675647831893e-15,
+      "max_abs_velocity_error_A_per_fs": 4.119968255444917e-17,
+      "max_abs_output_error": 1.27675647831893e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": true,
+      "determinant": -0.9999999999999991,
+      "max_abs_dx_error_A": 1.2698175844150228e-15,
+      "max_abs_velocity_error_A_per_fs": 4.098284211995207e-17,
+      "max_abs_output_error": 1.2698175844150228e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": false,
+      "determinant": 0.9999999999999981,
+      "max_abs_dx_error_A": 1.7277845820728999e-15,
+      "max_abs_velocity_error_A_per_fs": 3.8299441743050444e-17,
+      "max_abs_output_error": 1.7277845820728999e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": true,
+      "determinant": -0.9999999999999981,
+      "max_abs_dx_error_A": 1.734723475976807e-15,
+      "max_abs_velocity_error_A_per_fs": 3.802839119992907e-17,
+      "max_abs_output_error": 1.734723475976807e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": false,
+      "determinant": 0.9999999403953552,
+      "max_abs_dx_error_A": 1.9278377294540405e-06,
+      "max_abs_velocity_error_A_per_fs": 2.60770320892334e-08,
+      "max_abs_output_error": 1.9278377294540405e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": true,
+      "determinant": -0.9999999403953552,
+      "max_abs_dx_error_A": 1.9259750843048096e-06,
+      "max_abs_velocity_error_A_per_fs": 2.60770320892334e-08,
+      "max_abs_output_error": 1.9259750843048096e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": false,
+      "determinant": 1.0000001192092896,
+      "max_abs_dx_error_A": 1.7285346984863281e-06,
+      "max_abs_velocity_error_A_per_fs": 2.635351847857237e-08,
+      "max_abs_output_error": 1.7285346984863281e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": true,
+      "determinant": -1.0000001192092896,
+      "max_abs_dx_error_A": 1.735985279083252e-06,
+      "max_abs_velocity_error_A_per_fs": 2.635351847857237e-08,
+      "max_abs_output_error": 1.735985279083252e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": false,
+      "determinant": 1.0,
+      "max_abs_dx_error_A": 1.6726553440093994e-06,
+      "max_abs_velocity_error_A_per_fs": 2.1595042198896408e-08,
+      "max_abs_output_error": 1.6726553440093994e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": true,
+      "determinant": -1.0,
+      "max_abs_dx_error_A": 1.6689300537109375e-06,
+      "max_abs_velocity_error_A_per_fs": 2.1478626877069473e-08,
+      "max_abs_output_error": 1.6689300537109375e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": false,
+      "determinant": 0.9999999999999973,
+      "max_abs_dx_error_A": 2.9629076969683865e-15,
+      "max_abs_velocity_error_A_per_fs": 6.548581121812447e-17,
+      "max_abs_output_error": 2.9629076969683865e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 0,
+      "window_index": 0,
+      "reflection": true,
+      "determinant": -0.9999999999999973,
+      "max_abs_dx_error_A": 2.96637714392034e-15,
+      "max_abs_velocity_error_A_per_fs": 6.548581121812447e-17,
+      "max_abs_output_error": 2.96637714392034e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": false,
+      "determinant": 0.9999999999999991,
+      "max_abs_dx_error_A": 2.9052281413921577e-15,
+      "max_abs_velocity_error_A_per_fs": 5.074066167232161e-17,
+      "max_abs_output_error": 2.9052281413921577e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 1,
+      "window_index": 1984,
+      "reflection": true,
+      "determinant": -0.9999999999999991,
+      "max_abs_dx_error_A": 2.910432311820088e-15,
+      "max_abs_velocity_error_A_per_fs": 5.074066167232161e-17,
+      "max_abs_output_error": 2.910432311820088e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": false,
+      "determinant": 0.9999999999999981,
+      "max_abs_dx_error_A": 2.942091015256665e-15,
+      "max_abs_velocity_error_A_per_fs": 5.399326818977812e-17,
+      "max_abs_output_error": 2.942091015256665e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "trial": 2,
+      "window_index": 3969,
+      "reflection": true,
+      "determinant": -0.9999999999999981,
+      "max_abs_dx_error_A": 2.949029909160572e-15,
+      "max_abs_velocity_error_A_per_fs": 5.442694905877232e-17,
+      "max_abs_output_error": 2.949029909160572e-15
+    }
+  ],
+  "wall_s": 76.42880525100009
+}

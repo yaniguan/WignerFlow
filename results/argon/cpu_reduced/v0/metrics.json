@@ -1,0 +1,84 @@
+{
+  "run": ".",
+  "checkpoint": "checkpoints/argon_flow_v0.pt",
+  "split": "test",
+  "train_step": 10000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 100,
+  "n_rollouts": 1,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.69629944614793,
+  "stability": {
+    "crashed": 0,
+    "steps_before_crash": [
+      100
+    ],
+    "median_steps_before_crash": 100.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 64.26388190159766,
+    "rel_err": 0.3213686038687989,
+    "T_end_per_rollout": [
+      57.572660805681764
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.007678316440433264,
+    "step_10": 0.1378820389509201,
+    "step_20": 0.29930710792541504
+  },
+  "rdf": {
+    "l1": 0.7325985914278899,
+    "peak_pos_model_A": 3.7611115852453887,
+    "peak_pos_gt_A": 3.697831254537542,
+    "peak_pos_err_A": 0.06328033070784667,
+    "peak_height_model": 3.5150933868819356,
+    "peak_height_gt": 2.8830964264246344,
+    "peak_height_rel_err": 0.21920770830445271
+  },
+  "vacf": {
+    "first_zero_model_fs": 318.9479320069505,
+    "first_zero_gt_fs": 306.60990555757326,
+    "first_zero_rel_err": 0.04024014301475494,
+    "vdos_peak_model_cm1": 26.685127615852164,
+    "vdos_peak_gt_cm1": 26.685127615852164,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 1.8041140900471458e-05,
+    "D_gt_cm2_s": 2.23906000733493e-05,
+    "rel_err": 0.19425380108748594,
+    "fit_range_fs": [
+      625.0,
+      2500.0
+    ]
+  },
+  "speed": {
+    "wall_s": 109.40182209014893,
+    "s_per_step_batch": 1.0940182209014893,
+    "ns_per_day_per_rollout": 3.948745932622811,
+    "ns_per_day_all_rollouts": 3.948745932622811,
+    "device": "cpu"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": false,
+    "rdf_peak_height": false,
+    "vacf_first_zero": true,
+    "diffusion": true,
+    "all_pass": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "argon_flow_v0.pt": {
+    "sha256": "4c8e035ee177bb8ad7d9abe45a95d047b5e5d49996ad8a38bff9ae9619ec3372",
+    "bytes": 7893931,
+    "weights_only_load": true
+  },
+  "argon_flow_v1_cpu_reduced.pt": {
+    "sha256": "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f",
+    "bytes": 7897419,
+    "weights_only_load": true
+  },
+  "final_snapshot_tensors_exactly_equal_export": true,
+  "model_architecture_unchanged": true,
+  "equivariance_measurements": 24,
+  "paired_evaluation_settings_match": true,
+  "all_metrics_finite_or_explicit_null": true
+}
+{"name": "integrity", "command": ["/workspace/venv311/bin/python", "results/argon/cpu_reduced/verify_artifacts.py"], "wall_s": 1.1047632694244385, "exit_code": 0, "start_unix": 1793333014.8360631, "end_unix": 1793333015.940828}
