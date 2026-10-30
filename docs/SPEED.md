@@ -105,3 +105,23 @@ Report per-step latency and physical throughput together; fewer calls can offset
 more expensive steps. Multi-replica aggregate speedup is a throughput comparison,
 not single-trajectory latency. Profiler traces and fallback flags explain which
 optimisations were actually active.
+
+## Measured CPU numbers (Oct 30 2026, 8-core box, idle; random weights, B_S3a-size model)
+
+Neighbor list, ms per call (`bench_speed.py --micro`, `results/speed_cpu/neighbors_micro.jsonl`):
+
+| atoms | brute | cell | Verlet (amortised) |
+|---:|---:|---:|---:|
+| 128 | 0.55 | 0.85 | 0.36 |
+| 512 | 2.62 | 1.76 | 0.62 |
+| 2048 | 46.6 | 3.42 | 1.17 |
+| 8192 | 760 | 24.6 | 4.86 |
+
+Argon, model stride 50 fs vs OpenMM CPU (LJ, dt 5 fs), batch 1, no compile (`results/speed_cpu/sweep_argon_cpu.jsonl`):
+
+| atoms | OpenMM ns/day | WF fp32 1-step | WF fp32 10-step | WF bf16 1-step | WF bf16 10-step |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 3366 | 63.0 | 28.7 | 64.2 | 26.3 |
+| 512 | 2790 | 8.5 | 3.8 | 14.2 | 8.2 |
+
+On CPU, a cutoff-only LJ argon force evaluation is far cheaper than an lmax=2 equivariant network, so OpenMM wins here even with a 10x larger stride. The relevant comparison is the A100 sweep in the Colab notebook (bf16/fp8, compile, replicas) on systems with PME/polarization, where OpenMM's per-step cost is much higher.
