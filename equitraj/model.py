@@ -30,6 +30,7 @@ import torch.nn as nn
 from equitraj import so3
 from equitraj.layers import MLP, Block, EquivariantLinear, TemporalAttention, envelope, gaussian_rbf
 from equitraj.neighbors import brute_force, cell_list
+from equitraj.prior import RepulsionPrior
 
 
 def build_graph(pos, box, cutoff, lmax, method="brute_force"):
@@ -94,7 +95,8 @@ class Denoiser(nn.Module):
 class EquiTraj(nn.Module):
     def __init__(self, n_types, lmax=2, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3,
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
-                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0):
+                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
+                 repulsion_prior=None):
         super().__init__()
         self.lmax, self.c, self.cutoff, self.k = lmax, channels, cutoff, k
         self.n_rbf = n_rbf
@@ -124,6 +126,11 @@ class EquiTraj(nn.Module):
             self.y_out = nn.Linear(c, 2, bias=False)
         else:
             self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity)
+        # optional short-range repulsion applied to predictions (equitraj/prior.py); when disabled no
+        # module or buffer is registered, so state dicts are the same as before
+        self.prior = None
+        if repulsion_prior and repulsion_prior.get("enabled", True):
+            self.prior = RepulsionPrior(n_types, **{k: v for k, v in repulsion_prior.items() if k != "enabled"})
 
     # ------------------------------------------------------------ encoder
 
@@ -248,4 +255,7 @@ class EquiTraj(nn.Module):
                 tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
                 y = y + self.denoiser(cond, graph, y, tau) / n_steps
         dx, v = self.y_to_targets(y, types, vel[:, -1])
-        return remove_com(dx, masses), remove_com(v, masses)
+        dx, v = remove_com(dx, masses), remove_com(v, masses)
+        if self.prior is not None:  # mass-weighted pair pushes: the center of mass stays fixed
+            dx, v = self.prior(pos[:, -1], dx, v, types, box, masses)
+        return dx, v
