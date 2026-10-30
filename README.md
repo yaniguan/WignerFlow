@@ -88,6 +88,30 @@ pip install -e .
 
 On a CUDA cluster, use the same file but ask for a CUDA build of PyTorch (`pytorch=*=cuda*`).
 
+For model inference and evaluation in an existing Python environment, `pip install -e .`
+installs the core dependencies. Use `pip install -e '.[simulation,train,test]'` for the
+argon pipeline, TensorBoard and tests. OpenFF system rebuilding still uses the conda
+environment above. Scripts run from the repository root after installation without
+setting `PYTHONPATH`.
+
+The [full retrain Colab notebook](colab/argon_full_retrain.ipynb) uses
+`configs/data/argon_full.yaml` (ten 0.5 ns trajectories, separate from reduced data)
+and the original 40,000-step `configs/argon/B_S3a_seed1.yaml` training recipe.
+For a small paired checkpoint comparison:
+
+```bash
+python scripts/eval_multiseed.py \
+  --checkpoints checkpoints/argon_flow_v0.pt checkpoints/argon_flow_v1_cpu_reduced.pt \
+  --data_dir data/argon --starts 3 --seeds 2 --steps 50 --threads 2 \
+  --device cpu --out results/argon/multiseed_oct29b
+```
+
+The evaluator writes per-rollout observations and mean/95% bootstrap intervals to
+`metrics.json` and `metrics.md`. It resamples starting windows with their seeds
+kept together; physical metrics condition on survival, and missing VACF zeros are
+reported as null. These short rollouts do not certify long-time stability.
+
+
 Force-field files for the OpenFF-parametrized systems (Li⁺/EC variants, alanine dipeptide, aspirin) are already in `systems/`. To rebuild them:
 
 ```bash

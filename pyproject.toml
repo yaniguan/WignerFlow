@@ -4,13 +4,24 @@ version = "0.0.1"
 description = "Autoregressive E(3)-equivariant trajectory model (proof of concept)"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
+dependencies = [
+  "torch>=2.1", "e3nn>=0.4.4,<0.6", "numpy>=1.24", "scipy>=1.10",
+  "h5py>=3.8", "matplotlib>=3.7", "PyYAML>=6",
+]
+
+[project.optional-dependencies]
+simulation = ["openmm>=8.1"]
+train = ["tensorboard>=2.14"]
+test = ["pytest>=7"]
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["equitraj"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["equitraj", "equitraj.*"]
+namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
