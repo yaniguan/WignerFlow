@@ -47,6 +47,63 @@ def noise_sigma_at(tc, step):
     return float(np.interp(step, steps, sigmas))
 
 
+def lr_scale_after_switch(step, switch_step, rewarmup):
+    """LR multiplier after an unroll-length switch: linear 0.1 -> 1 over `rewarmup` steps (1 when disabled)."""
+    if not rewarmup or switch_step is None or step - switch_step >= rewarmup:
+        return 1.0
+    return 0.1 + 0.9 * max(0, step - switch_step) / float(rewarmup)
+
+
+def last_switch_step(schedule, step):
+    """Training step at which the unroll length in effect at `step` started (None for the first entry)."""
+    sw = None
+    m_prev = schedule[0][1]
+    for s, mm in schedule:
+        if s <= step and mm != m_prev:
+            sw = s
+        if s <= step:
+            m_prev = mm
+    return sw
+
+
+class SpikeGuard:
+    """Skips optimizer updates whose loss is non-finite or > factor x the running median of the last `window`
+    accepted losses at the current unroll length. History is reset when m changes; guarding starts after
+    `min_history` accepted losses. factor <= 0 disables the guard (only non-finite losses are skipped)."""
+
+    def __init__(self, factor=0.0, window=200, min_history=50):
+        self.factor, self.window, self.min_history = float(factor or 0.0), int(window), int(min_history)
+        self.hist, self.m, self.skipped = [], None, 0
+
+    def check(self, loss_value, m):
+        if m != self.m:
+            self.hist, self.m = [], m
+        if not math.isfinite(loss_value):
+            self.skipped += 1
+            return False
+        if self.factor > 0 and len(self.hist) >= self.min_history:
+            if loss_value > self.factor * float(np.median(self.hist)):
+                self.skipped += 1
+                return False
+        self.hist.append(loss_value)
+        self.hist = self.hist[-self.window:]
+        return True
+
+
+def load_init_weights(model, path, device):
+    """Initialise `model` from a training checkpoint/snapshot (fine-tuning). Non-strict only for the optional
+    repulsion-prior buffer, so snapshots trained without the prior load into a model that has it.
+    Returns (missing_keys, the source step)."""
+    ck = torch.load(path, map_location=device, weights_only=False)
+    sd = ck["model"]
+    res = model.load_state_dict(sd, strict=False)
+    bad = [k for k in res.missing_keys if not k.startswith("prior.")] + list(res.unexpected_keys)
+    if bad:
+        raise RuntimeError(f"init_from {path}: incompatible keys {bad}")
+    absent = [k for k in model.state_dict() if k not in sd]  # e.g. prior.rmin (the model may tolerate it itself)
+    return absent, ck.get("step")
+
+
 def unroll_weights_for(weights, m, like):
     """Per-unroll-step loss weights (m,): the list is cut to m entries or padded with its last value."""
     w = [float(x) for x in weights][:m]
@@ -235,6 +292,11 @@ def main():
         residual = model.target == "residual"
         model.out_dx_std.copy_(st["res_dx_std"] if residual else st["dx_std"])
         model.out_v_std.copy_(st["res_v_std"] if residual else st["v_std"])
+        if tc.get("init_from"):
+            # fine-tune: weights and normalisation buffers come from the snapshot; a missing prior buffer
+            # keeps the r_min just estimated from the training data
+            missing, src_step = load_init_weights(model, tc["init_from"], device)
+            print(json.dumps({"init_from": tc["init_from"], "init_source_step": src_step, "missing_keys": missing}), flush=True)
     print(json.dumps({"elements": train_ds.elements, "dx_std": model.dx_std.tolist(), "v_std": model.v_std.tolist(),
                       "out_dx_std": model.out_dx_std.tolist(), "out_v_std": model.out_v_std.tolist(), "target": model.target,
                       "n_params": sum(p.numel() for p in model.parameters()), "n_train_windows": len(train_ds)}), flush=True)
@@ -281,6 +343,62 @@ def main():
     log = open(os.path.join(out_dir, "log.jsonl"), "a")
     t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses).mean().item()
     last_ckpt, t_start, running = time.time(), time.time(), []
+    guard = SpikeGuard(tc.get("loss_spike_factor", 0.0), tc.get("loss_spike_window", 200))
+    rewarmup = int(tc.get("rewarmup_steps", 0))
+    gnorms = []
+    def evaluate_and_select():
+        nonlocal best, best_stable, last_ckpt
+        model.eval()
+        with torch.no_grad():
+            val = []
+            for i in np.linspace(0, len(val_ds) - 1, ec.get("val_batches", 20) * tc["batch_size"]).astype(int).reshape(-1, tc["batch_size"]):
+                items = [val_ds[j] for j in i]
+                vp = torch.stack([it[0] for it in items]).to(device)
+                vv = torch.stack([it[1] for it in items]).to(device)
+                vb = torch.stack([it[2] for it in items]).to(device) if val_ds.periodic else None
+                val.append(training_loss(model, vp, vv, vb, types, masses, 1, 0.0, "truncated", 2).item())
+            metrics = {"step": step, "val_loss": float(np.mean(val))}
+            diags = []
+            metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
+                                              ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags))
+            if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
+                sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
+                                         ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
+                                         diag_sink=diags)
+                metrics.update({"sel_" + key: value for key, value in sel.items()})
+        for key, value in metrics.items():
+            if key != "step":
+                writer.add_scalar(f"val/{key}", value, step)
+        score = legacy_score(metrics)
+        metrics["score"] = score
+        if score < best:
+            best = score
+            save(os.path.join(out_dir, "best.pt"))
+        stable = selection_score(metrics)
+        metrics["stability_score"] = list(stable)
+        if best_stable is None or stable < best_stable:
+            best_stable = stable
+            save(os.path.join(out_dir, "best_stable.pt"))
+        crashed_diags = [d for d in diags if any(c is not None for c in d["crashes"])]
+        if crashed_diags:
+            with open(os.path.join(out_dir, "crash_diagnostics.jsonl"), "a") as f:
+                for d in crashed_diags:
+                    f.write(json.dumps({"step": step, **d}) + "\n")
+        # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
+        # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
+        os.makedirs(os.path.join(out_dir, "snapshots"), exist_ok=True)
+        torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+                   os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
+        log.write(json.dumps(metrics) + "\n")
+        log.flush()
+        print(json.dumps(metrics), flush=True)
+        save(ckpt_path)
+        last_ckpt = time.time()
+        model.train()
+
+    if step == 0 and tc.get("init_from") and ec.get("eval_at_start", True):
+        # fine-tune: score the initial weights so best_stable.pt can never be worse than the starting point
+        evaluate_and_select()
     model.train()
     while step < tc["steps"]:
         for pos, vel, box in loader:
@@ -289,71 +407,37 @@ def main():
             pos, vel = pos.to(device), vel.to(device)
             box = box.to(device) if train_ds.periodic else None
             m = unroll_length(tc["unroll"], step)
+            lr_now = lr_at(step) * lr_scale_after_switch(step, last_switch_step(tc["unroll"], step), rewarmup)
             for g in opt.param_groups:
-                g["lr"] = lr_at(step)
+                g["lr"] = lr_now
             loss = training_loss(model, pos, vel, box, types, masses, m, noise_sigma_at(tc, step),
                                  tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2), **loss_opts)
             opt.zero_grad(set_to_none=True)
-            loss.backward()
-            gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
-            opt.step()
+            loss_value = loss.item()
+            if guard.check(loss_value, m):
+                loss.backward()
+                gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
+                if torch.isfinite(gnorm):
+                    opt.step()
+                    gnorms.append(gnorm.item())
+                else:
+                    guard.skipped += 1
+                    opt.zero_grad(set_to_none=True)
             step += 1
-            running.append(loss.item())
+            if math.isfinite(loss_value):
+                running.append(loss_value)
             if step % 50 == 0:
-                writer.add_scalar("train/loss", np.mean(running), step)
-                writer.add_scalar("train/grad_norm", gnorm.item(), step)
+                mean_loss = float(np.mean(running)) if running else float("nan")
+                mean_gn = float(np.mean(gnorms)) if gnorms else float("nan")
+                writer.add_scalar("train/loss", mean_loss, step)
+                writer.add_scalar("train/grad_norm", mean_gn, step)
                 writer.add_scalar("train/unroll_m", m, step)
-                print(json.dumps({"step": step, "loss": float(np.mean(running)), "m": m, "lr": lr_at(step),
+                print(json.dumps({"step": step, "loss": mean_loss, "m": m, "lr": lr_now,
+                                  "grad_norm": mean_gn, "skipped_updates": guard.skipped,
                                   "elapsed_h": (time.time() - t_start) / 3600}), flush=True)
-                running = []
+                running, gnorms = [], []
             if step % ec["every"] == 0 or step == tc["steps"]:
-                model.eval()
-                with torch.no_grad():
-                    val = []
-                    for i in np.linspace(0, len(val_ds) - 1, ec.get("val_batches", 20) * tc["batch_size"]).astype(int).reshape(-1, tc["batch_size"]):
-                        items = [val_ds[j] for j in i]
-                        vp = torch.stack([it[0] for it in items]).to(device)
-                        vv = torch.stack([it[1] for it in items]).to(device)
-                        vb = torch.stack([it[2] for it in items]).to(device) if val_ds.periodic else None
-                        val.append(training_loss(model, vp, vv, vb, types, masses, 1, 0.0, "truncated", 2).item())
-                    metrics = {"step": step, "val_loss": float(np.mean(val))}
-                    diags = []
-                    metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
-                                                      ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags))
-                    if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
-                        sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
-                                                 ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
-                                                 diag_sink=diags)
-                        metrics.update({"sel_" + key: value for key, value in sel.items()})
-                for key, value in metrics.items():
-                    if key != "step":
-                        writer.add_scalar(f"val/{key}", value, step)
-                score = legacy_score(metrics)
-                metrics["score"] = score
-                if score < best:
-                    best = score
-                    save(os.path.join(out_dir, "best.pt"))
-                stable = selection_score(metrics)
-                metrics["stability_score"] = list(stable)
-                if best_stable is None or stable < best_stable:
-                    best_stable = stable
-                    save(os.path.join(out_dir, "best_stable.pt"))
-                crashed_diags = [d for d in diags if any(c is not None for c in d["crashes"])]
-                if crashed_diags:
-                    with open(os.path.join(out_dir, "crash_diagnostics.jsonl"), "a") as f:
-                        for d in crashed_diags:
-                            f.write(json.dumps({"step": step, **d}) + "\n")
-                # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
-                # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
-                os.makedirs(os.path.join(out_dir, "snapshots"), exist_ok=True)
-                torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
-                           os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
-                log.write(json.dumps(metrics) + "\n")
-                log.flush()
-                print(json.dumps(metrics), flush=True)
-                save(ckpt_path)
-                last_ckpt = time.time()
-                model.train()
+                evaluate_and_select()
             elif time.time() - last_ckpt > 60 * tc.get("ckpt_minutes", 20):
                 save(ckpt_path)
                 last_ckpt = time.time()
