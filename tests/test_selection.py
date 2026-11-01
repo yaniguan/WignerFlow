@@ -1,6 +1,6 @@
 """Checkpoint selection score: crashes dominate, temperature error is penalised."""
 
-from equitraj.train import selection_score
+from equitraj.train import temperature_aware_score as selection_score
 
 
 def test_crash_dominates():

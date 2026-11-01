@@ -1,0 +1,23 @@
+# Reconstructed CPU-reduced dataset; not the missing original production config.
+# build_argon defaults: 256 Ar, density 1.374 g/cm^3, LJ sigma 0.3405 nm,
+# epsilon 0.996 kJ/mol, switch 0.80 nm, cutoff 0.85 nm.
+# dt_fs = released stride_fs / stride_steps = 50 / 10.
+system: argon
+temperature_K: 95.0
+dt_fs: 5.0
+save_every: 1
+force_every: 10
+friction_per_ps: 1.0
+constraint_tol: 0.000001
+npt_ps: 0.0
+equil_ps: 20.0
+production_ps: 20.0
+platform: CPU
+precision: mixed
+n_traj: 4
+seed0: 20261029
+split:
+  train: [0, 1]
+  val: [2]
+  test: [3]
+out_dir: data/argon

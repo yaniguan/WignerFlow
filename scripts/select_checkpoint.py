@@ -19,7 +19,7 @@ import torch
 from equitraj.dataset import TrajWindows
 from equitraj.model import EquiTraj
 from equitraj.rollout import temperature
-from equitraj.train import selection_score, validation_rollout
+from equitraj.train import temperature_aware_score, validation_rollout
 
 
 def main():
@@ -49,7 +49,7 @@ def main():
         model.to(device).eval()
         torch.manual_seed(0)
         m = validation_rollout(model, ds, args.starts, args.steps, args.sampling_steps, device, t_ref)
-        m.update(step=ck["step"], file=name, score=selection_score(m, args.t_weight))
+        m.update(step=ck["step"], file=name, score=temperature_aware_score(m, args.t_weight))
         rows.append(m)
         print(json.dumps({k: m.get(k) for k in ("step", "val_crash_frac", "val_T_rel_err", "val_rdf_l1", "score")}), flush=True)
     best = min(rows, key=lambda r: r["score"])

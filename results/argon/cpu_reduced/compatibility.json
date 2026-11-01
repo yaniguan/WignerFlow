@@ -1,0 +1,8 @@
+{
+  "architecture_equal_to_v0": true,
+  "context_equal_to_v0": true,
+  "stride_fs_equal_to_v0": true,
+  "types_equal_to_v0": true,
+  "masses_equal_to_v0": true,
+  "max_abs_box_difference_A": 0.0
+}

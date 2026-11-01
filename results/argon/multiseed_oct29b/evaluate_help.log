@@ -1,0 +1,23 @@
+usage: evaluate.py [-h] --run RUN [--ckpt CKPT] [--steps STEPS]
+                   [--seeds SEEDS] [--starts STARTS]
+                   [--sampling_steps SAMPLING_STEPS]
+                   [--thermostat_tau_fs THERMOSTAT_TAU_FS] [--out OUT]
+                   [--device DEVICE] [--split SPLIT] [--data_dir DATA_DIR]
+                   [--threads THREADS]
+
+options:
+  -h, --help            show this help message and exit
+  --run RUN
+  --ckpt CKPT
+  --steps STEPS
+  --seeds SEEDS
+  --starts STARTS
+  --sampling_steps SAMPLING_STEPS
+  --thermostat_tau_fs THERMOSTAT_TAU_FS
+                        >0: CSVR switch S6 (reported separately)
+  --out OUT
+  --device DEVICE
+  --split SPLIT         test for reporting; val for choosing among checkpoints
+  --data_dir DATA_DIR   ground-truth data override; required for release
+                        checkpoints
+  --threads THREADS     explicit PyTorch CPU thread count

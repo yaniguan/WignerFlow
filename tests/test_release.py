@@ -11,6 +11,8 @@ CKPT = "checkpoints/argon_flow_v0.pt"
 
 @pytest.mark.skipif(not os.path.exists(CKPT), reason="release checkpoint not present")
 def test_release_checkpoint_loads_and_steps():
+    pytest.importorskip("e3nn")
+    pytest.importorskip("matplotlib")  # demo.py imports equitraj.plots
     sys.path.insert(0, "scripts")
     from demo import load_release  # noqa: PLC0415
     from equitraj.rollout import rollout  # noqa: PLC0415

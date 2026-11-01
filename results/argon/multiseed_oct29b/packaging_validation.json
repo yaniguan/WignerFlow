@@ -1,0 +1,17 @@
+{
+  "environment": "/tmp/wigner_installcheck",
+  "pythonpath_used": false,
+  "dependency_versions": {
+    "torch": "2.10.0+cpu",
+    "e3nn": "0.4.4",
+    "numpy": "1.26.4",
+    "scipy": "1.17.1",
+    "h5py": "3.16.0",
+    "matplotlib": "3.11.2",
+    "PyYAML": "6.0.3"
+  },
+  "packages": [
+    "equitraj"
+  ],
+  "editable_install": "passed via uv and pip; pip resolved all core dependencies"
+}

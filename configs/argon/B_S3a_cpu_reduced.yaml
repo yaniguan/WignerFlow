@@ -1,0 +1,44 @@
+data_dir: data/argon
+stride_steps: 10
+k: 3
+seed: 1
+model:
+  head: flow
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+  target: residual
+train:
+  batch_size: 1
+  lr: 0.0003
+  steps: 1000
+  warmup: 100
+  grad_clip: 1.0
+  noise_sigma: 0.01
+  unroll:
+  - - 0
+    - 1
+  - - 600
+    - 2
+  - - 900
+    - 4
+  backprop: truncated
+  unroll_sampling_steps: 2
+  workers: 0
+  start_every: 1
+  ckpt_minutes: 5
+eval:
+  every: 250
+  val_batches: 2
+  rollout_steps: 10
+  rollout_starts: 1
+  sampling_steps: 2
+name: B_S3a_cpu_reduced
+out_dir: results/argon/cpu_reduced/train
