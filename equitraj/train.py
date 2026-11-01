@@ -211,7 +211,11 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     if not ok or out["positions"] is None:
         return metrics
     metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses).mean().item()
-    metrics["val_T_rel_err"] = abs(metrics["val_T_end"] - t_ref) / t_ref
+    # temperature error averaged over the second half of each rollout (one frame is too noisy to rank checkpoints)
+    vel = out["velocities"]
+    half = vel.shape[0] // 2
+    t_traj = torch.stack([temperature(vel[i, ok], ds.masses) for i in range(half, vel.shape[0])])  # (frames, ok)
+    metrics["val_T_rel_err"] = ((t_traj.mean(0) - t_ref).abs() / t_ref).mean().item()
     # all-atom RDF of each rollout vs the ground-truth frames of the same trajectory over the same time span
     idx = np.arange(len(ds.types))
     l1 = []
@@ -231,6 +235,17 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
 def legacy_score(m):
     """Lower is better: crashes dominate, then RDF error. Selects best.pt (unchanged)."""
     return m["val_crash_frac"] * 100.0 + m.get("val_rdf_l1", 10.0)
+
+
+def temperature_aware_score(m, t_weight=1.0):
+    """Scalar score used by scripts/select_checkpoint.py; lower is better: crashes dominate, then RDF error plus
+    t_weight times the relative temperature error.
+
+    The temperature term matters because the model has no energy conservation: in argon v0, validation rollouts
+    with a good RDF could still be 70% too hot. t_weight=0 gives legacy_score. Metrics from logs written before
+    val_T_rel_err existed count as zero temperature error.
+    """
+    return legacy_score(m) + t_weight * m.get("val_T_rel_err", 0.0)
 
 
 def selection_score(m):
