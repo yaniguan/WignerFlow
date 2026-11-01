@@ -1,0 +1,59 @@
+{
+  "measurements": [
+    {
+      "threads": 1,
+      "batch": 1,
+      "m": 1,
+      "train_s_per_step": 3.083015160333465,
+      "loss": 1.3369866609573364
+    },
+    {
+      "threads": 1,
+      "batch": 1,
+      "m": 2,
+      "train_s_per_step": 3.3250804433334147,
+      "loss": 11.355822563171387
+    },
+    {
+      "threads": 1,
+      "rollout_s_per_step_K10": 1.789153544000025
+    },
+    {
+      "threads": 2,
+      "batch": 1,
+      "m": 1,
+      "train_s_per_step": 1.7598493243334208,
+      "loss": 1.497768759727478
+    },
+    {
+      "threads": 2,
+      "batch": 1,
+      "m": 2,
+      "train_s_per_step": 2.236205504666638,
+      "loss": 8.588879585266113
+    },
+    {
+      "threads": 2,
+      "rollout_s_per_step_K10": 1.0052532800000336
+    },
+    {
+      "threads": 4,
+      "batch": 1,
+      "m": 1,
+      "train_s_per_step": 2.4692229936666386,
+      "loss": 1.8471108675003052
+    },
+    {
+      "threads": 4,
+      "batch": 1,
+      "m": 2,
+      "train_s_per_step": 1.8161130096665754,
+      "loss": 6.488227844238281
+    },
+    {
+      "threads": 4,
+      "rollout_s_per_step_K10": 0.613967771666618
+    }
+  ],
+  "note": "8-thread benchmark interrupted (Ctrl-C) after no completed measurements; training and v0 evaluation had started concurrently near the end of the benchmark. Warmup 1 + 3 timed updates per setting."
+}

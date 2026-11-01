@@ -36,9 +36,9 @@ def minimum_image(dr, box):
     return frac @ box
 
 
-def brute_force(pos, box, cutoff):
+def brute_force(pos, box, cutoff, *, _validate=True):
     """O(N^2) neighbor list. Fast enough on a GPU for ~1000 atoms."""
-    if box is not None:
+    if box is not None and _validate:
         _check_box(box, cutoff)
     n = pos.shape[0]
     dr = minimum_image(pos[:, None, :] - pos[None, :, :], box)  # dr[i, j] = pos[i] - pos[j]
@@ -48,46 +48,89 @@ def brute_force(pos, box, cutoff):
     return src, dst, dr[src, dst]
 
 
-def cell_list(pos, box, cutoff):
-    """O(N) cell-list neighbor list for orthorhombic boxes.
+def cell_list(pos, box, cutoff, *, _validate=True):
+    """Vectorised sparse cell search, including no-PBC and fractional triclinic PBC.
 
-    Atoms are binned into cells at least `cutoff` wide; each atom only checks the 27
-    surrounding cells. Needs at least 3 cells along every axis (otherwise a cell would be
-    visited twice); falls back to brute force when the box is too small or not periodic.
+    Sorting costs O(N log N); candidate work is O(N + E) at bounded density.
+    No loops over atoms or dense tables proportional to empty volume are used.
+    Small periodic boxes use the reference pair search to avoid duplicate images.
+    Uses the same fractional minimum-image convention as brute_force.
     """
-    if box is None or not torch.allclose(box, torch.diag(torch.diag(box))):
-        return brute_force(pos, box, cutoff)
-    lengths = torch.diag(box)
-    n_cells = torch.floor(lengths / cutoff).long()
-    if (n_cells < 3).any():
-        return brute_force(pos, box, cutoff)
-    _check_box(box, cutoff)
-
-    n = pos.shape[0]
-    device = pos.device
-    frac = torch.remainder(pos / lengths, 1.0)
-    cell_xyz = torch.clamp((frac * n_cells).long(), max=n_cells - 1)  # guard against frac == 1.0 by rounding
-    cell_id = (cell_xyz[:, 0] * n_cells[1] + cell_xyz[:, 1]) * n_cells[2] + cell_xyz[:, 2]
-    n_total = int(n_cells.prod())
-
-    # Table of atoms per cell, padded with -1: table[cell, slot]
-    order = torch.argsort(cell_id)
-    counts = torch.bincount(cell_id, minlength=n_total)
-    max_count = int(counts.max())
+    if cutoff <= 0:
+        raise ValueError("cutoff must be positive")
+    n, device = pos.shape[0], pos.device
+    if n == 0:
+        empty = torch.empty(0, dtype=torch.long, device=device)
+        return empty, empty, pos[:0]
+    if box is None:
+        xyz = torch.floor((pos - pos.amin(0)) / cutoff).long() + 1
+        dims = xyz.amax(0) + 2
+    else:
+        if _validate:
+            _check_box(box, cutoff)
+        inv = torch.linalg.inv(box)
+        widths = 1 / torch.linalg.norm(inv, dim=0)
+        dims = torch.floor(widths / cutoff).long()
+        if bool((dims < 3).any()):
+            return brute_force(pos, box, cutoff, _validate=_validate)
+        xyz = torch.floor(torch.remainder(pos @ inv, 1) * dims).long()
+        xyz = torch.minimum(xyz, dims - 1)
+    shifts = torch.cartesian_prod(*[torch.arange(-1, 2, device=device)] * 3)
+    nb = xyz[:, None] + shifts
+    if box is not None:
+        nb = torch.remainder(nb, dims)
+    def ids(x):
+        return (x[..., 0] * dims[1] + x[..., 1]) * dims[2] + x[..., 2]
+    sorted_ids, order = torch.sort(ids(xyz))
+    queries = ids(nb).reshape(-1)
+    lo = torch.searchsorted(sorted_ids, queries)
+    hi = torch.searchsorted(sorted_ids, queries, right=True)
+    counts = hi - lo
+    query = torch.repeat_interleave(torch.arange(queries.numel(), device=device), counts)
     starts = torch.cumsum(counts, 0) - counts
-    slot = torch.arange(n, device=device) - starts[cell_id[order]]
-    table = torch.full((n_total, max_count), -1, dtype=torch.long, device=device)
-    table[cell_id[order], slot] = order
-
-    # The 27 neighboring cells of each atom's cell (with periodic wrap)
-    shifts = torch.stack(torch.meshgrid(*[torch.arange(-1, 2, device=device)] * 3, indexing="ij"), -1).reshape(-1, 3)
-    nb_xyz = torch.remainder(cell_xyz[:, None, :] + shifts[None, :, :], n_cells)
-    nb_id = (nb_xyz[..., 0] * n_cells[1] + nb_xyz[..., 1]) * n_cells[2] + nb_xyz[..., 2]  # (n, 27)
-    candidates = table[nb_id].reshape(n, -1)  # (n, 27 * max_count)
-
-    dst = torch.arange(n, device=device)[:, None].expand_as(candidates)
-    valid = (candidates >= 0) & (candidates != dst)
-    src, dst = candidates[valid], dst[valid]
+    offset = torch.arange(query.numel(), device=device) - starts[query]
+    src = order[lo[query] + offset]
+    dst = query // 27
     dr = minimum_image(pos[src] - pos[dst], box)
-    keep = torch.linalg.norm(dr, dim=-1) < cutoff
+    keep = (src != dst) & (dr.square().sum(-1) < cutoff ** 2)
     return src[keep], dst[keep], dr[keep]
+
+
+class VerletList:
+    """Reusable directed pairs at cutoff+skin; displacement checked on every call.
+
+    rebuild_every optionally imposes an additional maximum age (in calls).
+    Box changes and shape/device/dtype changes always invalidate the cache.
+    Reference displacement is unwrapped, conservatively detecting box crossings.
+    """
+    def __init__(self, cutoff, skin=1.0, rebuild_every=None):
+        if cutoff <= 0 or skin < 0 or (rebuild_every is not None and rebuild_every < 1):
+            raise ValueError("invalid cutoff, skin or rebuild interval")
+        self.cutoff, self.skin, self.rebuild_every = cutoff, skin, rebuild_every
+        self.reference = None
+        self.box = None
+        self.age = 0
+        self.rebuilds = 0
+
+    def __call__(self, pos, box=None):
+        if box is not None:
+            _check_box(box, self.cutoff)
+        changed = (self.reference is None or self.reference.shape != pos.shape
+                   or self.reference.device != pos.device or self.reference.dtype != pos.dtype)
+        changed = changed or ((box is None) != (self.box is None))
+        if not changed and box is not None:
+            changed = not torch.equal(box, self.box)
+        if not changed:
+            changed = bool(((pos - self.reference).square().sum(-1) > (self.skin / 2) ** 2).any())
+        if self.rebuild_every is not None and self.age >= self.rebuild_every:
+            changed = True
+        if changed:
+            self.src, self.dst, _ = cell_list(pos, box, self.cutoff + self.skin, _validate=False)
+            self.reference = pos.detach().clone()
+            self.box = None if box is None else box.detach().clone()
+            self.age = 0
+            self.rebuilds += 1
+        self.age += 1
+        dr = minimum_image(pos[self.src] - pos[self.dst], box)
+        keep = dr.square().sum(-1) < self.cutoff ** 2
+        return self.src[keep], self.dst[keep], dr[keep]

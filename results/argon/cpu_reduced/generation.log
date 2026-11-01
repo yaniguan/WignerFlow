@@ -1,0 +1,5 @@
+data/argon/traj_000.h5: {"wall_s": 2.4948673248291016, "ns_per_day_with_io": 692.4488459995919, "precision": "platform default"}
+data/argon/traj_001.h5: {"wall_s": 2.555466890335083, "ns_per_day_with_io": 676.0283244262557, "precision": "platform default"}
+data/argon/traj_002.h5: {"wall_s": 3.2804219722747803, "ns_per_day_with_io": 526.6298100064344, "precision": "platform default"}
+data/argon/traj_003.h5: {"wall_s": 2.6726622581481934, "ns_per_day_with_io": 646.3847030177991, "precision": "platform default"}
+{"name": "generation", "command": ["/workspace/venv311/bin/python", "scripts/gen_data.py", "--config", "configs/data/argon.yaml"], "wall_s": 16.72762417793274, "exit_code": 0, "start_unix": 1793330514.891103, "end_unix": 1793330531.6187403}

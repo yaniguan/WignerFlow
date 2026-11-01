@@ -1,0 +1,28 @@
+usage: eval_multiseed.py [-h] --checkpoints CHECKPOINTS [CHECKPOINTS ...]
+                         --data_dir DATA_DIR --out OUT [--device DEVICE]
+                         [--split {test,val}] [--starts STARTS]
+                         [--seeds SEEDS] [--steps STEPS]
+                         [--sampling_steps SAMPLING_STEPS] [--threads THREADS]
+                         [--bootstrap BOOTSTRAP] [--seed0 SEED0]
+                         [--bootstrap_seed BOOTSTRAP_SEED]
+
+Paired start/seed evaluation with a cluster bootstrap over starting windows.
+Physical metrics are calculated per surviving rollout using evaluate.py
+conventions. CIs resample starts (all their seeds together), conditional on
+the available test data.
+
+options:
+  -h, --help            show this help message and exit
+  --checkpoints CHECKPOINTS [CHECKPOINTS ...]
+  --data_dir DATA_DIR
+  --out OUT
+  --device DEVICE
+  --split {test,val}
+  --starts STARTS
+  --seeds SEEDS
+  --steps STEPS
+  --sampling_steps SAMPLING_STEPS
+  --threads THREADS
+  --bootstrap BOOTSTRAP
+  --seed0 SEED0
+  --bootstrap_seed BOOTSTRAP_SEED

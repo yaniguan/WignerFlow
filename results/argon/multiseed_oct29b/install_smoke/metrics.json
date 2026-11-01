@@ -1,0 +1,113 @@
+{
+  "protocol": {
+    "checkpoints": [
+      "checkpoints/argon_flow_v1_cpu_reduced.pt"
+    ],
+    "data_dir": "data/argon",
+    "out": "results/argon/multiseed_oct29b/install_smoke",
+    "device": "cpu",
+    "split": "test",
+    "starts": 1,
+    "seeds": 1,
+    "steps": 8,
+    "sampling_steps": 1,
+    "threads": 2,
+    "bootstrap": 2000,
+    "seed0": 0,
+    "bootstrap_seed": 1234
+  },
+  "method": "Per-rollout metrics; paired explicit RNG seeds across checkpoints. Percentile 95% cluster bootstrap of means over starts, retaining all seeds in each sampled start. Physical metrics use evaluate.py analysis conventions.",
+  "checkpoints": [
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "sha256": "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f",
+      "train_step": 1000,
+      "stride_fs": 50.0,
+      "head": "flow",
+      "reference": {
+        "temperature_K": 94.69629944614793,
+        "vacf_zero_fs": null,
+        "D_cm2_s": 2.072625380630294e-05
+      },
+      "rollouts": [
+        {
+          "start": 0,
+          "trajectory_id": 3,
+          "model_frame": 0,
+          "saved_frame": 0,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 8,
+          "wall_s": 4.579160213470459,
+          "temperature_rel_err": 0.026995473532089347,
+          "rdf_l1": 0.43598123362451924,
+          "vacf_zero_rel_err": null,
+          "D_rel_err": 0.007366292706942629
+        }
+      ],
+      "metrics": {
+        "temperature_rel_err": {
+          "mean": 0.026995473532089347,
+          "ci95": [
+            0.026995473532089347,
+            0.026995473532089347
+          ],
+          "n_valid": 1,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "rdf_l1": {
+          "mean": 0.43598123362451924,
+          "ci95": [
+            0.43598123362451924,
+            0.43598123362451924
+          ],
+          "n_valid": 1,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "vacf_zero_rel_err": {
+          "mean": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "n_valid": 0,
+          "n_missing": 1,
+          "n_bootstrap_valid": 0
+        },
+        "D_rel_err": {
+          "mean": 0.007366292706942629,
+          "ci95": [
+            0.007366292706942629,
+            0.007366292706942629
+          ],
+          "n_valid": 1,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "crash_fraction": {
+          "mean": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "n_valid": 1,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "steps_survived": {
+          "mean": 8.0,
+          "ci95": [
+            8.0,
+            8.0
+          ],
+          "n_valid": 1,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        }
+      }
+    }
+  ],
+  "wall_s": 5.706488679000358
+}

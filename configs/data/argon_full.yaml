@@ -1,0 +1,22 @@
+# Full production budget: ten 0.5 ns trajectories.
+# Reconstructed physical settings; provenance in docs/RETRAIN_NOTES_oct29.md.
+# Separate directory prevents reuse of completed CPU-reduced trajectories.
+system: argon
+temperature_K: 95.0
+dt_fs: 5.0
+save_every: 1
+force_every: 10
+friction_per_ps: 1.0
+constraint_tol: 0.000001
+npt_ps: 0.0
+equil_ps: 20.0
+production_ps: 500.0
+platform: CUDA
+precision: mixed
+n_traj: 10
+seed0: 20261029
+split:
+  train: [0, 1, 2, 3, 4, 5, 6, 7]
+  val: [8]
+  test: [9]
+out_dir: data/argon_full

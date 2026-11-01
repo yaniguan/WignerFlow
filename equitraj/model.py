@@ -30,6 +30,7 @@ import torch.nn as nn
 from equitraj import so3
 from equitraj.layers import MLP, Block, EquivariantLinear, TemporalAttention, envelope, gaussian_rbf
 from equitraj.neighbors import brute_force, cell_list
+from equitraj.prior import RepulsionPrior
 
 
 def build_graph(pos, box, cutoff, lmax, method="brute_force"):
@@ -94,7 +95,8 @@ class Denoiser(nn.Module):
 class EquiTraj(nn.Module):
     def __init__(self, n_types, lmax=2, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3,
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
-                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0):
+                 use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
+                 repulsion_prior=None):
         super().__init__()
         self.lmax, self.c, self.cutoff, self.k = lmax, channels, cutoff, k
         self.n_rbf = n_rbf
@@ -124,6 +126,11 @@ class EquiTraj(nn.Module):
             self.y_out = nn.Linear(c, 2, bias=False)
         else:
             self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity)
+        # optional short-range repulsion applied to predictions (equitraj/prior.py); when disabled no
+        # module or buffer is registered, so state dicts are the same as before
+        self.prior = None
+        if repulsion_prior and repulsion_prior.get("enabled", True):
+            self.prior = RepulsionPrior(n_types, **{k: v for k, v in repulsion_prior.items() if k != "enabled"})
 
     # ------------------------------------------------------------ encoder
 
@@ -142,11 +149,11 @@ class EquiTraj(nn.Module):
         rad = self.edge_radial(gaussian_rbf(graph["dist"], self.cutoff, self.n_rbf)).view(e, self.lmax + 1, self.c)
         rad = rad * self.edge_type(t[graph["src"]])[:, None, :] * envelope(graph["dist"], self.cutoff)[:, None, None]
         ye = torch.zeros(e, s, self.c, dtype=x.dtype, device=x.device)
-        ye[:, [so3.index(l, 0) for l in range(self.lmax + 1)], :] = rad
-        agg = torch.zeros_like(x).index_add_(0, graph["dst"], so3.from_edge_frame(graph["wigner"], ye))
+        ye[:, [so3.index(l, 0) for l in range(self.lmax + 1)], :] = rad.to(ye.dtype)
+        agg = torch.zeros_like(x).index_add_(0, graph["dst"], so3.from_edge_frame(graph["wigner"], ye).to(x.dtype))
         return x + agg / 10.0
 
-    def encode(self, pos, vel, types, box):
+    def encode(self, pos, vel, types, box, graphs=None):
         """pos, vel: (B, k, N, 3) in Å and Å/fs, oldest frame first. types: (N,). box: (B, 3, 3) or None.
 
         Returns condition features (B*N, S, c) for the newest frame and that frame's graph.
@@ -161,14 +168,16 @@ class EquiTraj(nn.Module):
         d_norm = disp.reshape(-1, 3) / self.dx_std[tf][:, None]
 
         box_f = None if box is None else box[:, None].expand(b, k, 3, 3).reshape(b * k, 3, 3)
-        graph = build_graph(pos.reshape(b * k, n, 3), box_f, self.cutoff, self.lmax, self.neighbor_method)
+        graph = (build_graph(pos.reshape(b * k, n, 3), box_f, self.cutoff, self.lmax, self.neighbor_method)
+                 if graphs is None else graphs[0])
         x = self.embed(tf, v_norm, d_norm, graph, b * k * n)
         for blk in self.spatial:
             x = blk(x, graph)
         x = self.temporal(x.view(b, k, n, *x.shape[1:]))  # (B, N, S, c)
 
         box_last = None if box is None else box
-        graph_last = build_graph(pos[:, -1], box_last, self.cutoff, self.lmax, self.neighbor_method)
+        graph_last = (build_graph(pos[:, -1], box_last, self.cutoff, self.lmax, self.neighbor_method)
+                      if graphs is None else graphs[1])
         x = x.reshape(b * n, *x.shape[2:])
         for blk in self.fusion:
             x = blk(x, graph_last)
@@ -235,10 +244,10 @@ class EquiTraj(nn.Module):
         """One autoregressive step. Returns (dx, v_new) each (B, N, 3), center-of-mass motion removed."""
         return self.predict_with_grad(pos, vel, types, box, masses, n_steps, noise)
 
-    def predict_with_grad(self, pos, vel, types, box, masses, n_steps=10, noise=None):
+    def predict_with_grad(self, pos, vel, types, box, masses, n_steps=10, noise=None, graphs=None):
         """Same as predict, but differentiable (used for unrolled training)."""
         b = pos.shape[0]
-        cond, graph = self.encode(pos, vel, types, box)
+        cond, graph = self.encode(pos, vel, types, box, graphs=graphs)
         if self.head_type == "regression":
             y = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
         else:
@@ -248,4 +257,7 @@ class EquiTraj(nn.Module):
                 tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
                 y = y + self.denoiser(cond, graph, y, tau) / n_steps
         dx, v = self.y_to_targets(y, types, vel[:, -1])
-        return remove_com(dx, masses), remove_com(v, masses)
+        dx, v = remove_com(dx, masses), remove_com(v, masses)
+        if self.prior is not None:  # mass-weighted pair pushes: the center of mass stays fixed
+            dx, v = self.prior(pos[:, -1], dx, v, types, box, masses)
+        return dx, v
