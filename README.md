@@ -160,6 +160,12 @@ python scripts/evaluate.py --run results/argon/B_S3a --thermostat_tau_fs 500    
 python scripts/make_results.py                                                            # rebuild RESULTS.md
 ```
 
+Summarize several training seeds of one experiment (stability rate and metric spread, with 95% intervals over seeds):
+
+```bash
+python scripts/summarize_seeds.py --glob "results/argon/B_S3a_seed*/eval/metrics.json" --out results/argon/B_S3a_seeds
+```
+
 ### Cluster jobs
 
 ```bash
