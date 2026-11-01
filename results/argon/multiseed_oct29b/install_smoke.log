@@ -1,0 +1,2 @@
+argon_flow_v1_cpu_reduced.pt: start=0 seed=0 survived=8 wall=4.58s
+Wrote results/argon/multiseed_oct29b/install_smoke/metrics.json and metrics.md

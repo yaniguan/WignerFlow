@@ -1,13 +1,19 @@
-"""Tests for the ground-truth data pipeline: systems, integrator, HDF5 files."""
+"""Tests for the ground-truth data pipeline: systems, integrator, HDF5 files.
+
+Skipped when OpenMM or h5py is not installed (e.g. a pip-only environment without conda-forge).
+"""
 
 import numpy as np
-import openmm
-import openmm.unit as u
 import pytest
 
-from equitraj.simulate import run_trajectory, velocity_verlet
-from equitraj.systems import build_argon, fcc_lattice
-from equitraj.trajfile import read_traj
+openmm = pytest.importorskip("openmm")
+pytest.importorskip("h5py")
+
+import openmm.unit as u  # noqa: E402
+
+from equitraj.simulate import run_trajectory, velocity_verlet  # noqa: E402
+from equitraj.systems import build_argon, fcc_lattice  # noqa: E402
+from equitraj.trajfile import read_traj  # noqa: E402
 
 
 def test_fcc_lattice_count_and_spacing():

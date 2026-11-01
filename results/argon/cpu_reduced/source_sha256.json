@@ -1,0 +1,15 @@
+{
+  "equitraj/layers.py": "3a3f185a83ea4aec4d548da27d9359768bac98f259171cf8543f99576172a49f",
+  "equitraj/model.py": "df8dfef091f7b54f00ea7dd6668dd4621c0b1b5b12208fa76bea9a3308fd5453",
+  "equitraj/so3.py": "0c1b25b5f7dc004fcbc1887888eccbca0535aa2cdcf2d133426bb085bac5a07f",
+  "equitraj/simulate.py": "e99e6916f9aeee65c72f8125a6cff367978b1e2ff0c082a84a1da4d1689d0cfb",
+  "equitraj/systems.py": "ea63f1351033ee8ffaf677734324e6d62afe02c78967af8af01f38e43c4c2d91",
+  "equitraj/dataset.py": "42516ff9ffc009e6b410a5c03b49f6052d301ab61647b8b5aac04935da6df8aa",
+  "equitraj/train.py": "1a27e14376fffd580a646f49af4557fc28675d81031d1d7b685c8b1b1e2b6bfa",
+  "scripts/evaluate.py": "ed729374b18c554fe283599b713cd0c122836fae7d2a1bbd4f213ca0ec864b30",
+  "scripts/export_ckpt.py": "4844706583377fae1aa8c2c15363c40126ebd9cadb28e6818818915fc1d3977a",
+  "scripts/compare_ckpt_equivariance.py": "3ab034b74c35d93e1252f937c895e2ef9b7f1ce447c585ee2a45d87052343006",
+  "configs/data/argon.yaml": "dfd80e9696c5e9cfaeb86f97d6bfecb0cf06f79c8dcb109b960429977f4028da",
+  "configs/argon/B_S3a_seed1.yaml": "5399c6d6e4981fdc1fe41d170666f9d59c41c19fec6497c4b01acf5c1fb1dd8d",
+  "configs/argon/B_S3a_cpu_reduced.yaml": "a39355f472c4f2aa95e707ab8a729616ddd41ede82eb9906da257aab86086ee6"
+}

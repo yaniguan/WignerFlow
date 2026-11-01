@@ -1,0 +1,44 @@
+WARNING: The directory '/home/box/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Obtaining file:///workspace/repos/WignerFlow
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: torch>=2.1 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (2.10.0+cpu)
+Requirement already satisfied: e3nn<0.6,>=0.4.4 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (0.4.4)
+Requirement already satisfied: numpy>=1.24 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (1.26.4)
+Requirement already satisfied: scipy>=1.10 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (1.17.1)
+Requirement already satisfied: h5py>=3.8 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (3.16.0)
+Requirement already satisfied: matplotlib>=3.7 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (3.11.2)
+Requirement already satisfied: PyYAML>=6 in /workspace/venv311/lib/python3.11/site-packages (from equitraj==0.0.1) (6.0.3)
+Requirement already satisfied: sympy in /workspace/venv311/lib/python3.11/site-packages (from e3nn<0.6,>=0.4.4->equitraj==0.0.1) (1.14.0)
+Requirement already satisfied: opt-einsum-fx>=0.1.4 in /workspace/venv311/lib/python3.11/site-packages (from e3nn<0.6,>=0.4.4->equitraj==0.0.1) (0.1.4)
+Requirement already satisfied: contourpy>=1.0.1 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (1.3.3)
+Requirement already satisfied: cycler>=0.10 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (0.12.1)
+Requirement already satisfied: fonttools>=4.28.2 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (4.66.1)
+Requirement already satisfied: kiwisolver>=1.3.1 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (1.5.1)
+Requirement already satisfied: packaging>=20.0 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (26.3)
+Requirement already satisfied: pillow>=9 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (12.3.0)
+Requirement already satisfied: pyparsing>=3 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (3.3.3)
+Requirement already satisfied: python-dateutil>=2.7 in /workspace/venv311/lib/python3.11/site-packages (from matplotlib>=3.7->equitraj==0.0.1) (2.9.0.post0)
+Requirement already satisfied: opt-einsum in /workspace/venv311/lib/python3.11/site-packages (from opt-einsum-fx>=0.1.4->e3nn<0.6,>=0.4.4->equitraj==0.0.1) (3.4.0)
+Requirement already satisfied: six>=1.5 in /workspace/venv311/lib/python3.11/site-packages (from python-dateutil>=2.7->matplotlib>=3.7->equitraj==0.0.1) (1.17.0)
+Requirement already satisfied: filelock in /workspace/venv311/lib/python3.11/site-packages (from torch>=2.1->equitraj==0.0.1) (4.0.8)
+Requirement already satisfied: typing-extensions>=4.10.0 in /workspace/venv311/lib/python3.11/site-packages (from torch>=2.1->equitraj==0.0.1) (4.16.0)
+Requirement already satisfied: networkx>=2.5.1 in /workspace/venv311/lib/python3.11/site-packages (from torch>=2.1->equitraj==0.0.1) (3.6.1)
+Requirement already satisfied: jinja2 in /workspace/venv311/lib/python3.11/site-packages (from torch>=2.1->equitraj==0.0.1) (3.1.6)
+Requirement already satisfied: fsspec>=0.8.5 in /workspace/venv311/lib/python3.11/site-packages (from torch>=2.1->equitraj==0.0.1) (2026.9.0)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /workspace/venv311/lib/python3.11/site-packages (from sympy->e3nn<0.6,>=0.4.4->equitraj==0.0.1) (1.3.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /workspace/venv311/lib/python3.11/site-packages (from jinja2->torch>=2.1->equitraj==0.0.1) (3.0.3)
+Building wheels for collected packages: equitraj
+  Building editable for equitraj (pyproject.toml): started
+  Building editable for equitraj (pyproject.toml): finished with status 'done'
+  Created wheel for equitraj: filename=equitraj-0.0.1-0.editable-py3-none-any.whl size=7069 sha256=bc57c73522fb0ffd6b249ba1fd0e46b5b1b9c979f49aba4378db74223c3e1060
+  Stored in directory: /tmp/pip-ephem-wheel-cache-aw7ndf2y/wheels/78/59/2c/a927d292a1058a68c675304d487c7b542e8890032476908fbc
+Successfully built equitraj
+Installing collected packages: equitraj
+  Attempting uninstall: equitraj
+    Found existing installation: equitraj 0.0.1
+    Uninstalling equitraj-0.0.1:
+      Successfully uninstalled equitraj-0.0.1
+Successfully installed equitraj-0.0.1

@@ -1,0 +1,420 @@
+{
+  "checkpoints": {
+    "checkpoints/argon_flow_v0.pt": {
+      "bytes": 7893931,
+      "sha256": "4c8e035ee177bb8ad7d9abe45a95d047b5e5d49996ad8a38bff9ae9619ec3372"
+    },
+    "checkpoints/argon_flow_v1_cpu_reduced.pt": {
+      "bytes": 7897419,
+      "sha256": "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f"
+    },
+    "data/argon": {
+      "files": 17,
+      "total_file_bytes": 206847391
+    },
+    "results/argon/cpu_reduced": {
+      "files": 60,
+      "total_file_bytes": 79884083
+    }
+  },
+  "metrics": {
+    "v0": {
+      "run": ".",
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "split": "test",
+      "train_step": 10000,
+      "head": "flow",
+      "target": "residual",
+      "stride_fs": 50.0,
+      "steps": 100,
+      "n_rollouts": 1,
+      "seeds_per_start": 1,
+      "thermostat_tau_fs": 0.0,
+      "T_ground_truth_K": 94.69629944614793,
+      "stability": {
+        "crashed": 0,
+        "steps_before_crash": [
+          100
+        ],
+        "median_steps_before_crash": 100.0
+      },
+      "temperature": {
+        "T_model_second_half_K": 64.26388190159766,
+        "rel_err": 0.3213686038687989,
+        "T_end_per_rollout": [
+          57.572660805681764
+        ]
+      },
+      "short_range_rmsd_A": {
+        "step_1": 0.007678316440433264,
+        "step_10": 0.1378820389509201,
+        "step_20": 0.29930710792541504
+      },
+      "rdf": {
+        "l1": 0.7325985914278899,
+        "peak_pos_model_A": 3.7611115852453887,
+        "peak_pos_gt_A": 3.697831254537542,
+        "peak_pos_err_A": 0.06328033070784667,
+        "peak_height_model": 3.5150933868819356,
+        "peak_height_gt": 2.8830964264246344,
+        "peak_height_rel_err": 0.21920770830445271
+      },
+      "vacf": {
+        "first_zero_model_fs": 318.9479320069505,
+        "first_zero_gt_fs": 306.60990555757326,
+        "first_zero_rel_err": 0.04024014301475494,
+        "vdos_peak_model_cm1": 26.685127615852164,
+        "vdos_peak_gt_cm1": 26.685127615852164,
+        "nyquist_cm1": 333.5640951981521,
+        "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+      },
+      "diffusion": {
+        "D_model_cm2_s": 1.8041140900471458e-05,
+        "D_gt_cm2_s": 2.23906000733493e-05,
+        "rel_err": 0.19425380108748594,
+        "fit_range_fs": [
+          625.0,
+          2500.0
+        ]
+      },
+      "speed": {
+        "wall_s": 109.40182209014893,
+        "s_per_step_batch": 1.0940182209014893,
+        "ns_per_day_per_rollout": 3.948745932622811,
+        "ns_per_day_all_rollouts": 3.948745932622811,
+        "device": "cpu"
+      },
+      "v0_criteria": {
+        "no_crash": "all rollouts reach the full number of steps",
+        "temperature_rel_err": 0.05,
+        "rdf_peak_pos_err_A": 0.05,
+        "rdf_peak_height_rel_err": 0.1,
+        "vacf_first_zero_rel_err": 0.1,
+        "diffusion_rel_err": 0.2
+      },
+      "v0_verdict": {
+        "no_crash": true,
+        "temperature": false,
+        "rdf_peak_position": false,
+        "rdf_peak_height": false,
+        "vacf_first_zero": true,
+        "diffusion": true,
+        "all_pass": false
+      }
+    },
+    "v1": {
+      "run": ".",
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "split": "test",
+      "train_step": 1000,
+      "head": "flow",
+      "target": "residual",
+      "stride_fs": 50.0,
+      "steps": 100,
+      "n_rollouts": 1,
+      "seeds_per_start": 1,
+      "thermostat_tau_fs": 0.0,
+      "T_ground_truth_K": 94.69629944614793,
+      "stability": {
+        "crashed": 0,
+        "steps_before_crash": [
+          100
+        ],
+        "median_steps_before_crash": 100.0
+      },
+      "temperature": {
+        "T_model_second_half_K": 83.38392931388645,
+        "rel_err": 0.11945947411276212,
+        "T_end_per_rollout": [
+          79.69407190570938
+        ]
+      },
+      "short_range_rmsd_A": {
+        "step_1": 0.008811568841338158,
+        "step_10": 0.11719672381877899,
+        "step_20": 0.3396420478820801
+      },
+      "rdf": {
+        "l1": 0.19520377985141493,
+        "peak_pos_model_A": 3.716920208325003,
+        "peak_pos_gt_A": 3.697831254537542,
+        "peak_pos_err_A": 0.019088953787461005,
+        "peak_height_model": 2.937234764649678,
+        "peak_height_gt": 2.8830964264246344,
+        "peak_height_rel_err": 0.018777845142065264
+      },
+      "vacf": {
+        "first_zero_model_fs": 309.40722179449256,
+        "first_zero_gt_fs": 306.60990555757326,
+        "first_zero_rel_err": 0.009123372031416768,
+        "vdos_peak_model_cm1": 26.685127615852164,
+        "vdos_peak_gt_cm1": 26.685127615852164,
+        "nyquist_cm1": 333.5640951981521,
+        "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+      },
+      "diffusion": {
+        "D_model_cm2_s": 2.657405026011105e-05,
+        "D_gt_cm2_s": 2.23906000733493e-05,
+        "rel_err": 0.18683957433285373,
+        "fit_range_fs": [
+          625.0,
+          2500.0
+        ]
+      },
+      "speed": {
+        "wall_s": 102.98957753181458,
+        "s_per_step_batch": 1.0298957753181457,
+        "ns_per_day_per_rollout": 4.194599204628746,
+        "ns_per_day_all_rollouts": 4.194599204628746,
+        "device": "cpu"
+      },
+      "v0_criteria": {
+        "no_crash": "all rollouts reach the full number of steps",
+        "temperature_rel_err": 0.05,
+        "rdf_peak_pos_err_A": 0.05,
+        "rdf_peak_height_rel_err": 0.1,
+        "vacf_first_zero_rel_err": 0.1,
+        "diffusion_rel_err": 0.2
+      },
+      "v0_verdict": {
+        "no_crash": true,
+        "temperature": false,
+        "rdf_peak_position": true,
+        "rdf_peak_height": true,
+        "vacf_first_zero": true,
+        "diffusion": true,
+        "all_pass": false
+      }
+    }
+  },
+  "equivariance_summary": [
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float32",
+      "max_abs_dx_error_A": 1.862645149230957e-06,
+      "max_abs_velocity_error_A_per_fs": 4.313187673687935e-08,
+      "max_abs_output_error": 1.862645149230957e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "dtype": "torch.float64",
+      "max_abs_dx_error_A": 1.9012569296705806e-15,
+      "max_abs_velocity_error_A_per_fs": 4.705437428587089e-17,
+      "max_abs_output_error": 1.9012569296705806e-15
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float32",
+      "max_abs_dx_error_A": 1.9278377294540405e-06,
+      "max_abs_velocity_error_A_per_fs": 2.635351847857237e-08,
+      "max_abs_output_error": 1.9278377294540405e-06
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "dtype": "torch.float64",
+      "max_abs_dx_error_A": 2.96637714392034e-15,
+      "max_abs_velocity_error_A_per_fs": 6.548581121812447e-17,
+      "max_abs_output_error": 2.96637714392034e-15
+    }
+  ],
+  "commands": [
+    {
+      "name": "generation",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/gen_data.py",
+        "--config",
+        "configs/data/argon.yaml"
+      ],
+      "wall_s": 16.72762417793274,
+      "exit_code": 0,
+      "start_unix": 1793330514.891103,
+      "end_unix": 1793330531.6187403
+    },
+    {
+      "name": "benchmark",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "/tmp/wigner_bench.py"
+      ],
+      "wall_s": 1.6587440967559814,
+      "exit_code": 1,
+      "start_unix": 1793330530.5538182,
+      "end_unix": 1793330532.2125652
+    },
+    {
+      "name": "ground_truth_analysis",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/analyze_gt.py",
+        "--data",
+        "data/argon",
+        "--out",
+        "results/argon/cpu_reduced/ground_truth",
+        "--vacf_ps",
+        "1",
+        "--msd_ps",
+        "5",
+        "--diff_fit_ps",
+        "2",
+        "5"
+      ],
+      "wall_s": 6.682420969009399,
+      "exit_code": 0,
+      "start_unix": 1793330628.658368,
+      "end_unix": 1793330635.3407986
+    },
+    {
+      "name": "tests",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_model.py",
+        "tests/test_release.py",
+        "-q"
+      ],
+      "wall_s": 6.577935218811035,
+      "exit_code": 0,
+      "start_unix": 1793330756.4289322,
+      "end_unix": 1793330763.0068696
+    },
+    {
+      "name": "evaluation_v0",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/evaluate.py",
+        "--run",
+        ".",
+        "--ckpt",
+        "checkpoints/argon_flow_v0.pt",
+        "--data_dir",
+        "data/argon",
+        "--steps",
+        "100",
+        "--seeds",
+        "1",
+        "--starts",
+        "1",
+        "--sampling_steps",
+        "10",
+        "--device",
+        "cpu",
+        "--threads",
+        "2",
+        "--out",
+        "results/argon/cpu_reduced/v0"
+      ],
+      "wall_s": 114.01989126205444,
+      "exit_code": 0,
+      "start_unix": 1793331635.7108147,
+      "end_unix": 1793331749.730722
+    },
+    {
+      "name": "training",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "-m",
+        "equitraj.train",
+        "--config",
+        "configs/argon/B_S3a_cpu_reduced.yaml",
+        "--device",
+        "cpu",
+        "--no_tensorboard"
+      ],
+      "wall_s": 2170.9276907444,
+      "exit_code": 0,
+      "start_unix": 1793330651.6959713,
+      "end_unix": 1793332822.6236808
+    },
+    {
+      "name": "export",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/export_ckpt.py",
+        "--run",
+        "results/argon/cpu_reduced/train",
+        "--ckpt",
+        "snapshots/step001000.pt",
+        "--out",
+        "checkpoints/argon_flow_v1_cpu_reduced.pt"
+      ],
+      "wall_s": 2.1786327362060547,
+      "exit_code": 0,
+      "start_unix": 1793332823.2316716,
+      "end_unix": 1793332825.410308
+    },
+    {
+      "name": "evaluation_v1",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/evaluate.py",
+        "--run",
+        ".",
+        "--ckpt",
+        "checkpoints/argon_flow_v1_cpu_reduced.pt",
+        "--data_dir",
+        "data/argon",
+        "--steps",
+        "100",
+        "--seeds",
+        "1",
+        "--starts",
+        "1",
+        "--sampling_steps",
+        "10",
+        "--device",
+        "cpu",
+        "--threads",
+        "2",
+        "--out",
+        "results/argon/cpu_reduced/v1"
+      ],
+      "wall_s": 106.64084219932556,
+      "exit_code": 0,
+      "start_unix": 1793332825.4335742,
+      "end_unix": 1793332932.0744293
+    },
+    {
+      "name": "equivariance",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "scripts/compare_ckpt_equivariance.py",
+        "--checkpoints",
+        "checkpoints/argon_flow_v0.pt",
+        "checkpoints/argon_flow_v1_cpu_reduced.pt",
+        "--trials",
+        "3",
+        "--sampling_steps",
+        "10",
+        "--threads",
+        "2"
+      ],
+      "wall_s": 77.96185684204102,
+      "exit_code": 0,
+      "start_unix": 1793332932.0996554,
+      "end_unix": 1793333010.0615244
+    },
+    {
+      "name": "integrity",
+      "command": [
+        "/workspace/venv311/bin/python",
+        "results/argon/cpu_reduced/verify_artifacts.py"
+      ],
+      "wall_s": 1.1047632694244385,
+      "exit_code": 0,
+      "start_unix": 1793333014.8360631,
+      "end_unix": 1793333015.940828
+    }
+  ],
+  "total_wall_since_initial_inspection_s": 2551.3623871803284,
+  "training": {
+    "step": 1000,
+    "best_score": 0.09045348480250594,
+    "hours": 0.6021708642774158
+  },
+  "test_starts_saved_frame_indices": [
+    0
+  ],
+  "note": "v0 as-is under new attention. v1 final snapshot, no test-based checkpoint selection. One start, one stochastic seed, 100 model steps, 10 flow steps, no thermostat."
+}

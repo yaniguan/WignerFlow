@@ -1,0 +1,22 @@
+{
+  "data/argon/config.yaml": {
+    "bytes": 299,
+    "sha256": "8ee3765bf91483ec17b4be70cd5726c532eb6f36999bee8c3e8494635e6312ff"
+  },
+  "data/argon/traj_000.h5": {
+    "bytes": 27130768,
+    "sha256": "52750d4e7a70b3a2c8474209f30b16af85276574773861a6618c642d44564b24"
+  },
+  "data/argon/traj_001.h5": {
+    "bytes": 27130768,
+    "sha256": "e96501fe164e864e580f3926638a6ce0d3906fc0b0144eb74250931db43a3cdc"
+  },
+  "data/argon/traj_002.h5": {
+    "bytes": 27130768,
+    "sha256": "db2f4eaa8585f001469da71ded2b6865b76b632d2900f8e5d69b14a53616cc8e"
+  },
+  "data/argon/traj_003.h5": {
+    "bytes": 27130768,
+    "sha256": "cd1950e8267f7aed559d5af46f54fe261a8d13b29f2576175a39769a6091f844"
+  }
+}

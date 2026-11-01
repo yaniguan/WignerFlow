@@ -1,0 +1,13 @@
+argon_flow_v0.pt: start=0 seed=0 survived=50 wall=79.11s
+argon_flow_v0.pt: start=0 seed=1 survived=50 wall=47.86s
+argon_flow_v0.pt: start=1 seed=0 survived=50 wall=103.79s
+argon_flow_v0.pt: start=1 seed=1 survived=50 wall=63.04s
+argon_flow_v0.pt: start=2 seed=0 survived=50 wall=60.17s
+argon_flow_v0.pt: start=2 seed=1 survived=50 wall=60.79s
+argon_flow_v1_cpu_reduced.pt: start=0 seed=0 survived=50 wall=52.88s
+argon_flow_v1_cpu_reduced.pt: start=0 seed=1 survived=50 wall=57.59s
+argon_flow_v1_cpu_reduced.pt: start=1 seed=0 survived=50 wall=46.52s
+argon_flow_v1_cpu_reduced.pt: start=1 seed=1 survived=50 wall=59.74s
+argon_flow_v1_cpu_reduced.pt: start=2 seed=0 survived=50 wall=56.15s
+argon_flow_v1_cpu_reduced.pt: start=2 seed=1 survived=50 wall=54.82s
+Wrote results/argon/multiseed_oct29b/metrics.json and metrics.md

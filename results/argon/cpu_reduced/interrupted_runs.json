@@ -1,0 +1,45 @@
+[
+  {
+    "name": "benchmark_8_thread_attempt",
+    "command": [
+      "/workspace/venv311/bin/python",
+      "/tmp/wigner_bench.py"
+    ],
+    "exit_code": 130,
+    "wall_s": null,
+    "note": "Interrupted with Ctrl-C during the 8-thread setting; completed 1/2/4-thread measurements preserved in benchmark.json; timing wrapper was interrupted before writing duration."
+  },
+  {
+    "name": "evaluation_v0_initial_attempt",
+    "command": [
+      "/workspace/venv311/bin/python",
+      "scripts/evaluate.py",
+      "--run",
+      ".",
+      "--ckpt",
+      "checkpoints/argon_flow_v0.pt",
+      "--data_dir",
+      "data/argon",
+      "--steps",
+      "200",
+      "--seeds",
+      "1",
+      "--starts",
+      "2",
+      "--sampling_steps",
+      "10",
+      "--device",
+      "cpu",
+      "--out",
+      "results/argon/cpu_reduced/v0"
+    ],
+    "environment_overrides": {
+      "OMP_NUM_THREADS": "4",
+      "MKL_NUM_THREADS": "4",
+      "PYTHONPATH": "."
+    },
+    "exit_code": 130,
+    "wall_s": null,
+    "note": "Interrupted with Ctrl-C before metrics; no physical results reported; timing wrapper was interrupted before writing duration."
+  }
+]
