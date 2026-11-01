@@ -2,12 +2,13 @@
 
 import pytest
 import torch
-from e3nn import o3
 
-from equitraj import so3
-from equitraj.layers import GraphAttention, SO2Linear, envelope, segment_softmax
-from equitraj.model import EquiTraj, build_graph
-from equitraj.neighbors import brute_force, cell_list
+o3 = pytest.importorskip("e3nn.o3")  # equitraj.so3 needs e3nn too
+
+from equitraj import so3  # noqa: E402
+from equitraj.layers import GraphAttention, SO2Linear, envelope, segment_softmax  # noqa: E402
+from equitraj.model import EquiTraj, build_graph  # noqa: E402
+from equitraj.neighbors import brute_force, cell_list  # noqa: E402
 
 torch.set_default_dtype(torch.float64)
 
