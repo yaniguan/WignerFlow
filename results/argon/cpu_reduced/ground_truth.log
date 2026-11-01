@@ -1,0 +1,43 @@
+/home/box/.config/matplotlib is not a writable directory
+Matplotlib created a temporary cache directory at /tmp/matplotlib-3k7ov26u because there was an issue with the default path (/home/box/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+{"file": "traj_000.h5", "seed": 20261029, "T_mean_K": 93.3531993390597, "T_std_K": 2.831175019419621, "E_total_std_kJmol": 0.006588698214916459, "energy_drift_kJmol_per_ns_per_dof": 2.973051905634605e-05, "ns_per_day_with_io": 692.4488459995919, "platform": "CPU", "precision": "platform default"}
+{"file": "traj_001.h5", "seed": 20261030, "T_mean_K": 95.75139499008391, "T_std_K": 3.1772537643027112, "E_total_std_kJmol": 0.007079995242956646, "energy_drift_kJmol_per_ns_per_dof": -6.140852738937097e-06, "ns_per_day_with_io": 676.0283244262557, "platform": "CPU", "precision": "platform default"}
+{"file": "traj_002.h5", "seed": 20261031, "T_mean_K": 97.9006290142792, "T_std_K": 3.290184895737345, "E_total_std_kJmol": 0.007540277318385862, "energy_drift_kJmol_per_ns_per_dof": 3.19552996021252e-05, "ns_per_day_with_io": 526.6298100064344, "platform": "CPU", "precision": "platform default"}
+{"file": "traj_003.h5", "seed": 20261032, "T_mean_K": 95.07405496509976, "T_std_K": 2.8714956876027027, "E_total_std_kJmol": 0.006854407605909237, "energy_drift_kJmol_per_ns_per_dof": -6.892712319251329e-05, "ns_per_day_with_io": 646.3847030177991, "platform": "CPU", "precision": "platform default"}
+{
+  "n_traj": 4,
+  "frame_interval_fs": 5.0,
+  "T_mean_K": 95.51981957713065,
+  "energy_drift_kJmol_per_ns_per_dof": {
+    "mean": -3.345539318244785e-06,
+    "max_abs": 6.892712319251329e-05
+  },
+  "rdf": {
+    "Ar-Ar": {
+      "first_peak_A": 3.6977116168313824,
+      "first_peak_height": 2.8550600242419533,
+      "first_min_A": 5.115433115959167,
+      "coordination_number": 11.769453238187303,
+      "per_traj_L1_to_mean": {
+        "median": 0.07898140999779243,
+        "max": 0.08573301581274378
+      }
+    }
+  },
+  "vacf": {
+    "first_zero_fs": 310.0,
+    "min_value_normalized": -0.09461665622455179,
+    "min_time_fs": 430.0,
+    "vdos_peak_cm1": 25.017307139861405,
+    "nyquist_cm1": 3335.6409519815206
+  },
+  "diffusion": {
+    "D_cm2_per_s": 2.332902965187585e-05,
+    "D_std_over_traj": 1.474431784330409e-06,
+    "fit_range_ps": [
+      2.0,
+      5.0
+    ]
+  }
+}
+{"name": "ground_truth_analysis", "command": ["/workspace/venv311/bin/python", "scripts/analyze_gt.py", "--data", "data/argon", "--out", "results/argon/cpu_reduced/ground_truth", "--vacf_ps", "1", "--msd_ps", "5", "--diff_fit_ps", "2", "5"], "wall_s": 6.682420969009399, "exit_code": 0, "start_unix": 1793330628.658368, "end_unix": 1793330635.3407986}

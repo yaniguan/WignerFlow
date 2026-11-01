@@ -1,0 +1,111 @@
+Building wheel...
+/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        This deprecation is overdue, please update your project and remove deprecated
+        calls to avoid build errors in the future.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running bdist_wheel
+running build
+running build_py
+creating build/lib/equitraj
+copying equitraj/trajfile.py -> build/lib/equitraj
+copying equitraj/__init__.py -> build/lib/equitraj
+copying equitraj/model.py -> build/lib/equitraj
+copying equitraj/systems.py -> build/lib/equitraj
+copying equitraj/dataset.py -> build/lib/equitraj
+copying equitraj/thermostat.py -> build/lib/equitraj
+copying equitraj/units.py -> build/lib/equitraj
+copying equitraj/plots.py -> build/lib/equitraj
+copying equitraj/layers.py -> build/lib/equitraj
+copying equitraj/rollout.py -> build/lib/equitraj
+copying equitraj/build_systems.py -> build/lib/equitraj
+copying equitraj/simulate.py -> build/lib/equitraj
+copying equitraj/multiseed.py -> build/lib/equitraj
+copying equitraj/neighbors.py -> build/lib/equitraj
+copying equitraj/so3.py -> build/lib/equitraj
+copying equitraj/analysis.py -> build/lib/equitraj
+copying equitraj/train.py -> build/lib/equitraj
+copying equitraj/evaluation.py -> build/lib/equitraj
+running egg_info
+creating equitraj.egg-info
+writing equitraj.egg-info/PKG-INFO
+writing dependency_links to equitraj.egg-info/dependency_links.txt
+writing requirements to equitraj.egg-info/requires.txt
+writing top-level names to equitraj.egg-info/top_level.txt
+writing manifest file 'equitraj.egg-info/SOURCES.txt'
+reading manifest file 'equitraj.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'equitraj.egg-info/SOURCES.txt'
+installing to build/bdist.linux-x86_64/wheel
+running install
+running install_lib
+Traceback (most recent call last):
+  File "<string>", line 11, in <module>
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/build_meta.py", line 435, in build_wheel
+    return _build(['bdist_wheel'])
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/build_meta.py", line 426, in _build
+    return self._build_with_temp_dir(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/build_meta.py", line 407, in _build_with_temp_dir
+    self.run_setup()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/build_meta.py", line 320, in run_setup
+    exec(code, locals())
+  File "<string>", line 1, in <module>
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/__init__.py", line 117, in setup
+    return distutils.core.setup(**attrs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/core.py", line 186, in setup
+    return run_commands(dist)
+           ^^^^^^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/core.py", line 202, in run_commands
+    dist.run_commands()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/dist.py", line 1002, in run_commands
+    self.run_command(cmd)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/dist.py", line 1104, in run_command
+    super().run_command(command)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/dist.py", line 1021, in run_command
+    cmd_obj.run()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/command/bdist_wheel.py", line 405, in run
+    self.run_command("install")
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/cmd.py", line 357, in run_command
+    self.distribution.run_command(command)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/dist.py", line 1104, in run_command
+    super().run_command(command)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/dist.py", line 1021, in run_command
+    cmd_obj.run()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/command/install.py", line 103, in run
+    return super().run()
+           ^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/command/install.py", line 700, in run
+    self.run_command(cmd_name)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/cmd.py", line 357, in run_command
+    self.distribution.run_command(command)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/dist.py", line 1104, in run_command
+    super().run_command(command)
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/dist.py", line 1020, in run_command
+    cmd_obj.ensure_finalized()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/cmd.py", line 135, in ensure_finalized
+    self.finalize_options()
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/command/install_lib.py", line 25, in finalize_options
+    self.set_undefined_options('install',('install_layout','install_layout'))
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/cmd.py", line 323, in set_undefined_options
+    setattr(self, dst_option, getattr(src_cmd_obj, src_option))
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/wigner_installcheck/lib/python3.11/site-packages/setuptools/_distutils/cmd.py", line 131, in __getattr__
+    raise AttributeError(attr)
+AttributeError: install_layout. Did you mean: 'install_platlib'?
+error: Failed to build `/workspace/repos/WignerFlow`
+  cause: The build backend returned an error
+  cause: Call to `setuptools.build_meta.build_wheel` failed (exit status: 1)
+
+hint: Build failures usually indicate a problem with the package or the build environment

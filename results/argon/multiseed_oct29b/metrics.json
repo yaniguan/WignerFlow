@@ -1,0 +1,344 @@
+{
+  "protocol": {
+    "checkpoints": [
+      "checkpoints/argon_flow_v0.pt",
+      "checkpoints/argon_flow_v1_cpu_reduced.pt"
+    ],
+    "data_dir": "data/argon",
+    "out": "results/argon/multiseed_oct29b",
+    "device": "cpu",
+    "split": "test",
+    "starts": 3,
+    "seeds": 2,
+    "steps": 50,
+    "sampling_steps": 10,
+    "threads": 2,
+    "bootstrap": 2000,
+    "seed0": 0,
+    "bootstrap_seed": 1234
+  },
+  "method": "Per-rollout metrics; paired explicit RNG seeds across checkpoints. Percentile 95% cluster bootstrap of means over starts, retaining all seeds in each sampled start. Physical metrics use evaluate.py analysis conventions.",
+  "checkpoints": [
+    {
+      "checkpoint": "checkpoints/argon_flow_v0.pt",
+      "sha256": "4c8e035ee177bb8ad7d9abe45a95d047b5e5d49996ad8a38bff9ae9619ec3372",
+      "train_step": 10000,
+      "stride_fs": 50.0,
+      "head": "flow",
+      "reference": {
+        "temperature_K": 94.69629944614793,
+        "vacf_zero_fs": 306.60990555757326,
+        "D_cm2_s": 2.5614669988727006e-05
+      },
+      "rollouts": [
+        {
+          "start": 0,
+          "trajectory_id": 3,
+          "model_frame": 0,
+          "saved_frame": 0,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 79.10866856575012,
+          "temperature_rel_err": 0.15369417096069116,
+          "rdf_l1": 0.4681235806003955,
+          "vacf_zero_rel_err": 0.1325906855599551,
+          "D_rel_err": 0.01609952176548173
+        },
+        {
+          "start": 0,
+          "trajectory_id": 3,
+          "model_frame": 0,
+          "saved_frame": 0,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 47.86098384857178,
+          "temperature_rel_err": 0.15537501916975838,
+          "rdf_l1": 0.4609163356475844,
+          "vacf_zero_rel_err": 0.13679229453195133,
+          "D_rel_err": 0.0008879409076179093
+        },
+        {
+          "start": 1,
+          "trajectory_id": 3,
+          "model_frame": 132,
+          "saved_frame": 1320,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 103.79356861114502,
+          "temperature_rel_err": 0.15920117305562076,
+          "rdf_l1": 0.5082113752120849,
+          "vacf_zero_rel_err": 0.06259269899420765,
+          "D_rel_err": 0.0012336726180812438
+        },
+        {
+          "start": 1,
+          "trajectory_id": 3,
+          "model_frame": 132,
+          "saved_frame": 1320,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 63.043105602264404,
+          "temperature_rel_err": 0.15445113065392935,
+          "rdf_l1": 0.5323358439201192,
+          "vacf_zero_rel_err": 0.0275739141296033,
+          "D_rel_err": 0.01090738235176239
+        },
+        {
+          "start": 2,
+          "trajectory_id": 3,
+          "model_frame": 264,
+          "saved_frame": 2640,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 60.17464780807495,
+          "temperature_rel_err": 0.15582961782247767,
+          "rdf_l1": 0.6124530994431091,
+          "vacf_zero_rel_err": 0.05237222100035989,
+          "D_rel_err": 0.04472735987482262
+        },
+        {
+          "start": 2,
+          "trajectory_id": 3,
+          "model_frame": 264,
+          "saved_frame": 2640,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 60.786399841308594,
+          "temperature_rel_err": 0.1565855134080297,
+          "rdf_l1": 0.6151628963532912,
+          "vacf_zero_rel_err": 0.029549685000500175,
+          "D_rel_err": 0.05703102943139011
+        }
+      ],
+      "metrics": {
+        "temperature_rel_err": {
+          "mean": 0.15585610417841783,
+          "ci95": [
+            0.15453459506522477,
+            0.15682615185477505
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "rdf_l1": {
+          "mean": 0.5328671885294308,
+          "ci95": [
+            0.4645199581239899,
+            0.6138079978982002
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "vacf_zero_rel_err": {
+          "mean": 0.0735785832027629,
+          "ci95": [
+            0.04096095300043003,
+            0.1346914900459532
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "D_rel_err": {
+          "mean": 0.021814484491526,
+          "ci95": [
+            0.006070527484921817,
+            0.05087919465310636
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "crash_fraction": {
+          "mean": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "steps_survived": {
+          "mean": 50.0,
+          "ci95": [
+            50.0,
+            50.0
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        }
+      }
+    },
+    {
+      "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+      "sha256": "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f",
+      "train_step": 1000,
+      "stride_fs": 50.0,
+      "head": "flow",
+      "reference": {
+        "temperature_K": 94.69629944614793,
+        "vacf_zero_fs": 306.60990555757326,
+        "D_cm2_s": 2.5614669988727006e-05
+      },
+      "rollouts": [
+        {
+          "start": 0,
+          "trajectory_id": 3,
+          "model_frame": 0,
+          "saved_frame": 0,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 52.883389711380005,
+          "temperature_rel_err": 0.06934400185615733,
+          "rdf_l1": 0.20053728092250633,
+          "vacf_zero_rel_err": 0.20812038539508063,
+          "D_rel_err": 0.060798787864265416
+        },
+        {
+          "start": 0,
+          "trajectory_id": 3,
+          "model_frame": 0,
+          "saved_frame": 0,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 57.58747339248657,
+          "temperature_rel_err": 0.09733638355198598,
+          "rdf_l1": 0.22041142850918197,
+          "vacf_zero_rel_err": 0.16306904957825896,
+          "D_rel_err": 0.07978780994809709
+        },
+        {
+          "start": 1,
+          "trajectory_id": 3,
+          "model_frame": 132,
+          "saved_frame": 1320,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 46.51635527610779,
+          "temperature_rel_err": 0.08985384798687386,
+          "rdf_l1": 0.18976586120486022,
+          "vacf_zero_rel_err": 0.02198796290653432,
+          "D_rel_err": 0.07214797733341353
+        },
+        {
+          "start": 1,
+          "trajectory_id": 3,
+          "model_frame": 132,
+          "saved_frame": 1320,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 59.7419548034668,
+          "temperature_rel_err": 0.0696489830029705,
+          "rdf_l1": 0.2391366296783596,
+          "vacf_zero_rel_err": 0.1013359988285964,
+          "D_rel_err": 0.048282887486139715
+        },
+        {
+          "start": 2,
+          "trajectory_id": 3,
+          "model_frame": 264,
+          "saved_frame": 2640,
+          "seed": 0,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 56.14895272254944,
+          "temperature_rel_err": 0.06358140905903044,
+          "rdf_l1": 0.20260303660248202,
+          "vacf_zero_rel_err": 0.011947082141537295,
+          "D_rel_err": 0.07307162570934213
+        },
+        {
+          "start": 2,
+          "trajectory_id": 3,
+          "model_frame": 264,
+          "saved_frame": 2640,
+          "seed": 1,
+          "crash_fraction": 0.0,
+          "steps_survived": 50,
+          "wall_s": 54.824869871139526,
+          "temperature_rel_err": 0.0559751711244808,
+          "rdf_l1": 0.2347245119374866,
+          "vacf_zero_rel_err": 0.05066226201222323,
+          "D_rel_err": 0.011598986615789664
+        }
+      ],
+      "metrics": {
+        "temperature_rel_err": {
+          "mean": 0.07428996609691649,
+          "ci95": [
+            0.059778290091755615,
+            0.08334019270407166
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "rdf_l1": {
+          "mean": 0.21452979147581278,
+          "ci95": [
+            0.21047435471584416,
+            0.21866377426998432
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "vacf_zero_rel_err": {
+          "mean": 0.09285379014370514,
+          "ci95": [
+            0.031304672076880265,
+            0.18559471748666978
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "D_rel_err": {
+          "mean": 0.05761467915950793,
+          "ci95": [
+            0.042335306162565894,
+            0.07029329890618125
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "crash_fraction": {
+          "mean": 0.0,
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        },
+        "steps_survived": {
+          "mean": 50.0,
+          "ci95": [
+            50.0,
+            50.0
+          ],
+          "n_valid": 6,
+          "n_missing": 0,
+          "n_bootstrap_valid": 2000
+        }
+      }
+    }
+  ],
+  "wall_s": 719.6811148630004
+}

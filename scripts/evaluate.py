@@ -31,21 +31,7 @@ V0_CRITERIA = {  # argon, model only (no thermostat)
 }
 
 
-def first_zero(t, c):
-    """First time where c crosses zero, linearly interpolated (None if it never does)."""
-    i = np.argmax(c < 0)
-    if c[i] >= 0:
-        return None
-    return t[i - 1] + (t[i] - t[i - 1]) * c[i - 1] / (c[i - 1] - c[i])
-
-
-def load_model(run_dir, ckpt, device, split="test"):
-    ck = torch.load(os.path.join(run_dir, ckpt), map_location=device, weights_only=False)
-    cfg = ck["cfg"]
-    ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
-    model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
-    model.load_state_dict(ck["model"])
-    return model.to(device).eval(), cfg, ds, ck["step"]
+from equitraj.evaluation import first_zero, load_model
 
 
 def main():
@@ -60,13 +46,17 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--split", default="test", help="test for reporting; val for choosing among checkpoints")
+    ap.add_argument("--data_dir", default=None, help="ground-truth data override; required for release checkpoints")
+    ap.add_argument("--threads", type=int, default=None, help="explicit PyTorch CPU thread count")
     args = ap.parse_args()
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
     device = torch.device(args.device)
     tag = "eval" if args.thermostat_tau_fs <= 0 else f"eval_csvr{int(args.thermostat_tau_fs)}"
     out_dir = args.out or os.path.join(args.run, tag)
     os.makedirs(os.path.join(out_dir, "figs"), exist_ok=True)
 
-    model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split)
+    model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split, args.data_dir)
     k, f, dt = cfg["k"], ds.f, ds.stride_fs
     n_atoms = len(ds.types)
     deterministic = model.head_type == "regression"

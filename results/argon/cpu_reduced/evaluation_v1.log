@@ -1,0 +1,78 @@
+{
+  "run": ".",
+  "checkpoint": "checkpoints/argon_flow_v1_cpu_reduced.pt",
+  "split": "test",
+  "train_step": 1000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 100,
+  "n_rollouts": 1,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.69629944614793,
+  "temperature": {
+    "T_model_second_half_K": 83.38392931388645,
+    "rel_err": 0.11945947411276212,
+    "T_end_per_rollout": [
+      79.69407190570938
+    ]
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.008811568841338158,
+    "step_10": 0.11719672381877899,
+    "step_20": 0.3396420478820801
+  },
+  "rdf": {
+    "l1": 0.19520377985141493,
+    "peak_pos_model_A": 3.716920208325003,
+    "peak_pos_gt_A": 3.697831254537542,
+    "peak_pos_err_A": 0.019088953787461005,
+    "peak_height_model": 2.937234764649678,
+    "peak_height_gt": 2.8830964264246344,
+    "peak_height_rel_err": 0.018777845142065264
+  },
+  "vacf": {
+    "first_zero_model_fs": 309.40722179449256,
+    "first_zero_gt_fs": 306.60990555757326,
+    "first_zero_rel_err": 0.009123372031416768,
+    "vdos_peak_model_cm1": 26.685127615852164,
+    "vdos_peak_gt_cm1": 26.685127615852164,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 2.657405026011105e-05,
+    "D_gt_cm2_s": 2.23906000733493e-05,
+    "rel_err": 0.18683957433285373,
+    "fit_range_fs": [
+      625.0,
+      2500.0
+    ]
+  },
+  "speed": {
+    "wall_s": 102.98957753181458,
+    "s_per_step_batch": 1.0298957753181457,
+    "ns_per_day_per_rollout": 4.194599204628746,
+    "ns_per_day_all_rollouts": 4.194599204628746,
+    "device": "cpu"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": false,
+    "rdf_peak_position": true,
+    "rdf_peak_height": true,
+    "vacf_first_zero": true,
+    "diffusion": true,
+    "all_pass": false
+  }
+}
+{"name": "evaluation_v1", "command": ["/workspace/venv311/bin/python", "scripts/evaluate.py", "--run", ".", "--ckpt", "checkpoints/argon_flow_v1_cpu_reduced.pt", "--data_dir", "data/argon", "--steps", "100", "--seeds", "1", "--starts", "1", "--sampling_steps", "10", "--device", "cpu", "--threads", "2", "--out", "results/argon/cpu_reduced/v1"], "wall_s": 106.64084219932556, "exit_code": 0, "start_unix": 1793332825.4335742, "end_unix": 1793332932.0744293}

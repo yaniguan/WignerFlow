@@ -37,9 +37,14 @@ def envelope(d, cutoff, p=5):
 
     Multiplying edge contributions by this makes the network output a smooth function of the
     positions even when atoms cross the cutoff. That matters for a dynamics model.
+    The factored form (1-x)^3 * sum_{k=0}^{p-1} C(k+2, 2) x^k is evaluated
+    with Horner's method to avoid cancellation near the cutoff.
     """
     x = d / cutoff
-    e = 1 - (p + 1) * (p + 2) / 2 * x**p + p * (p + 2) * x ** (p + 1) - p * (p + 1) / 2 * x ** (p + 2)
+    q = torch.zeros_like(x)
+    for k in range(p - 1, -1, -1):
+        q = q * x + (k + 1) * (k + 2) / 2
+    e = (1 - x) ** 3 * q
     return torch.where(x < 1, e, torch.zeros_like(e))
 
 
@@ -114,7 +119,7 @@ class Gate(nn.Module):
         s = x[:, 0, :]
         out = [F.silu(s)[:, None, :]]
         if self.lmax > 0:
-            g = torch.sigmoid(self.gates(s)).view(x.shape[0], self.lmax, -1)
+            g = torch.sigmoid(self.gates(s)).view(x.shape[0], self.lmax, x.shape[-1])
             for l in range(1, self.lmax + 1):
                 out.append(x[:, l * l:(l + 1) ** 2, :] * g[:, l - 1:l, :])
         return torch.cat(out, dim=1)
@@ -170,18 +175,21 @@ class SO2Linear(nn.Module):
 
     def forward(self, x):
         e = x.shape[0]
+        c_in = x.shape[-1]
         out = x.new_zeros(e, so3.n_components(self.lmax), self.c_out)
-        out[:, self.idx_m0, :] = self.lin_m0(x[:, self.idx_m0, :].reshape(e, -1)).view(e, -1, self.c_out)
+        out[:, self.idx_m0, :] = self.lin_m0(
+            x[:, self.idx_m0, :].reshape(e, len(self.idx_m0) * c_in)
+        ).view(e, len(self.idx_m0), self.c_out).to(out.dtype)
         for k in range(self.lmax):
-            xp = x[:, self.idx_plus[k], :].reshape(e, -1)
-            xm = x[:, self.idx_minus[k], :].reshape(e, -1)
+            xp = x[:, self.idx_plus[k], :].reshape(e, len(self.idx_plus[k]) * c_in)
+            xm = x[:, self.idx_minus[k], :].reshape(e, len(self.idx_minus[k]) * c_in)
             yp = self.w1[k](xp)
             ym = self.w1[k](xm)
             if not self.parity:
                 yp = yp - self.w2[k](xm)
                 ym = ym + self.w2[k](xp)
-            out[:, self.idx_plus[k], :] = yp.view(e, -1, self.c_out)
-            out[:, self.idx_minus[k], :] = ym.view(e, -1, self.c_out)
+            out[:, self.idx_plus[k], :] = yp.view(e, len(self.idx_plus[k]), self.c_out).to(out.dtype)
+            out[:, self.idx_minus[k], :] = ym.view(e, len(self.idx_minus[k]), self.c_out).to(out.dtype)
         return out
 
 
@@ -192,14 +200,17 @@ def per_l_scale(x, scale, lmax):
 
 
 def segment_softmax(logits, index, n):
-    """Softmax of logits (E, H) over all edges that share the same index (receiving node)."""
+    """Softmax over edges into each node with an implicit zero-logit, zero-value sink.
+
+    Edge weights sum to <= 1; all-masked segments have zero weights.
+    """
     h = logits.shape[1]
     idx = index[:, None].expand(-1, h)
-    max_per_node = torch.full((n, h), -torch.inf, dtype=logits.dtype, device=logits.device)
+    max_per_node = torch.zeros((n, h), dtype=logits.dtype, device=logits.device)
     max_per_node = max_per_node.scatter_reduce(0, idx, logits, reduce="amax", include_self=True)
     ex = torch.exp(logits - max_per_node[index])
-    denom = torch.zeros((n, h), dtype=logits.dtype, device=logits.device).index_add_(0, index, ex)
-    return ex / (denom[index] + 1e-16)
+    denom = torch.exp(-max_per_node).index_add(0, index, ex)
+    return ex / denom[index]
 
 
 class GraphAttention(nn.Module):
@@ -209,9 +220,12 @@ class GraphAttention(nn.Module):
       1. rotate x_src and x_dst into the edge frame and concatenate them
       2. scale each l by a learned function of the distance (invariant)
       3. h = SO2Linear(...)                              (E, S, C)
-      4. attention logits from the l=0 part of h         (E, heads), softmax over edges into dst
+      4. attention logits from the l=0 part of h plus log(envelope(d)) (E, heads),
+         softmax over edges into dst with a zero-logit, zero-value sink: weights sum
+         to <= 1 and each edge's weight goes smoothly to 0 as its envelope -> 0
+         (zero envelope masks the edge)
       5. value = SO2Linear(Gate(h)), rotated back to the global frame
-      6. sum of attention * envelope(d) * value into dst, then a linear layer
+      6. sum of attention * value into dst, then a linear layer
     """
 
     def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True):
@@ -231,11 +245,14 @@ class GraphAttention(nn.Module):
         xe = torch.cat([so3.to_edge_frame(wigner, x[src]), so3.to_edge_frame(wigner, x[dst])], dim=-1)
         rad = self.radial(gaussian_rbf(dist, self.cutoff, self.n_rbf)).view(e, self.lmax + 1, 2 * self.c)
         h = self.so2_1(per_l_scale(xe, rad, self.lmax))
-        alpha = segment_softmax(self.logits(h[:, 0, :]), dst, x.shape[0])  # (E, heads)
-        alpha = alpha * envelope(dist, self.cutoff)[:, None]
+        env = envelope(dist, self.cutoff)
+        # Avoid log(0) in backward even for masked edges.
+        log_env = torch.where(env > 0, env, torch.ones_like(env)).log()
+        log_env = log_env.masked_fill(env <= 0, -torch.inf)
+        alpha = segment_softmax(self.logits(h[:, 0, :]) + log_env[:, None], dst, x.shape[0])  # (E, heads)
         v = so3.from_edge_frame(wigner, self.so2_2(self.gate(h)))  # (E, S, C)
-        v = v.view(e, v.shape[1], self.heads, -1) * alpha[:, None, :, None]
-        agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], -1))
+        v = v.view(e, v.shape[1], self.heads, self.c // self.heads) * alpha[:, None, :, None]
+        agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], self.c).to(x.dtype))
         return self.out(agg)
 
 

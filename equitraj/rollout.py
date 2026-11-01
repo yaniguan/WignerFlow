@@ -40,22 +40,32 @@ def max_bond_deviation(pos, bonds, r0):
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
-            thermostat=None):
+            thermostat=None, energy_fn=None, history=20, monitor=None):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
-    crash_step (B,) = first step at which a crash criterion fired (-1 if never), and timing.
+    crash_step (B,) = first step at which a crash criterion fired (-1 if never), timing, and
+    'diagnostics' (StabilityMonitor.diagnostics(): crash reasons, offending atoms, T/KE drift, ...).
     Crash criteria: NaN, a pair closer than min_dist Å, temperature above t_max, a bond off by more
     than max_bond_dev (relative). Crashed systems keep being integrated, but their frames after the
     crash should be ignored.
     thermostat: None (model only) or dict(t_target, tau_fs, dt_fs) for the CSVR switch S6.
+    energy_fn: optional callable(pos (B, N, 3), box) -> (B,) potential energy in kJ/mol, tracked by the monitor.
+    history: number of checks kept in crash reports. monitor: a custom StabilityMonitor (then the
+    crash-criterion arguments above are ignored).
     """
+    from equitraj.monitor import StabilityMonitor  # monitor.py imports this module
+
     device = next(model.parameters()).device
     b = pos.shape[0]
     x = pos.to(device, torch.float64)
     v = vel.to(device, torch.float32)
     types, masses = types.to(device), masses.to(device)
     box = None if box is None else box.to(device)
+    if monitor is None:
+        monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
+                                   bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
+                                   history=history, stride_fs=getattr(model, "stride_fs", 1.0))
     crash = torch.full((b,), -1, dtype=torch.long, device=device)
     saved_x, saved_v = [], []
     t0 = time.time()
@@ -71,12 +81,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
             saved_x.append(x_new.float().cpu())
             saved_v.append(v_new.cpu())
         if step % check_every == 0 or step == n_steps:
-            bad = ~torch.isfinite(x_new).all(dim=(1, 2)) | ~torch.isfinite(v_new).all(dim=(1, 2))
-            bad |= min_pair_distance(x_new, box) < min_dist
-            if t_max is not None:
-                bad |= temperature(v_new, masses) > t_max
-            if bonds is not None:
-                bad |= max_bond_deviation(x_new, bonds.to(device), bond_r0.to(device)) > max_bond_dev
+            bad = monitor.check(step, x_new, v_new)
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)
             if (crash >= 0).all():
                 break
@@ -88,4 +93,5 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         "crash_step": crash.cpu(),
         "steps_done": step,
         "wall_s": time.time() - t0,
+        "diagnostics": monitor.diagnostics(),
     }

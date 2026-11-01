@@ -1,0 +1,119 @@
+{
+  "run": {
+    "config": "configs/nacl/proof_cpu.yaml",
+    "model_source": "random",
+    "device": "cpu",
+    "torch": "2.10.0+cpu",
+    "n_params": 83478,
+    "atoms": 128,
+    "elements": [
+      "Cl",
+      "Na"
+    ],
+    "stride_fs": 10.0,
+    "k": 3,
+    "model_cfg": {
+      "head": "flow",
+      "lmax": 2,
+      "channels": 16,
+      "heads": 2,
+      "n_rbf": 8,
+      "cutoff": 6.0,
+      "n_spatial": 1,
+      "n_fusion": 1,
+      "n_denoiser": 1,
+      "repulsion_prior": {
+        "enabled": true,
+        "strength": 0.5,
+        "rmin_scale": 0.95,
+        "width": 0.1,
+        "n_iter": 2,
+        "percentile": 0.1
+      }
+    }
+  },
+  "rollout": {
+    "steps_per_s": 0.28778747731363385,
+    "ns_per_day": 0.24864838039897966,
+    "steps_per_ns": 100000.0,
+    "wall_s": 34.7478635740008,
+    "step_fs": 10.0,
+    "n_steps": 10,
+    "warmup": 3,
+    "batch": 1,
+    "k": 3,
+    "atoms": 128,
+    "sampling_steps": 2,
+    "device": "cpu",
+    "ns_per_day_aggregate": 0.24864838039897966,
+    "step_ms": 3474.7863574000803,
+    "neighbor_list_ms": 293.7395907996688,
+    "neighbor_list_edges": 3552,
+    "neighbor_list_ms_per_step_est": 1174.9583631986752,
+    "neighbor_list_frac_est": 0.33813830329350314,
+    "finite": true
+  },
+  "openmm": {
+    "source": "results/nacl/profiling/openmm_bench_cpu.json",
+    "platform": "CPU",
+    "ns_per_day": 113.3521527775921,
+    "steps_per_s": 1311.9462127036122,
+    "step_fs": 1.0,
+    "atoms": 128,
+    "speed_ratio": 0.0021935920430805745,
+    "bench_model_ns_per_day": 0.4460785975349173
+  },
+  "train": {
+    "n_steps": 5,
+    "step_ms_mean": 84224.6600494007,
+    "step_ms_median": 83744.44084599963,
+    "steps_per_s": 0.011873007257179371,
+    "phases": {
+      "data": {
+        "total_s": 0.004967500004568137,
+        "mean_ms": 0.9935000009136274,
+        "frac": 1.1795862467164343e-05,
+        "calls": 5
+      },
+      "neighbor_list": {
+        "total_s": 51.029776261988445,
+        "mean_ms": 10205.955252397689,
+        "frac": 0.12117568635390767,
+        "calls": 60
+      },
+      "forward": {
+        "total_s": 163.39683979401525,
+        "mean_ms": 32679.36795880305,
+        "frac": 0.38800335138541264,
+        "calls": 5
+      },
+      "backward": {
+        "total_s": 206.1099050519988,
+        "mean_ms": 41221.98101039976,
+        "frac": 0.48943011391603325,
+        "calls": 5
+      },
+      "optimizer": {
+        "total_s": 0.5807496679954056,
+        "mean_ms": 116.14993359908112,
+        "frac": 0.0013790524821792568,
+        "calls": 5
+      }
+    },
+    "warmup": 1,
+    "batch_size": 4,
+    "atoms": 128,
+    "m": 3,
+    "backprop": "truncated",
+    "unroll_sampling_steps": 2,
+    "device": "cpu",
+    "loss_mean": 96.03439025878906,
+    "loss_finite": true,
+    "peak_mem_bytes": null,
+    "peak_mem_GB": null,
+    "peak_rss_MB": 3530.21875,
+    "schedule_m_final": 3,
+    "noise_sigma": 0.01,
+    "workers": 0
+  }
+}

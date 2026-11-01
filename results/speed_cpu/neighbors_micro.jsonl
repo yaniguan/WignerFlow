@@ -1,0 +1,12 @@
+{"engine": "neighbor", "atoms": 128, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "brute", "system": "argon", "ms_per_call": 0.547045199709828, "rebuilds": null}
+{"engine": "neighbor", "atoms": 128, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "cell", "system": "argon", "ms_per_call": 0.8540605998859974, "rebuilds": null}
+{"engine": "neighbor", "atoms": 128, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "verlet", "system": "argon", "ms_per_call": 0.35552150002331473, "rebuilds": 1}
+{"engine": "neighbor", "atoms": 512, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "brute", "system": "argon", "ms_per_call": 2.6202393000858137, "rebuilds": null}
+{"engine": "neighbor", "atoms": 512, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "cell", "system": "argon", "ms_per_call": 1.7636145999858854, "rebuilds": null}
+{"engine": "neighbor", "atoms": 512, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "verlet", "system": "argon", "ms_per_call": 0.6201913998665987, "rebuilds": 1}
+{"engine": "neighbor", "atoms": 2048, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "brute", "system": "argon", "ms_per_call": 46.56929269985994, "rebuilds": null}
+{"engine": "neighbor", "atoms": 2048, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "cell", "system": "argon", "ms_per_call": 3.4230743996886304, "rebuilds": null}
+{"engine": "neighbor", "atoms": 2048, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "verlet", "system": "argon", "ms_per_call": 1.1683240998536348, "rebuilds": 1}
+{"engine": "neighbor", "atoms": 8192, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "brute", "system": "argon", "ms_per_call": 760.3208731001359, "rebuilds": null}
+{"engine": "neighbor", "atoms": 8192, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "cell", "system": "argon", "ms_per_call": 24.58476100000553, "rebuilds": null}
+{"engine": "neighbor", "atoms": 8192, "precision": null, "sampling_steps": null, "replicas": 1, "compile": false, "neighbor": "verlet", "system": "argon", "ms_per_call": 4.8645363000105135, "rebuilds": 1}
