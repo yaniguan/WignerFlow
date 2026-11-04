@@ -1,5 +1,11 @@
 # WignerFlow
 
+<p>
+  <a href="https://antigravity.google/"><img src="assets/google-antigravity-logo.svg" alt="Google Antigravity" height="40" align="left"></a>
+  <sub>This project uses API credits from the Google Antigravity for Science program. Thank you, Google Antigravity!</sub>
+</p>
+<br clear="left">
+
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)
 
 An autoregressive E(3)-equivariant model that generates molecular dynamics trajectories directly. Given the last k frames (positions and velocities), it predicts the frame Δt = n·δt later, without a numerical integrator.
