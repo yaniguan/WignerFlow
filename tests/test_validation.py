@@ -125,3 +125,60 @@ def test_distance_and_temperature_failure_prefix():
     hot[7] *= 100
     r = validate(dict(d, velocities=hot), d, max_temperature=10000)
     assert r["rollout"]["first_unstable_frame"] == 7
+
+
+def test_same_element_explicit_charges():
+    d = ballistic()
+    d["elements"] = ["O", "O"]
+    r = validate(d, d, charges=[1, -1], temperature_K=1000)
+    c = r["rollout"]["conductivity"]
+    legacy = validate(ballistic(), ballistic(), charges={"Na": 1, "Cl": -1}, temperature_K=1000)
+    assert c["einstein_helfand_S_per_m"] == pytest.approx(legacy["rollout"]["conductivity"]["einstein_helfand_S_per_m"])
+    assert c["einstein_helfand_S_per_m"] == pytest.approx(2 * c["nernst_einstein_S_per_m"])
+    for charges in ([1], [1, np.nan]):
+        with pytest.raises(ValueError, match="charges"):
+            validate(d, d, charges=charges, temperature_K=1000)
+
+
+def test_molecule_neutral_translation_and_internal_motion():
+    t = np.arange(41.)
+    x = np.zeros((len(t), 2, 3))
+    x[:, :, 0] = .01 * t[:, None]
+    x[:, 0, 1] = np.sin(t) * .1
+    x[:, 1, 1] = -np.sin(t) * .05  # mass-weighted internal displacement cancels
+    d = dict(positions=x, velocities=np.zeros_like(x), elements=["O", "O"],
+             masses=[1, 2], box=np.eye(3) * 20, dt_fs=1)
+    r = validate(d, d, charges=[.5, -.5], molecule_ids=[0, 0], temperature_K=300, max_lag=10)
+    mol = r["rollout"]["molecules"]["0"]
+    assert np.allclose(mol["msd_A2"], .0001 * np.arange(11)**2)
+    assert mol["charge_e"] == 0
+    assert r["rollout"]["conductivity"]["nernst_einstein_S_per_m"] == 0
+    assert r["rollout"]["conductivity"]["nernst_einstein_basis"] == "molecule_com"
+    # Removing internal motion cancels the neutral collective displacement exactly.
+    d["positions"][:, :, 1] = 0
+    c = validate(d, d, charges=[.5, -.5], molecule_ids=[0, 0], temperature_K=300)["rollout"]["conductivity"]
+    assert c["einstein_helfand_S_per_m"] == pytest.approx(0, abs=1e-20)
+
+
+def test_molecular_ne_matches_single_particle_ions():
+    d = ballistic()
+    shared = dict(charges=[1, -1], temperature_K=300)
+    atomic = validate(d, d, **shared)["rollout"]["conductivity"]
+    molecular = validate(d, d, molecule_ids=[4, 9], **shared)["rollout"]["conductivity"]
+    assert molecular["nernst_einstein_S_per_m"] == pytest.approx(atomic["nernst_einstein_S_per_m"])
+    for ids in ([0], [0., 1.], [-1, 0]):
+        with pytest.raises(ValueError, match="molecule_ids"):
+            validate(d, d, molecule_ids=ids)
+
+
+def test_bounded_internal_charge_vibration():
+    x = np.zeros((101, 2, 3))
+    x[:, 0, 0] = .1 * (-1.) ** np.arange(101)
+    x[:, 1, 0] = -x[:, 0, 0]
+    d = dict(positions=x, velocities=np.zeros_like(x), elements=["O", "O"],
+             masses=[1, 1], box=np.eye(3) * 20, dt_fs=1)
+    c = validate(d, d, charges=[1, -1], molecule_ids=[0, 0],
+                 temperature_K=300, max_lag=20, fit_window_fs=(0, 20))["rollout"]["conductivity"]
+    assert max(c["collective_charge_msd_e2_A2"]) == pytest.approx(.16)
+    assert c["einstein_helfand_S_per_m"] == pytest.approx(0, abs=1e-12)
+    assert c["nernst_einstein_S_per_m"] == 0

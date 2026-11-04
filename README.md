@@ -197,3 +197,12 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+`equitraj.validation.validate` accepts `charges` as an aligned per-atom array
+(in elementary-charge units) as well as the legacy element mapping. Supply
+integer `molecule_ids` to report each molecule's mass-weighted COM diffusion
+and calculate Nernst–Einstein conductivity from net molecular charges.
+Einstein–Helfand conductivity always uses collective per-atom charge motion.
+Use whole, unwrapped molecular coordinates in a common rest frame; bounded
+internal polarization can affect finite-lag EH estimates. These estimators
+do not establish transport convergence.
