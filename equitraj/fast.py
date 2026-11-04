@@ -129,7 +129,9 @@ class FastRollout:
                   self._graph(pos[:, -1], box, [(a, k - 1) for a in range(r)]))
         if noise is None and self.model.head_type != "regression":
             noise = self.model.com_free_noise(r, types, masses, like=pos)
-        args = (pos, vel, types, box, masses, self.sampling_steps if n_steps is None else n_steps, noise, graphs)
+        if n_steps is None:
+            n_steps = self.sampling_steps
+        args = (pos, vel, types, box, masses, n_steps, noise, graphs)
         if self.cuda_graphs and pos.is_cuda:
             try:
                 # Tensor tree copies keep captured addresses stable across calls.
@@ -177,7 +179,7 @@ class FastRollout:
         return tuple(x.float() for x in self._eager(args))
 
     def monitored_rollout(self, pos, vel, types, box, masses, n_steps, **kwargs):
-        """Run accelerated prediction through the production stability monitor."""
+        """Run fast predictions with stability checks."""
         from equitraj.rollout import rollout
         kwargs.setdefault("sampling_steps", self.sampling_steps)
         result = rollout(self.model, pos, vel, types, box, masses, n_steps,

@@ -58,7 +58,8 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
 
     if min(n_steps, save_every, check_every, sampling_steps) < 1:
         raise ValueError("step counts and intervals must be positive")
-    predictor = model if predictor is None else predictor
+    if predictor is None:
+        predictor = model
     device = next(model.parameters()).device
     b = pos.shape[0]
     x = pos.to(device, torch.float64)
