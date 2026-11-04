@@ -40,7 +40,7 @@ def max_bond_deviation(pos, bonds, r0):
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
-            thermostat=None, energy_fn=None, history=20, monitor=None):
+            thermostat=None, energy_fn=None, history=20, monitor=None, constraint_projector=None):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -66,6 +66,10 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
                                    bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
                                    history=history, stride_fs=getattr(model, "stride_fs", 1.0))
+    projection_diagnostics = []
+    n_constraints = 0 if constraint_projector is None else constraint_projector.n_constraints
+    if constraint_projector is not None:
+        monitor.n_constraints = n_constraints
     crash = torch.full((b,), -1, dtype=torch.long, device=device)
     saved_x, saved_v = [], []
     t0 = time.time()
@@ -73,8 +77,11 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         dx, v_new = model.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
         if thermostat is not None:
             v_new = csvr(v_new, masses, thermostat["t_target"], thermostat["tau_fs"], thermostat["dt_fs"],
-                         dof=3 * v_new.shape[1] - 3)
+                         dof=3 * v_new.shape[1] - 3 - n_constraints)
         x_new = x[:, -1] + dx.double()
+        if constraint_projector is not None:
+            x_new, v_new, stats = constraint_projector(x_new, v_new, masses, box)
+            projection_diagnostics.append({"step": step, **stats})
         x = torch.cat([x[:, 1:], x_new[:, None]], dim=1)
         v = torch.cat([v[:, 1:], v_new[:, None]], dim=1)
         if step % save_every == 0:
@@ -87,11 +94,14 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
                 break
     if device.type == "cuda":
         torch.cuda.synchronize()
+    diagnostics = monitor.diagnostics()
+    if constraint_projector is not None:
+        diagnostics["constraint_projection"] = projection_diagnostics
     return {
         "positions": torch.stack(saved_x) if saved_x else None,
         "velocities": torch.stack(saved_v) if saved_v else None,
         "crash_step": crash.cpu(),
         "steps_done": step,
         "wall_s": time.time() - t0,
-        "diagnostics": monitor.diagnostics(),
+        "diagnostics": diagnostics,
     }
