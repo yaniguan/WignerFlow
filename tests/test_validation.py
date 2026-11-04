@@ -145,7 +145,7 @@ def test_molecule_neutral_translation_and_internal_motion():
     x = np.zeros((len(t), 2, 3))
     x[:, :, 0] = .01 * t[:, None]
     x[:, 0, 1] = np.sin(t) * .1
-    x[:, 1, 1] = -np.sin(t) * .05  # mass-weighted internal displacement cancels
+    x[:, 1, 1] = -np.sin(t) * .05  # Internal motion leaves the center of mass unchanged.
     d = dict(positions=x, velocities=np.zeros_like(x), elements=["O", "O"],
              masses=[1, 2], box=np.eye(3) * 20, dt_fs=1)
     r = validate(d, d, charges=[.5, -.5], molecule_ids=[0, 0], temperature_K=300, max_lag=10)
@@ -154,7 +154,7 @@ def test_molecule_neutral_translation_and_internal_motion():
     assert mol["charge_e"] == 0
     assert r["rollout"]["conductivity"]["nernst_einstein_S_per_m"] == 0
     assert r["rollout"]["conductivity"]["nernst_einstein_basis"] == "molecule_com"
-    # Removing internal motion cancels the neutral collective displacement exactly.
+    # Without internal motion, the two opposite charges cancel exactly.
     d["positions"][:, :, 1] = 0
     c = validate(d, d, charges=[.5, -.5], molecule_ids=[0, 0], temperature_K=300)["rollout"]["conductivity"]
     assert c["einstein_helfand_S_per_m"] == pytest.approx(0, abs=1e-20)

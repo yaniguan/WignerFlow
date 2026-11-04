@@ -134,17 +134,17 @@ def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy, m
             q = np.asarray(charges, dtype=float)
         if q.shape != (x.shape[1],) or not np.isfinite(q).all():
             raise ValueError("charges must be a finite aligned per-atom array or species mapping")
-    # Each molecule is analyzed separately so different charge states or masses
-    # never get averaged merely because they share an element label.
-    transport_x, transport_q = x, q
+    # Keep molecules separate even when they contain the same elements.
+    transport_x = x
+    transport_q = q
     if molecule_ids is not None:
         ids = np.asarray(molecule_ids)
         if ids.shape != (x.shape[1],) or ids.dtype.kind not in "iu" or np.any(ids < 0):
             raise ValueError("molecule_ids must be aligned nonnegative integers")
-        unique = np.unique(ids)
-        coms, molecule_charges = [], []
+        coms = []
+        molecule_charges = []
         result["molecules"] = {}
-        for mid in unique:
+        for mid in np.unique(ids):
             idx = np.flatnonzero(ids == mid)
             mass = d["masses"][idx]
             if mass.sum() <= 0:
@@ -161,7 +161,8 @@ def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy, m
                 item["charge_e"] = charge
             result["molecules"][str(mid)] = item
         transport_x = np.stack(coms, axis=1)
-        transport_q = np.array(molecule_charges) if q is not None else None
+        if q is not None:
+            transport_q = np.array(molecule_charges)
     if q is not None:
         if cells is None:
             raise ValueError("conductivity requires a periodic volume")
@@ -169,8 +170,8 @@ def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy, m
         if not np.isfinite(t_k) or t_k <= 0:
             raise ValueError("conductivity requires positive temperature_K or kinetic temperature")
         volume = float(np.mean(np.abs(np.linalg.det(cells)))) * 1e-30
-        # Weighted self MSD gives atomic NE by default, molecular COM NE when
-        # molecule_ids are supplied. The collective EH always uses atom charges.
+        # Nernst–Einstein uses atom motion unless molecule_ids is supplied.
+        # Einstein–Helfand always uses atom charges and positions.
         self_msd = np.zeros(lag + 1)
         for i, charge in enumerate(transport_q):
             self_msd += charge ** 2 * analysis.msd(transport_x[:, i:i + 1], np.arange(lag + 1))
@@ -206,10 +207,11 @@ def validate(rollout, reference, *, elements=None, masses=None, box=None, dt_fs=
     Nonfinite frames and optional distance/temperature failures truncate analysis
     at the first failure. stable_frames can explicitly mark a valid prefix.
     Default kinetic DOF is 3N; pass dof for constraints/COM removal.
-    charges accepts a species mapping or an aligned (N,) array in e.
-    molecule_ids is an aligned integer array; when supplied, report molecular
-    COM diffusion and use net molecular charges for NE conductivity. Coordinates
-    must keep each molecule whole and unwrapped in a common rest frame.
+    charges accepts a dictionary by element or one charge per atom, in units
+    of the elementary charge. Pass one integer molecule_ids value per atom
+    to report mass-weighted center of mass diffusion and use each molecule's
+    net charge for Nernst–Einstein conductivity. This is off by default.
+    Keep each molecule whole and use unwrapped coordinates in a common rest frame.
     RDF radius is limited to half the minimum cell height of both series.
     """
     prepared, report = {}, {"units": "Å, fs, amu; conductivity S/m", "errors": {}}
