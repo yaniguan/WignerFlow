@@ -198,14 +198,16 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Explicit PFF metadata can be passed to `import_trajectory(particle_metadata=...)`
-or supplied as JSON with `scripts/import_md.py --particle-metadata FILE`.
-The v1 schema in `equitraj/topology.py` requires `version: 1`,
+To include PFF metadata, pass it to `import_trajectory(particle_metadata=...)`
+or use a JSON file with `scripts/import_md.py --particle-metadata FILE`.
+Metadata is off by default. The version 1 format in `equitraj/topology.py`
+requires `version: 1`,
 `units: {"charge": "e", "distance": "nm"}`, per-particle `charges`,
 `ff_types`, `molecule_ids`, and unique `original_indices`, plus `bonds`
 (index pairs), `constraints` (index, index, distance), and
 `drude_parent_map` (Drude, parent pairs). Empty topology lists are valid.
-Filtering remaps retained indices and preserves original indices; it discards
-bonds/constraints touching removed particles and rejects retained Drudes with
-removed parents. Charges and masses are never merged. `read_traj` returns the
-validated schema as `particle_metadata`; legacy files remain supported.
+Filtering updates particle indices and keeps `original_indices` unchanged.
+It drops bonds and constraints that include removed particles. It raises an
+error if a kept Drude's parent was removed. Charges and masses are never
+combined. `read_traj` checks the metadata and returns it as `particle_metadata`.
+Files without metadata still work.

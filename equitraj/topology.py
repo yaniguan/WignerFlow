@@ -1,6 +1,6 @@
-"""Explicit PFF metadata v1: charge e, constraint distance nm, zero-based indices.
+"""PFF metadata version 1 uses charges in e and distances in nm. Indices start at 0.
 
-No force-field parameters are inferred or merged when particles are removed.
+Removing particles does not guess or combine force-field values.
 """
 import json
 import numpy as np
@@ -9,7 +9,7 @@ VERSION = 1
 
 
 def validate_metadata(metadata, n_atoms):
-    """Return a JSON-compatible validated copy. All v1 fields are required."""
+    """Check all required version 1 fields and return a copy for JSON storage."""
     d = dict(metadata)
     if d.get("version") != VERSION or d.get("units") != {"charge": "e", "distance": "nm"}:
         raise ValueError("expected metadata version 1 and units charge=e, distance=nm")
@@ -35,7 +35,11 @@ def validate_metadata(metadata, n_atoms):
         if rows.ndim != 2 or rows.shape[1] != width:
             raise ValueError(f"invalid {key} shape")
         idx = rows[:, :2].astype(float)
-        if not np.isfinite(idx).all() or np.any(idx != np.floor(idx)) or np.any(idx < 0) or np.any(idx >= n_atoms) or np.any(idx[:, 0] == idx[:, 1]):
+        if (not np.isfinite(idx).all()
+                or np.any(idx != np.floor(idx))
+                or np.any(idx < 0)
+                or np.any(idx >= n_atoms)
+                or np.any(idx[:, 0] == idx[:, 1])):
             raise ValueError(f"invalid {key} particle indices")
         pairs = idx.astype(int)
         canonical = [tuple(sorted(p)) for p in pairs.tolist()]
@@ -54,10 +58,10 @@ def validate_metadata(metadata, n_atoms):
 
 
 def remap_metadata(metadata, keep):
-    """Filter particle fields and remap topology; reject retained dangling Drudes.
+    """Keep selected particles and update their indices in bonds and other pairs.
 
-    Bonds/constraints touching removed particles are discarded. A retained Drude
-    whose parent was removed is an error. original_indices retain provenance.
+    Drop bonds and constraints that include removed particles. Raise an error
+    if a kept Drude's parent was removed. Leave original_indices unchanged.
     """
     keep = np.asarray(keep)
     if keep.ndim != 1 or keep.dtype.kind != "b" or not keep.any():
@@ -86,4 +90,6 @@ def write_metadata(group, metadata, n_atoms):
 
 def read_metadata(group, n_atoms):
     raw = group.attrs.get("pff_metadata")
-    return None if raw is None else validate_metadata(json.loads(raw), n_atoms)
+    if raw is None:
+        return None
+    return validate_metadata(json.loads(raw), n_atoms)
