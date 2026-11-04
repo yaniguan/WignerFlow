@@ -16,7 +16,10 @@ def dataset(tmp_path):
         w.close()
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(
         {"split": {"train": [0], "val": [1], "test": []}}))
-    return lambda **kw: TrajWindows(tmp_path, "train", 2, 2, **kw)
+    def load(**kw):
+        return TrajWindows(tmp_path, "train", 2, 2, **kw)
+
+    return load
 
 
 def test_constant_different_cells(tmp_path):
@@ -31,7 +34,7 @@ def test_constant_different_cells(tmp_path):
     ("box", "time-varying"), ("periodic", "periodicity"), ("identity", "identities")])
 def test_all_splits_checked_before_cache(tmp_path, change, match):
     load = dataset(tmp_path)
-    load()  # create a cache, then corrupt even a trajectory outside train
+    load()  # Cache the data, then change a validation trajectory.
     with h5py.File(tmp_path / "traj_001.h5", "r+") as f:
         if change == "elements":
             f["elements"][:] = [b"O", b"Li"]
