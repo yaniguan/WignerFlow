@@ -14,6 +14,9 @@ import math
 import os
 import time
 
+# Less CUDA memory fragmentation for the large m=4 unroll steps. Must be set before CUDA starts.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 import torch
 import yaml
@@ -174,6 +177,46 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
         pen = torch.stack([overlap_penalty(x, box, types, overlap_r0) for x in pred_x]).mean()
         loss = loss + overlap_weight * pen
     return loss
+
+
+def micro_batch_size_for(tc, m):
+    """Number of windows per forward/backward pass at unroll length m.
+
+    Long unrolls keep one autograd graph per unroll step, so memory grows with m. From
+    train.micro_batch_min_m (default 4) on, the batch is split into micro-batches of
+    train.micro_batch_size windows (default: half the batch). Below that m the full batch is used.
+    The gradient is the same either way (see accumulate_gradients).
+    """
+    batch_size = int(tc["batch_size"])
+    if m < int(tc.get("micro_batch_min_m", 4)):
+        return batch_size
+    size = tc.get("micro_batch_size")
+    if size is None:
+        size = (batch_size + 1) // 2
+    return max(1, min(int(size), batch_size))
+
+
+def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
+                         micro_batch_size, **loss_opts):
+    """Run training_loss on micro-batches of the batch and call backward on each one.
+
+    Every term of training_loss is a mean over the windows of the batch, so each micro-batch loss is
+    weighted by its share of the batch. The summed gradient (added to the .grad of the parameters) and
+    the returned loss then equal one full-batch training_loss call; only one micro-batch graph is in
+    memory at a time. Returns the batch loss as a Python float.
+    """
+    batch = pos.shape[0]
+    total = 0.0
+    for start in range(0, batch, micro_batch_size):
+        end = min(start + micro_batch_size, batch)
+        part_box = None if box is None else box[start:end]
+        loss = training_loss(model, pos[start:end], vel[start:end], part_box, types, masses, m, noise_sigma,
+                             backprop, unroll_sampling_steps, **loss_opts)
+        share = (end - start) / batch
+        (loss * share).backward()
+        total += loss.item() * share
+        del loss
+    return total
 
 
 def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None):
@@ -361,6 +404,7 @@ def main():
     guard = SpikeGuard(tc.get("loss_spike_factor", 0.0), tc.get("loss_spike_window", 200))
     rewarmup = int(tc.get("rewarmup_steps", 0))
     gnorms = []
+    m_last = None
     def evaluate_and_select():
         nonlocal best, best_stable, last_ckpt
         model.eval()
@@ -425,12 +469,20 @@ def main():
             lr_now = lr_at(step) * lr_scale_after_switch(step, last_switch_step(tc["unroll"], step), rewarmup)
             for g in opt.param_groups:
                 g["lr"] = lr_now
-            loss = training_loss(model, pos, vel, box, types, masses, m, noise_sigma_at(tc, step),
-                                 tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2), **loss_opts)
+            if m != m_last:
+                # new unroll length: free cached blocks sized for the old graphs
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
+                print(json.dumps({"unroll_m": m, "at_step": step, "micro_batch_size": micro_batch_size_for(tc, m)}), flush=True)
+                m_last = m
+            # backward runs inside, one micro-batch at a time; a rejected update throws the gradient away
             opt.zero_grad(set_to_none=True)
-            loss_value = loss.item()
-            if guard.check(loss_value, m):
-                loss.backward()
+            loss_value = accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma_at(tc, step),
+                                              tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2),
+                                              micro_batch_size_for(tc, m), **loss_opts)
+            if not guard.check(loss_value, m):
+                opt.zero_grad(set_to_none=True)
+            else:
                 gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
                 if torch.isfinite(gnorm):
                     opt.step()
