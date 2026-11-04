@@ -26,6 +26,7 @@ def test_npz_units_unwrap_species_and_velocity(tmp_path):
         import_trajectory(src, tmp_path / "out", unit="angstrom")
     config = write_data_config(tmp_path / "out", 3)
     assert yaml.safe_load(config.read_text())["split"] == {"train": [0], "val": [1], "test": [2]}
+    write_data_config(tmp_path / "out", 1)  # only trajectory actually imported
     from equitraj.dataset import TrajWindows
     ds = TrajWindows(tmp_path / "out", "train", stride_steps=2, k=1)
     pos, vel, cell = ds[0]

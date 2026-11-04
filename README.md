@@ -197,3 +197,11 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Training windows now preflight the source HDF5 trajectories in every configured
+split before using caches: particle order/elements, masses, cadence/time arrays,
+periodicity, finite coordinates, and fixed cells must agree. Different constant
+cells per trajectory are supported. Optional `atom_ids` or `particle_names`
+datasets distinguish same-element particles; without them such permutations
+cannot be detected. Set training `reject_estimated_velocities: true` (or the
+same keyword on `TrajWindows`) to require measured velocities.
