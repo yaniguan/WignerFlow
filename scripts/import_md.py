@@ -10,6 +10,7 @@ def main():
     ap.add_argument("src", nargs="+")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--topology")
+    ap.add_argument("--particle-metadata", help="explicit v1 PFF metadata JSON sidecar")
     ap.add_argument("--format", choices=["mdtraj", "ase", "generic"])
     ap.add_argument("--unit", choices=["angstrom", "nm"])
     ap.add_argument("--velocity-unit", choices=["angstrom/fs", "angstrom/ps", "nm/ps"])
@@ -32,7 +33,9 @@ def main():
                                  dt_fs=args.dt_fs, save_every=args.save_every, traj_index=i,
                                  system=args.system, periodic=False if args.nonperiodic else None,
                                  drop_drude=not args.keep_drude, unwrap=not args.already_unwrapped,
-                                 overwrite=args.overwrite)
+                                 overwrite=args.overwrite,
+                                 particle_metadata=json.load(open(args.particle_metadata))
+                                 if args.particle_metadata else None)
         print(path)
     write_data_config(args.out_dir, len(args.src), json.loads(args.split) if args.split else None)
 
