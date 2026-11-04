@@ -197,3 +197,13 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Explicit geometric pair exclusions are opt-in boolean `(N,N)` masks with
+`True` for excluded pairs; masks must be symmetric and match the current
+particle order. Pass `excluded_pairs=mask` to `RepulsionPrior`,
+`overlap_penalty`, `estimate_rmin`, and `rollout` (or `StabilityMonitor`)
+to apply the same exclusions to correction/damping, loss, wall estimation,
+and overlap checks/reports. No molecule-wide exclusions are inferred.
+The prior's mask is runtime topology and is deliberately absent from weight
+checkpoints; supply it again when loading a model for that particle ordering.
+Other crash criteria remain active.

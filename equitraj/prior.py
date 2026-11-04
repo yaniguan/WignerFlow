@@ -28,9 +28,10 @@ import torch
 import torch.nn as nn
 
 from equitraj.neighbors import minimum_image
+from equitraj.pair_masks import exclusion_mask
 
 
-def close_pairs(pos, box, types, r0):
+def close_pairs(pos, box, types, r0, excluded_pairs=None):
     """Pairs i < j closer than r0[type_i, type_j] (minimum image).
 
     pos: (B, N, 3). box: (B, 3, 3) or None. types: (N,). r0: (T, T) in Å (0 disables a type pair).
@@ -44,6 +45,7 @@ def close_pairs(pos, box, types, r0):
         d = torch.linalg.norm(dr, dim=-1)
         cut = r0.to(d.dtype)[types[:, None], types[None, :]]
         upper = torch.ones(n, n, dtype=torch.bool, device=pos.device).triu(1)
+        upper &= ~exclusion_mask(excluded_pairs, n, pos.device)
         bi, i, j = torch.nonzero((d < cut) & upper, as_tuple=True)
     vec = pos[bi, i] - pos[bi, j]
     if box is not None and bi.numel() > 0:
@@ -58,18 +60,18 @@ def _length(vec):
     return torch.sqrt((vec * vec).sum(-1) + 1e-12)  # finite gradient even for coincident atoms
 
 
-def overlap_penalty(pos, box, types, r0):
+def overlap_penalty(pos, box, types, r0, excluded_pairs=None):
     """Mean over systems of sum_pairs ((r0 - r)_+ / r0)^2. Differentiable; 0 if nothing overlaps."""
-    bi, i, j, vec = close_pairs(pos, box, types, r0)
+    bi, i, j, vec = close_pairs(pos, box, types, r0, excluded_pairs)
     if bi.numel() == 0:
-        return pos.new_zeros(())
+        return pos.sum() * 0
     rr = r0.to(vec.dtype)[types[i], types[j]]
     o = ((rr - _length(vec)) / rr).clamp_min(0)
     return pos.new_zeros(pos.shape[0]).index_add(0, bi, o * o).mean()
 
 
 @torch.no_grad()
-def estimate_rmin(ds, percentile=0.1, n_frames=200, seed=0):
+def estimate_rmin(ds, percentile=0.1, n_frames=200, seed=0, excluded_pairs=None):
     """Per-type-pair r_min (T, T) in Å from training data.
 
     For sampled frames, the nearest-neighbor distance of every atom of type a to atoms of type b is
@@ -90,6 +92,7 @@ def estimate_rmin(ds, percentile=0.1, n_frames=200, seed=0):
                 dr = minimum_image(dr, torch.as_tensor(ds.boxes[t], dtype=torch.float64))
             d = torch.linalg.norm(dr, dim=-1)
             d.fill_diagonal_(float("inf"))
+            d.masked_fill_(exclusion_mask(excluded_pairs, len(x), x.device), float("inf"))
             for a in range(n_types):
                 for b in range(n_types):
                     sub = d[types == a][:, types == b]
@@ -118,7 +121,7 @@ class RepulsionPrior(nn.Module):
     """
 
     def __init__(self, n_types, strength=0.5, rmin_scale=1.0, width=0.1, n_iter=1, damp_velocity=0.0,
-                 percentile=0.1, rmin=None):
+                 percentile=0.1, rmin=None, excluded_pairs=None):
         super().__init__()
         self.strength, self.rmin_scale, self.width = float(strength), float(rmin_scale), float(width)
         self.n_iter, self.damp_velocity, self.percentile = int(n_iter), float(damp_velocity), float(percentile)
@@ -127,6 +130,9 @@ class RepulsionPrior(nn.Module):
         if rmin is not None:
             r = r + torch.as_tensor(rmin, dtype=torch.float32)
         self.register_buffer("rmin", r)
+        # Runtime topology belongs to the current particle ordering, not learned weights.
+        self.register_buffer("excluded_pairs", None if excluded_pairs is None else
+                             torch.as_tensor(excluded_pairs), persistent=False)
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         # checkpoints trained without the prior have no r_min: keep the current value (set it afterwards)
@@ -140,7 +146,7 @@ class RepulsionPrior(nn.Module):
     def correction(self, pos, box, types, masses):
         """Displacement (B, N, 3) that pushes overlapping pairs of `pos` apart; zero mass-weighted sum."""
         r0 = self.r0()
-        bi, i, j, vec = close_pairs(pos, box, types, r0)
+        bi, i, j, vec = close_pairs(pos, box, types, r0, self.excluded_pairs)
         if bi.numel() == 0:
             return torch.zeros_like(pos)
         r = _length(vec)
@@ -156,7 +162,7 @@ class RepulsionPrior(nn.Module):
 
     def damp(self, pos, vel, box, types, masses):
         """Remove the fraction damp_velocity of the approaching relative velocity of overlapping pairs."""
-        bi, i, j, vec = close_pairs(pos, box, types, self.r0())
+        bi, i, j, vec = close_pairs(pos, box, types, self.r0(), self.excluded_pairs)
         if bi.numel() == 0:
             return vel
         unit = vec / _length(vec)[:, None]
