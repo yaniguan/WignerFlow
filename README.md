@@ -198,12 +198,13 @@ The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et 
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Learned rollout steps can opt into geometric constraints by passing
+Distance constraints are off by default. To enable them, pass
 `constraint_projector=DistanceProjector([(i, j, distance_A), ...])` to
-`equitraj.rollout.rollout` (class in `equitraj.constraints`). Sequential
-mass-weighted position and velocity corrections preserve COM and momentum;
-positive masses and independent distance constraints are required. Projection
-runs after the optional thermostat, adjusts temperature DOF, records residuals
-and correction magnitudes in diagnostics, and raises on nonconvergence.
-Periodic distances use minimum images. This correction can change kinetic energy
-and transport and must be validated for the intended physical system.
+`equitraj.rollout.rollout`. Import `DistanceProjector` from `equitraj.constraints`.
+Corrections use particle masses and keep the center of mass and total momentum
+fixed. Masses must be positive, and constraints must be independent.
+Corrections run after the optional thermostat. Temperature calculations account
+for the constraints. Diagnostics record the remaining errors and correction
+sizes. The rollout raises an error if corrections fail to reach the tolerances.
+Periodic distances use the nearest image. Corrections can change kinetic energy
+and transport, so check the results for your physical system.
