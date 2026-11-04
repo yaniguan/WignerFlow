@@ -1,7 +1,7 @@
-"""Explicit symmetric boolean pair exclusions; True means ignore this pair.
+"""Boolean pair masks: True means skip the pair.
 
-Masks are particle-order-specific (N,N), shared across replicas. No exclusions
-are inferred from molecule membership or chemical types.
+Masks must be symmetric, have shape (N,N), and use the current particle order.
+All systems share the mask. Molecules and atom types do not set exclusions.
 """
 import torch
 

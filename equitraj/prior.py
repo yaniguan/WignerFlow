@@ -130,9 +130,10 @@ class RepulsionPrior(nn.Module):
         if rmin is not None:
             r = r + torch.as_tensor(rmin, dtype=torch.float32)
         self.register_buffer("rmin", r)
-        # Runtime topology belongs to the current particle ordering, not learned weights.
-        self.register_buffer("excluded_pairs", None if excluded_pairs is None else
-                             torch.as_tensor(excluded_pairs), persistent=False)
+        # This mask uses the current particle order and is not saved in checkpoints.
+        if excluded_pairs is not None:
+            excluded_pairs = torch.as_tensor(excluded_pairs)
+        self.register_buffer("excluded_pairs", excluded_pairs, persistent=False)
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         # checkpoints trained without the prior have no r_min: keep the current value (set it afterwards)

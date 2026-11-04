@@ -19,7 +19,7 @@ def test_prior_penalty_and_gradient():
     corr = prior.correction(x, None, types, masses)
     assert torch.count_nonzero(corr) == 0
     assert overlap_penalty(x, None, types, prior.r0(), excluded_pairs=mask) == 0
-    # A nonexcluded clash still produces differentiable momentum-conserving correction.
+    # Another overlapping pair still gets a correction that preserves momentum and allows gradients.
     x = x.detach().clone()
     x[:, 2, 0] = .4
     x.requires_grad_()
@@ -85,5 +85,5 @@ def test_empty_active_pairs_and_velocity_damping():
     v[:, 0, 0] = 1
     v[:, 1, 0] = -1
     torch.testing.assert_close(prior.damp(x, v, None, types, masses), v)
-    # Exclusions do not add weights to existing state dicts.
+    # The mask is not saved with the weights.
     assert "excluded_pairs" not in prior.state_dict()
