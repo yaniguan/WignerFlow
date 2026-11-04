@@ -117,7 +117,7 @@ class FastRollout:
                 raise
 
     @torch.no_grad()
-    def predict(self, pos, vel, types, box, masses, noise=None):
+    def predict(self, pos, vel, types, box, masses, noise=None, n_steps=None):
         pos, vel = pos.float(), vel.float()
         if box is not None:
             box = box.float()
@@ -129,7 +129,7 @@ class FastRollout:
                   self._graph(pos[:, -1], box, [(a, k - 1) for a in range(r)]))
         if noise is None and self.model.head_type != "regression":
             noise = self.model.com_free_noise(r, types, masses, like=pos)
-        args = (pos, vel, types, box, masses, self.sampling_steps, noise, graphs)
+        args = (pos, vel, types, box, masses, self.sampling_steps if n_steps is None else n_steps, noise, graphs)
         if self.cuda_graphs and pos.is_cuda:
             try:
                 # Tensor tree copies keep captured addresses stable across calls.
@@ -175,6 +175,15 @@ class FastRollout:
             warnings.warn("CUDA graphs require CUDA; using eager", RuntimeWarning)
             self.cuda_graphs = False
         return tuple(x.float() for x in self._eager(args))
+
+    def monitored_rollout(self, pos, vel, types, box, masses, n_steps, **kwargs):
+        """Run accelerated prediction through the production stability monitor."""
+        from equitraj.rollout import rollout
+        kwargs.setdefault("sampling_steps", self.sampling_steps)
+        result = rollout(self.model, pos, vel, types, box, masses, n_steps,
+                         predictor=self, **kwargs)
+        result["effective_precision"] = self.effective_precision
+        return result
 
     @torch.no_grad()
     def rollout(self, pos, vel, types, box, masses, n_steps, *, save_every=1):
