@@ -3,7 +3,9 @@
     python -m equitraj.train --config configs/argon/flow_s1_n10.yaml
 
 Resumable: a checkpoint is written every `ckpt_minutes` and at every evaluation; rerunning the
-same command continues from it. Model selection uses short validation rollouts, not the loss:
+same command continues from it. Each checkpoint is written under /tmp first, then copied into
+out_dir, and retried if that folder disappears (a Google Drive unmount). Model selection uses
+short validation rollouts, not the loss:
 best.pt by legacy_score, best_stable.pt by selection_score (stability first). Optional stability
 options (repulsion prior, noise schedule, unroll weights, overlap penalty) are documented in docs/STABILITY.md.
 """
@@ -12,6 +14,8 @@ import argparse
 import json
 import math
 import os
+import shutil
+import tempfile
 import time
 
 # Less CUDA memory fragmentation for the large m=4 unroll steps. Must be set before CUDA starts.
@@ -91,6 +95,51 @@ class SpikeGuard:
         self.hist.append(loss_value)
         self.hist = self.hist[-self.window:]
         return True
+
+
+def atomic_save(obj, path, retries=5, backoff=1.0):
+    """Write `obj` to `path` so a vanished output folder does not abort training.
+
+    torch.save goes to a local file under /tmp. That file is then copied to
+    `path`.tmp and renamed onto `path` (same final result as a direct save).
+    If the parent folder is missing, recreate it when possible and retry a few
+    times with a short wait. A Google Drive unmount removes the MyDrive path
+    mid-run; the retries cover a brief disconnect. If it still fails, raise
+    RuntimeError and say that a Drive unmount is the likely cause.
+    """
+    if retries < 1:
+        raise ValueError(f"retries must be >= 1, got {retries}")
+    parent = os.path.dirname(path)
+    fd, local = tempfile.mkstemp(prefix="wignerflow_ckpt_", suffix=".pt", dir="/tmp")
+    os.close(fd)
+    try:
+        torch.save(obj, local)
+        last_error = None
+        for attempt in range(retries):
+            try:
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                if parent and not os.path.isdir(parent):
+                    raise FileNotFoundError(f"Parent directory {parent} does not exist")
+                tmp_path = path + ".tmp"
+                shutil.copyfile(local, tmp_path)
+                os.replace(tmp_path, path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 >= retries:
+                    break
+                time.sleep(backoff)
+        raise RuntimeError(
+            f"Failed to save checkpoint to {path} after {retries} attempts. "
+            f"Parent directory {parent or '.'} is missing or not writable after a Drive unmount. "
+            f"Last error: {last_error}"
+        )
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
 
 
 def load_init_weights(model, path, device):
@@ -385,10 +434,9 @@ def main():
         return tc["lr"] * 0.5 * (1 + math.cos(math.pi * min(1.0, (s - warm) / max(1, tc["steps"] - warm))))
 
     def save(path):
-        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
-                    "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
-                    "elements": train_ds.elements}, path + ".tmp")
-        os.replace(path + ".tmp", path)
+        atomic_save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
+                     "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
+                     "elements": train_ds.elements}, path)
 
     if args.no_tensorboard:
         class ScalarWriter:
@@ -445,9 +493,8 @@ def main():
                     f.write(json.dumps({"step": step, **d}) + "\n")
         # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
         # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
-        os.makedirs(os.path.join(out_dir, "snapshots"), exist_ok=True)
-        torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
-                   os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
+        atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+                    os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
         log.write(json.dumps(metrics) + "\n")
         log.flush()
         print(json.dumps(metrics), flush=True)
