@@ -38,8 +38,9 @@ def _slope(t, y):
 
 class StabilityMonitor:
     def __init__(self, types, masses, box=None, min_dist=0.5, t_max=None, bonds=None, bond_r0=None,
-                 max_bond_dev=0.5, energy_fn=None, history=20, stride_fs=1.0, n_report=20):
+                 max_bond_dev=0.5, energy_fn=None, history=20, stride_fs=1.0, n_report=20, n_constraints=0):
         self.types, self.masses, self.box = types, masses, box
+        self.n_constraints = n_constraints
         self.min_dist, self.t_max = min_dist, t_max
         self.bonds, self.bond_r0, self.max_bond_dev = bonds, bond_r0, max_bond_dev
         self.energy_fn = energy_fn
@@ -55,7 +56,7 @@ class StabilityMonitor:
         masses = self.masses.to(x.device)
         box = None if self.box is None else self.box.to(x.device)
         vd = v.double()
-        s = {"T": temperature(v, masses),
+        s = {"T": temperature(v, masses, self.n_constraints),
              "KE": kinetic_energy(v, masses),
              "min_dist": min_pair_distance(x, box).double(),
              "max_speed": torch.linalg.norm(vd, dim=-1).amax(dim=1),
@@ -117,7 +118,7 @@ class StabilityMonitor:
         elif reason == "temperature":
             ke_atom = 0.5 * self.masses.to(v.device).double() * (v.double() ** 2).sum(-1)
             atoms = torch.argsort(ke_atom, descending=True)[:min(5, len(ke_atom))]
-            info["value"] = float(temperature(v[None], self.masses.to(v.device))[0])
+            info["value"] = float(temperature(v[None], self.masses.to(v.device), self.n_constraints)[0])
         else:  # bond
             bonds = self.bonds.to(x.device)
             r = torch.linalg.norm(x[bonds[:, 0]] - x[bonds[:, 1]], dim=-1)

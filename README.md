@@ -111,3 +111,14 @@ Related work (TrajCast, FlashMD, Timewarp, MDGen): [docs/related_work.md](docs/r
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Distance constraints are off by default. To enable them, pass
+`constraint_projector=DistanceProjector([(i, j, distance_A), ...])` to
+`equitraj.rollout.rollout`. Import `DistanceProjector` from `equitraj.constraints`.
+Corrections use particle masses and keep the center of mass and total momentum
+fixed. Masses must be positive, and constraints must be independent.
+Corrections run after the optional thermostat. Temperature calculations account
+for the constraints. Diagnostics record the remaining errors and correction
+sizes. The rollout raises an error if corrections fail to reach the tolerances.
+Periodic distances use the nearest image. Corrections can change kinetic energy
+and transport, so check the results for your physical system.
