@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 from equitraj.neighbors import minimum_image
+from equitraj.pair_masks import exclusion_mask
 from equitraj.rollout import max_bond_deviation, min_pair_distance, temperature
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL
 
@@ -38,9 +39,10 @@ def _slope(t, y):
 
 class StabilityMonitor:
     def __init__(self, types, masses, box=None, min_dist=0.5, t_max=None, bonds=None, bond_r0=None,
-                 max_bond_dev=0.5, energy_fn=None, history=20, stride_fs=1.0, n_report=20):
+                 max_bond_dev=0.5, energy_fn=None, history=20, stride_fs=1.0, n_report=20, excluded_pairs=None):
         self.types, self.masses, self.box = types, masses, box
         self.min_dist, self.t_max = min_dist, t_max
+        self.excluded_pairs = excluded_pairs
         self.bonds, self.bond_r0, self.max_bond_dev = bonds, bond_r0, max_bond_dev
         self.energy_fn = energy_fn
         self.stride_fs = float(stride_fs)
@@ -57,7 +59,7 @@ class StabilityMonitor:
         vd = v.double()
         s = {"T": temperature(v, masses),
              "KE": kinetic_energy(v, masses),
-             "min_dist": min_pair_distance(x, box).double(),
+             "min_dist": min_pair_distance(x, box, self.excluded_pairs).double(),
              "max_speed": torch.linalg.norm(vd, dim=-1).amax(dim=1),
              "momentum": torch.linalg.norm(torch.einsum("n,bnd->bd", masses.double(), vd), dim=-1)}
         if self.bonds is not None:
@@ -108,6 +110,7 @@ class StabilityMonitor:
                 dr = minimum_image(dr, self.box[bi].to(x.device, dr.dtype))
             d = torch.linalg.norm(dr, dim=-1)
             upper = torch.ones_like(d, dtype=torch.bool).triu(1)
+            upper &= ~exclusion_mask(self.excluded_pairs, len(x), x.device)
             i, j = torch.nonzero(upper & (d < self.min_dist), as_tuple=True)
             order = torch.argsort(d[i, j])[:self.n_report]
             i, j = i[order], j[order]

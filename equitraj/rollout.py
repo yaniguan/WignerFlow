@@ -9,6 +9,7 @@ import time
 import torch
 
 from equitraj.neighbors import minimum_image
+from equitraj.pair_masks import exclusion_mask
 from equitraj.thermostat import csvr
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
 
@@ -20,14 +21,15 @@ def temperature(vel, masses, n_constraints=0):
     return 2 * ke / (dof * KB)
 
 
-def min_pair_distance(pos, box):
+def min_pair_distance(pos, box, excluded_pairs=None):
     """Smallest interatomic distance per system (minimum image). pos: (B, N, 3), box: (B, 3, 3) or None."""
     dr = pos[:, :, None, :] - pos[:, None, :, :]
     if box is not None:
         dr = minimum_image(dr, box[:, None].to(dr.dtype))
     d = torch.linalg.norm(dr, dim=-1)
     n = pos.shape[1]
-    d = d + torch.eye(n, dtype=d.dtype, device=d.device) * 1e9
+    mask = exclusion_mask(excluded_pairs, n, d.device) | torch.eye(n, dtype=torch.bool, device=d.device)
+    d = d.masked_fill(mask, float("inf"))
     return d.flatten(1).min(dim=1).values
 
 
@@ -40,7 +42,7 @@ def max_bond_deviation(pos, bonds, r0):
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
-            thermostat=None, energy_fn=None, history=20, monitor=None):
+            thermostat=None, energy_fn=None, history=20, monitor=None, excluded_pairs=None):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -65,7 +67,8 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     if monitor is None:
         monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
                                    bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
-                                   history=history, stride_fs=getattr(model, "stride_fs", 1.0))
+                                   history=history, stride_fs=getattr(model, "stride_fs", 1.0),
+                                   excluded_pairs=excluded_pairs)
     crash = torch.full((b,), -1, dtype=torch.long, device=device)
     saved_x, saved_v = [], []
     t0 = time.time()
