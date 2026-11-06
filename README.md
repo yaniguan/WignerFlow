@@ -111,3 +111,14 @@ Related work (TrajCast, FlashMD, Timewarp, MDGen): [docs/related_work.md](docs/r
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+`equitraj.validation.validate` accepts `charges` as one value per atom, in
+units of the elementary charge, or as a dictionary of charges by element.
+Pass integer `molecule_ids` to report each molecule's center of mass diffusion
+and use its net charge for Nernst–Einstein conductivity. The center of mass
+is weighted by atom mass. Molecular analysis is off by default.
+Einstein–Helfand conductivity always uses the combined motion of atom charges.
+Keep each molecule whole and use unwrapped coordinates in a common rest frame.
+Motion of charges within a molecule can affect Einstein–Helfand estimates over
+the measured time lags, even if those charges stay close together.
+These estimates alone do not show that the trajectories are long enough.
