@@ -10,6 +10,7 @@ def main():
     ap.add_argument("src", nargs="+")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--topology")
+    ap.add_argument("--particle-metadata", help="JSON file with version 1 PFF metadata")
     ap.add_argument("--format", choices=["mdtraj", "ase", "generic"])
     ap.add_argument("--unit", choices=["angstrom", "nm"])
     ap.add_argument("--velocity-unit", choices=["angstrom/fs", "angstrom/ps", "nm/ps"])
@@ -26,13 +27,18 @@ def main():
     if args.velocity_source and len(args.velocity_source) != len(args.src):
         ap.error("provide one --velocity-source per input")
     for i, src in enumerate(args.src):
+        particle_metadata = None
+        if args.particle_metadata:
+            with open(args.particle_metadata) as f:
+                particle_metadata = json.load(f)
         path = import_trajectory(src, args.out_dir, topology=args.topology, format=args.format,
                                  unit=args.unit, velocity_unit=args.velocity_unit,
                                  velocity_source=args.velocity_source[i] if args.velocity_source else None,
                                  dt_fs=args.dt_fs, save_every=args.save_every, traj_index=i,
                                  system=args.system, periodic=False if args.nonperiodic else None,
                                  drop_drude=not args.keep_drude, unwrap=not args.already_unwrapped,
-                                 overwrite=args.overwrite)
+                                 overwrite=args.overwrite,
+                                 particle_metadata=particle_metadata)
         print(path)
     write_data_config(args.out_dir, len(args.src), json.loads(args.split) if args.split else None)
 
