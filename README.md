@@ -126,6 +126,14 @@ error if a kept Drude's parent was removed. Charges and masses are never
 combined. `read_traj` checks the metadata and returns it as `particle_metadata`.
 Files without metadata still work.
 
+Before using caches, training checks the HDF5 files in all configured splits.
+It checks atom order and elements, masses, time steps, periodicity, positions,
+velocities, and fixed cells. Each trajectory can have a different fixed cell.
+Optional `atom_ids` or `particle_names` datasets let it check the order of atoms
+with the same element. Without these, it cannot detect changes in their order.
+To reject estimated velocities, set `reject_estimated_velocities: true` in the
+training config or pass the same keyword to `TrajWindows`. It defaults to `false`.
+
 Distance constraints are off by default. To enable them, pass
 `constraint_projector=DistanceProjector([(i, j, distance_A), ...])` to
 `equitraj.rollout.rollout`. Import `DistanceProjector` from `equitraj.constraints`.

@@ -372,8 +372,10 @@ def main():
     torch.manual_seed(cfg.get("seed", 0))
 
     m_max = max(m for _, m in tc["unroll"])
-    train_ds = TrajWindows(cfg["data_dir"], "train", cfg["stride_steps"], cfg["k"], m=m_max, start_every=tc.get("start_every", 1))
-    val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1)
+    train_ds = TrajWindows(cfg["data_dir"], "train", cfg["stride_steps"], cfg["k"], m=m_max, start_every=tc.get("start_every", 1),
+                           reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
+    val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1,
+                         reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
     workers = tc.get("workers", 4)
     loader = torch.utils.data.DataLoader(train_ds, batch_size=tc["batch_size"], shuffle=True, drop_last=True,
                                          num_workers=workers, persistent_workers=workers > 0)
