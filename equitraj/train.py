@@ -3,7 +3,9 @@
     python -m equitraj.train --config configs/argon/flow_s1_n10.yaml
 
 Resumable: a checkpoint is written every `ckpt_minutes` and at every evaluation; rerunning the
-same command continues from it. Model selection uses short validation rollouts, not the loss:
+same command continues from it. Each checkpoint is written under /tmp first, then copied into
+out_dir, and retried if that folder disappears (a Google Drive unmount). Model selection uses
+short validation rollouts, not the loss:
 best.pt by legacy_score, best_stable.pt by selection_score (stability first). Optional stability
 options (repulsion prior, noise schedule, unroll weights, overlap penalty) are documented in docs/STABILITY.md.
 """
@@ -12,7 +14,12 @@ import argparse
 import json
 import math
 import os
+import shutil
+import tempfile
 import time
+
+# Less CUDA memory fragmentation for the large m=4 unroll steps. Must be set before CUDA starts.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import numpy as np
 import torch
@@ -88,6 +95,51 @@ class SpikeGuard:
         self.hist.append(loss_value)
         self.hist = self.hist[-self.window:]
         return True
+
+
+def atomic_save(obj, path, retries=5, backoff=1.0):
+    """Write `obj` to `path` so a vanished output folder does not abort training.
+
+    torch.save goes to a local file under /tmp. That file is then copied to
+    `path`.tmp and renamed onto `path` (same final result as a direct save).
+    If the parent folder is missing, recreate it when possible and retry a few
+    times with a short wait. A Google Drive unmount removes the MyDrive path
+    mid-run; the retries cover a brief disconnect. If it still fails, raise
+    RuntimeError and say that a Drive unmount is the likely cause.
+    """
+    if retries < 1:
+        raise ValueError(f"retries must be >= 1, got {retries}")
+    parent = os.path.dirname(path)
+    fd, local = tempfile.mkstemp(prefix="wignerflow_ckpt_", suffix=".pt", dir="/tmp")
+    os.close(fd)
+    try:
+        torch.save(obj, local)
+        last_error = None
+        for attempt in range(retries):
+            try:
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                if parent and not os.path.isdir(parent):
+                    raise FileNotFoundError(f"Parent directory {parent} does not exist")
+                tmp_path = path + ".tmp"
+                shutil.copyfile(local, tmp_path)
+                os.replace(tmp_path, path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 >= retries:
+                    break
+                time.sleep(backoff)
+        raise RuntimeError(
+            f"Failed to save checkpoint to {path} after {retries} attempts. "
+            f"Parent directory {parent or '.'} is missing or not writable after a Drive unmount. "
+            f"Last error: {last_error}"
+        )
+    finally:
+        try:
+            os.remove(local)
+        except OSError:
+            pass
 
 
 def load_init_weights(model, path, device):
@@ -174,6 +226,46 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
         pen = torch.stack([overlap_penalty(x, box, types, overlap_r0) for x in pred_x]).mean()
         loss = loss + overlap_weight * pen
     return loss
+
+
+def micro_batch_size_for(tc, m):
+    """Number of windows per forward/backward pass at unroll length m.
+
+    Long unrolls keep one autograd graph per unroll step, so memory grows with m. From
+    train.micro_batch_min_m (default 4) on, the batch is split into micro-batches of
+    train.micro_batch_size windows (default: half the batch). Below that m the full batch is used.
+    The gradient is the same either way (see accumulate_gradients).
+    """
+    batch_size = int(tc["batch_size"])
+    if m < int(tc.get("micro_batch_min_m", 4)):
+        return batch_size
+    size = tc.get("micro_batch_size")
+    if size is None:
+        size = (batch_size + 1) // 2
+    return max(1, min(int(size), batch_size))
+
+
+def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
+                         micro_batch_size, **loss_opts):
+    """Run training_loss on micro-batches of the batch and call backward on each one.
+
+    Every term of training_loss is a mean over the windows of the batch, so each micro-batch loss is
+    weighted by its share of the batch. The summed gradient (added to the .grad of the parameters) and
+    the returned loss then equal one full-batch training_loss call; only one micro-batch graph is in
+    memory at a time. Returns the batch loss as a Python float.
+    """
+    batch = pos.shape[0]
+    total = 0.0
+    for start in range(0, batch, micro_batch_size):
+        end = min(start + micro_batch_size, batch)
+        part_box = None if box is None else box[start:end]
+        loss = training_loss(model, pos[start:end], vel[start:end], part_box, types, masses, m, noise_sigma,
+                             backprop, unroll_sampling_steps, **loss_opts)
+        share = (end - start) / batch
+        (loss * share).backward()
+        total += loss.item() * share
+        del loss
+    return total
 
 
 def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None):
@@ -342,10 +434,9 @@ def main():
         return tc["lr"] * 0.5 * (1 + math.cos(math.pi * min(1.0, (s - warm) / max(1, tc["steps"] - warm))))
 
     def save(path):
-        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
-                    "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
-                    "elements": train_ds.elements}, path + ".tmp")
-        os.replace(path + ".tmp", path)
+        atomic_save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
+                     "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
+                     "elements": train_ds.elements}, path)
 
     if args.no_tensorboard:
         class ScalarWriter:
@@ -361,6 +452,7 @@ def main():
     guard = SpikeGuard(tc.get("loss_spike_factor", 0.0), tc.get("loss_spike_window", 200))
     rewarmup = int(tc.get("rewarmup_steps", 0))
     gnorms = []
+    m_last = None
     def evaluate_and_select():
         nonlocal best, best_stable, last_ckpt
         model.eval()
@@ -401,9 +493,8 @@ def main():
                     f.write(json.dumps({"step": step, **d}) + "\n")
         # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
         # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
-        os.makedirs(os.path.join(out_dir, "snapshots"), exist_ok=True)
-        torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
-                   os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
+        atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+                    os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
         log.write(json.dumps(metrics) + "\n")
         log.flush()
         print(json.dumps(metrics), flush=True)
@@ -425,12 +516,20 @@ def main():
             lr_now = lr_at(step) * lr_scale_after_switch(step, last_switch_step(tc["unroll"], step), rewarmup)
             for g in opt.param_groups:
                 g["lr"] = lr_now
-            loss = training_loss(model, pos, vel, box, types, masses, m, noise_sigma_at(tc, step),
-                                 tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2), **loss_opts)
+            if m != m_last:
+                # new unroll length: free cached blocks sized for the old graphs
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
+                print(json.dumps({"unroll_m": m, "at_step": step, "micro_batch_size": micro_batch_size_for(tc, m)}), flush=True)
+                m_last = m
+            # backward runs inside, one micro-batch at a time; a rejected update throws the gradient away
             opt.zero_grad(set_to_none=True)
-            loss_value = loss.item()
-            if guard.check(loss_value, m):
-                loss.backward()
+            loss_value = accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma_at(tc, step),
+                                              tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2),
+                                              micro_batch_size_for(tc, m), **loss_opts)
+            if not guard.check(loss_value, m):
+                opt.zero_grad(set_to_none=True)
+            else:
                 gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
                 if torch.isfinite(gnorm):
                     opt.step()
