@@ -1,202 +1,130 @@
+<p>
+  <a href="https://antigravity.google/"><img src="assets/google-antigravity-logo.svg" alt="Google Antigravity" height="40" align="left"></a>
+  <sub>This project uses API credits from the Google Antigravity for Science program. Thank you, Google Antigravity!</sub>
+</p>
+<br clear="left">
+
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/WignerFlow_mark_dark.svg">
+  <img src="assets/WignerFlow_mark_light.svg" alt="WignerFlow logo" width="96">
+</picture>
+
 # WignerFlow
 
+**Molecular dynamics without an integrator: an equivariant model that jumps a trajectory 50 fs per step.**
+
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)
 
-An autoregressive E(3)-equivariant model that generates molecular dynamics trajectories directly. Given the last k frames (positions and velocities), it predicts the frame Δt = n·δt later, without a numerical integrator.
+</div>
 
-> **Status: v0 (argon only).** 4 of 5 seeds are stable for 10⁴ steps and 2 of 5 meet every v0 criterion; checkpoint choice matters (see [docs/release_v0.md](docs/release_v0.md), "How robust is this?"). The full pipeline (ground-truth MD → equivariant model → training → 10⁴-step rollouts without an integrator → evaluation) runs on Lennard-Jones argon. Li⁺/EC, the stride sweep, the full ablation grid and the baselines come after v0. See [PLAN.md](PLAN.md) for the plan and [RESULTS.md](RESULTS.md) for the numbers.
+## What it does
 
-## The question
+WignerFlow generates molecular dynamics trajectories directly. Given the last 3 frames (positions and velocities), an E(3)-equivariant network predicts the frame 50 fs later, so a rollout needs no force field and no numerical integrator. v0 shows the full pipeline on Lennard-Jones argon and tests whether a learned model stays physical for 10⁴ autoregressive steps.
 
-Autoregressive models in continuous space accumulate errors. After many steps, the generated states drift away from the training distribution and the rollout can blow up.
-
-This project tests whether an equivariant model can stay physically reasonable after 10^4+ autoregressive steps. It checks four things:
-
-- no crashes (broken bonds, overlapping atoms);
-- correct radial distribution functions (RDF);
-- correct velocity autocorrelation (VACF) and vibrational density of states (VDOS);
-- a reasonable total energy, measured with the reference force field.
-
-Every design choice aimed at preventing blow-up is tested with an ablation.
-
-## Approach
-
-- **Data.** OpenMM simulations of three systems, easiest first:
-  1. Lennard-Jones argon (256 atoms, periodic box);
-  2. alanine dipeptide in vacuum (22 atoms, where E(3) symmetry is exact);
-  3. one Li⁺ in ethylene carbonate (1001 atoms, periodic box).
-
-  Production runs use NVE. Train, validation and test sets are split by trajectory, not by frame.
-- **Model.**
-  - Per-frame spatial encoder: equivariant graph attention, eSCN-style SO(2) convolutions with Wigner-D edge alignment, l_max = 2.
-  - Causal attention over the past k frames for each atom. Attention weights come only from invariants, so the layer stays equivariant.
-  - The model predicts displacements and new velocities, not absolute positions. By default it predicts them relative to coasting at constant velocity (Δx − vΔt and v_new − v). Predicting Δx and v_new directly made the first argon model lose ~4% of its kinetic energy every step, because an imperfect network shrinks its outputs toward zero.
-- **Two output heads.**
-  - (A) Deterministic regression (MSE).
-  - (B) Equivariant conditional flow matching in displacement space.
-- **Training against error accumulation**, added one step at a time:
-  1. teacher forcing;
-  2. input noise;
-  3. unrolled (pushforward) training with a curriculum over the unroll length, capped at 200 fs of simulated time (longer unrolls of a chaotic liquid have no learnable target);
-  4. optional constraint projection at inference, reported both on and off.
-- **Evaluation.**
-  - The model alone generates ≥10^4 steps.
-  - Metrics: stability, RDF, VACF/VDOS, Li⁺ solvation-shell dynamics, energy drift, and momentum drift in vacuum.
-  - The same metrics are reported as the stride n varies.
-  - Baselines: a non-equivariant transformer, MACE with a Verlet integrator, and TrajCast.
-
-### Limits to keep in mind
-
-- Under periodic boundary conditions, the box breaks global rotation symmetry. Equivariance holds only locally, and total angular momentum is not conserved.
-- The model has no Hamiltonian. Energies are computed afterwards with the reference force field, only as a check.
-- Classical OpenMM is already fast, so this is a proof of concept for the method. The practical payoff would come from replacing ab initio MD.
-
-## Repository layout
-
-```
-equitraj/
-  units.py        unit conversions (OpenMM nm/ps/kJ/mol <-> model Å/fs)
-  systems.py      OpenMM systems for argon, alanine dipeptide, Li+/EC
-  simulate.py     equilibration and NVE production, written to HDF5
-  dataset.py      trajectory-split datasets with stride and context windows
-  neighbors.py    minimum-image neighbor list
-  so3.py          Wigner-D matrices and edge alignment
-  layers.py       SO(2) convolution, equivariant attention, temporal attention
-  model.py        full model and the two output heads
-  baselines.py    non-equivariant transformer, MACE wrapper
-  train.py        training loop: teacher forcing, noise, unrolling
-  rollout.py      autoregressive generation
-  analysis.py     RDF, CN, VACF, VDOS, MSD, residence time, energy, momentum
-  plots.py
-configs/          one YAML file per experiment
-scripts/          command-line entry points
-tests/            pytest suite (equivariance, permutation, PBC, neighbors, ...)
-results/          one folder per experiment: config, metrics.json, figures
-```
-
-## How to run
-
-### Install
-
-OpenMM and the OpenFF toolkit are most reliable from conda-forge, so the environment is managed with conda. PyTorch also comes from conda-forge: the pip wheel ships its own OpenMP library and crashes when imported next to conda-forge OpenMM.
+## Quickstart
 
 ```bash
-git clone https://github.com/yaniguan/WignerFlow.git
-cd WignerFlow
-conda env create -f environment.yml
-conda activate wignerflow
-pip install -e .
+git clone https://github.com/yaniguan/WignerFlow.git && cd WignerFlow
+pip install -e .                                   # torch, e3nn, numpy, scipy, h5py, matplotlib
+gh release download v0.1.0 -D checkpoints -p 'argon_flow_v0.pt'   # or download it from the v0.1.0 release page
+(cd checkpoints && sha256sum -c argon_flow_v0.pt.sha256)
+
+python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt --steps 20 --out demo_out
 ```
 
-On a CUDA cluster, use the same file but ask for a CUDA build of PyTorch (`pytorch=*=cuda*`).
+No OpenMM and no data files needed. The demo rolls out 256 argon atoms from the bundled starting frames and writes `demo_out/summary.json` plus RDF, VACF and temperature plots against the ground truth. 20 steps (1 ps) take about 20 s on a laptop CPU; drop `--steps` for the default (200 on CPU, 1000 on GPU).
 
-For model inference and evaluation in an existing Python environment, `pip install -e .`
-installs the core dependencies. Use `pip install -e '.[simulation,train,test]'` for the
-argon pipeline, TensorBoard and tests. OpenFF system rebuilding still uses the conda
-environment above. Scripts run from the repository root after installation without
-setting `PYTHONPATH`.
+## Key features
 
-The [full retrain Colab notebook](colab/argon_full_retrain.ipynb) uses
-`configs/data/argon_full.yaml` (ten 0.5 ns trajectories, separate from reduced data)
-and the original 40,000-step `configs/argon/B_S3a_seed1.yaml` training recipe.
-For a small paired checkpoint comparison:
-
-```bash
-python scripts/eval_multiseed.py \
-  --checkpoints checkpoints/argon_flow_v0.pt checkpoints/argon_flow_v1_cpu_reduced.pt \
-  --data_dir data/argon --starts 3 --seeds 2 --steps 50 --threads 2 \
-  --device cpu --out results/argon/multiseed_oct29b
-```
-
-The evaluator writes per-rollout observations and mean/95% bootstrap intervals to
-`metrics.json` and `metrics.md`. It resamples starting windows with their seeds
-kept together; physical metrics condition on survival, and missing VACF zeros are
-reported as null. These short rollouts do not certify long-time stability.
-
-
-Force-field files for the OpenFF-parametrized systems (Li⁺/EC variants, alanine dipeptide, aspirin) are already in `systems/`. To rebuild them:
-
-```bash
-python -m equitraj.build_systems
-```
-
-### Quickstart: run the v0 checkpoint
-
-No OpenMM and no data files are needed, only the install above:
-
-```bash
-python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt   # 200 steps (10 ps) on CPU in ~4 min; 1000 steps on GPU
-```
-
-It writes `demo_out/` with RDF, VACF and temperature plots against the ground truth, plus `summary.json`. See [checkpoints/README.md](checkpoints/README.md).
-
-### Test
-
-```bash
-pytest tests/
-```
-
-### Ground-truth data
-
-```bash
-python scripts/gen_data.py --config configs/data/argon.yaml             # all trajectories of one system
-python scripts/gen_data.py --config configs/data/li_ec_q08.yaml --traj 3  # one trajectory (one cluster job)
-python scripts/gen_data.py --config configs/data/argon.yaml --benchmark   # OpenMM speed only
-python scripts/analyze_gt.py --data data/argon --out results/argon/ground_truth
-```
-
-### Training
-
-```bash
-python scripts/make_configs.py argon          # one YAML per experiment in configs/argon/
-python -m equitraj.train --config configs/argon/B_S3a.yaml
-```
-
-Training resumes from `ckpt.pt` in the output folder if it exists. `best.pt` is the checkpoint with the best short validation rollout.
-
-### Evaluation
-
-Pick the checkpoint with longer validation rollouts first (score = crashes + RDF error + temperature error; training saves every evaluated checkpoint in `snapshots/`):
-
-```bash
-python scripts/select_checkpoint.py --run results/argon/B_S3a --steps 4000 --starts 4   # writes selection.json and selected.pt
-```
-
-Then evaluate on the test trajectories:
-
-```bash
-python scripts/evaluate.py --run results/argon/B_S3a --steps 10000 --seeds 5 --starts 3   # model only
-python scripts/evaluate.py --run results/argon/B_S3a --thermostat_tau_fs 500              # with the CSVR switch (reported separately)
-python scripts/make_results.py                                                            # rebuild RESULTS.md
-```
-
-Summarize several training seeds of one experiment (stability rate and metric spread, with 95% intervals over seeds):
-
-```bash
-python scripts/summarize_seeds.py --glob "results/argon/B_S3a_seed*/eval/metrics.json" --out results/argon/B_S3a_seeds
-```
-
-### Cluster jobs
-
-```bash
-sbatch -J B_S3a -t 24:00:00 jobs/expanse_gpu.sbatch python -m equitraj.train --config configs/argon/B_S3a.yaml   # Expanse (Slurm)
-qsub -N B_S3a -l gpu,A100,cuda=1,h_rt=24:00:00,h_data=32G jobs/hoffman2_gpu.sh python -m equitraj.train --config configs/argon/B_S3a.yaml   # Hoffman2 (UGE)
-bash jobs/expanse_submit_md.sh configs/data/li_ec_q08.yaml    # one MD job per trajectory
-```
-
-Trajectory data (HDF5, tens of GB) and checkpoints are not stored in git.
+- **No integrator.** The model alone advances the system, 50 fs per step (25× the 2 fs MD step).
+- **E(3)-equivariant by construction.** eSCN-style SO(2) convolutions with Wigner-D edge alignment (l_max = 2) and invariant-only temporal attention.
+- **Residual targets.** Predicts the change relative to coasting at constant velocity, which stops the system from cooling every step.
+- **Two heads.** Deterministic regression or equivariant conditional flow matching.
+- **Anti-drift training.** Teacher forcing, input noise and unrolled training with a curriculum.
+- **Honest evaluation.** Model-only 10⁴-step rollouts, scored on crashes, temperature, RDF, VACF and diffusion, with every seed reported.
 
 ## Results
 
-See [RESULTS.md](RESULTS.md).
+Argon, 256 atoms, flow head, 15 rollouts × 10⁴ steps (0.5 ns each) per seed, model only, no thermostat.
 
-## Related work
+| Result | Value | Source |
+|---|---|---|
+| Seeds stable for 10⁴ steps (no crash) | **4 of 5** | [`docs/release_v0.md`](docs/release_v0.md) ("How robust is this?"), [`results/argon/B_S3a_seeds.md`](results/argon/B_S3a_seeds.md) |
+| Seeds meeting every v0 criterion | **2 of 5** | same |
+| Released checkpoint: temperature vs truth | −6.0% | [`docs/release_v0.md`](docs/release_v0.md) |
+| Rollout speed, one A100, batch 1 | **25.8 ns/day** (5.97 steps/s) | [`results/profiling/a100_oct29/profile.log`](results/profiling/a100_oct29/profile.log), made by [`scripts/profile_run.py`](scripts/profile_run.py) |
 
-The closest prior work is TrajCast (Thiemann et al., 2025) and FlashMD (Bigi et al., NeurIPS 2025). Generative approaches include Timewarp, ITO, TITO and MDGen. See [docs/related_work.md](docs/related_work.md) for a comparison and for what this project does and does not add.
+v0 criteria: no crash; temperature within 5%; RDF peak position within 0.05 Å and height within 10%; VACF first zero within 10%; diffusion within 20%. Full tables: [`RESULTS.md`](RESULTS.md).
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Last 3 frames<br/>positions + velocities"] --> B["Equivariant spatial encoder<br/>SO(2) conv + Wigner-D, l ≤ 2"]
+    B --> C["Causal temporal attention<br/>(invariant weights)"]
+    C --> D["Head: regression or<br/>flow matching"]
+    D --> E["Δx − vΔt, Δv<br/>(residual targets)"]
+    E --> F["Next frame, t + 50 fs"]
+    F -- "autoregressive rollout" --> A
+```
+
+## Repo layout
+
+```
+equitraj/     model, layers, Wigner-D (so3.py), training, rollout, analysis
+scripts/      demo, data generation, evaluation, profiling, checkpoint tools
+configs/      one YAML per experiment
+tests/        pytest suite (equivariance, permutation, PBC, neighbors, ...)
+results/      metrics.json and figures per experiment
+docs/         release notes, stability, speed, related work
+colab/        GPU notebooks (full retrain, stable fine-tune, long rollout)
+checkpoints/  checksums; weights are on the GitHub release
+```
+
+## Limitations / status
+
+- **v0, argon only.** Li⁺/EC, alanine dipeptide, the stride sweep and the baselines come later ([PLAN.md](PLAN.md)).
+- **Checkpoint choice matters.** Temperature can swing by tens of percent between checkpoints 2000 steps apart; one seed crashes at ~4000 steps.
+- **Not faster than classical MD yet.** OpenMM runs argon faster on a CPU. The payoff would come from replacing ab initio MD.
+- Under periodic boundaries the box breaks global rotation symmetry; equivariance is local only. The model has no Hamiltonian.
+- The full-data stable fine-tune ([docs/ARGON_STABLE_FT.md](docs/ARGON_STABLE_FT.md)) has no final evaluation yet.
+
+Training, data generation and evaluation commands: [docs/release_v0.md](docs/release_v0.md), [RESULTS.md](RESULTS.md) and `scripts/`.
+
+## Citation
+
+```bibtex
+@misc{wignerflow2026,
+  title  = {WignerFlow: Autoregressive E(3)-Equivariant Generation of Molecular Dynamics Trajectories},
+  author = {Guan, Yani},
+  year   = {2026},
+  url    = {https://github.com/yaniguan/WignerFlow},
+  note   = {v0.1.0, work in progress}
+}
+```
+
+Related work (TrajCast, FlashMD, Timewarp, MDGen): [docs/related_work.md](docs/related_work.md).
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+To include PFF metadata, pass it to `import_trajectory(particle_metadata=...)`
+or use a JSON file with `scripts/import_md.py --particle-metadata FILE`.
+Metadata is off by default. The version 1 format in `equitraj/topology.py`
+requires `version: 1`,
+`units: {"charge": "e", "distance": "nm"}`, per-particle `charges`,
+`ff_types`, `molecule_ids`, and unique `original_indices`, plus `bonds`
+(index pairs), `constraints` (index, index, distance), and
+`drude_parent_map` (Drude, parent pairs). Empty topology lists are valid.
+Filtering updates particle indices and keeps `original_indices` unchanged.
+It drops bonds and constraints that include removed particles. It raises an
+error if a kept Drude's parent was removed. Charges and masses are never
+combined. `read_traj` checks the metadata and returns it as `particle_metadata`.
+Files without metadata still work.
 
 Distance constraints are off by default. To enable them, pass
 `constraint_projector=DistanceProjector([(i, j, distance_A), ...])` to

@@ -40,7 +40,8 @@ def max_bond_deviation(pos, bonds, r0):
 @torch.no_grad()
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
-            thermostat=None, energy_fn=None, history=20, monitor=None, constraint_projector=None):
+            thermostat=None, energy_fn=None, history=20, monitor=None, predictor=None,
+            constraint_projector=None):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -53,9 +54,15 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     energy_fn: optional callable(pos (B, N, 3), box) -> (B,) potential energy in kJ/mol, tracked by the monitor.
     history: number of checks kept in crash reports. monitor: a custom StabilityMonitor (then the
     crash-criterion arguments above are ignored).
+    predictor: optional object with predict(); defaults to the model. Off unless passed in.
+    constraint_projector: optional DistanceProjector. Off by default. Applied after the thermostat.
     """
     from equitraj.monitor import StabilityMonitor  # monitor.py imports this module
 
+    if min(n_steps, save_every, check_every, sampling_steps) < 1:
+        raise ValueError("step counts and intervals must be positive")
+    if predictor is None:
+        predictor = model
     device = next(model.parameters()).device
     b = pos.shape[0]
     x = pos.to(device, torch.float64)
@@ -74,7 +81,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     saved_x, saved_v = [], []
     t0 = time.time()
     for step in range(1, n_steps + 1):
-        dx, v_new = model.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
+        dx, v_new = predictor.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
         if thermostat is not None:
             v_new = csvr(v_new, masses, thermostat["t_target"], thermostat["tau_fs"], thermostat["dt_fs"],
                          dof=3 * v_new.shape[1] - 3 - n_constraints)

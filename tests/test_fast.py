@@ -133,3 +133,38 @@ def test_padded_graph_matches_unpadded_cpu():
         torch.testing.assert_close(a, b, atol=2e-5, rtol=2e-5)
     # Fusion reuses the newest spatial pairs without aging their Verlet cache twice.
     assert all(nl.age == 1 for nl in fast._lists.values())
+
+@pytest.mark.parametrize("precision", ["fp32", "bf16"])
+def test_monitored_fast(precision):
+    m, x, v, t, mass = inputs()
+    fast = FastRollout(m, precision=precision, sampling_steps=1)
+    torch.manual_seed(17)
+    result = fast.monitored_rollout(x, v, t, None, mass, 2,
+                                    min_dist=0, check_every=1)
+    assert result["effective_precision"] == precision
+    assert result["diagnostics"]
+    assert result["steps_done"] == 2
+    if precision == "fp32":
+        torch.manual_seed(17)
+        from equitraj.rollout import rollout
+        ref = rollout(m, x, v, t, None, mass, 2, sampling_steps=1,
+                      min_dist=0, check_every=1)
+        torch.testing.assert_close(result["positions"], ref["positions"],
+                                   atol=5e-5, rtol=5e-5)
+
+
+@pytest.mark.parametrize("failure", ["overlap", "nan"])
+def test_monitored_fast_crashes(failure):
+    m, x, v, t, mass = inputs()
+    fast = FastRollout(m, sampling_steps=1)
+    def predict(pos, vel, types, box, masses, n_steps):
+        assert n_steps == 3
+        dx = -pos[:, -1].clone()
+        if failure == "nan":
+            dx[:] = float("nan")
+        return dx, torch.zeros_like(vel[:, -1])
+    fast.predict = predict
+    result = fast.monitored_rollout(x, v, t, None, mass, 4,
+                                    sampling_steps=3, check_every=1)
+    assert result["crash_step"].tolist() == [1, 1]
+    assert result["steps_done"] == 1

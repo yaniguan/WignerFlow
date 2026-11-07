@@ -20,8 +20,11 @@ import numpy as np
 class TrajWriter:
     """Append frames to an HDF5 file. Frames are buffered and written in blocks."""
 
-    def __init__(self, path, n_atoms, masses, elements, attrs, force_every=1, block=1000):
+    def __init__(self, path, n_atoms, masses, elements, attrs, force_every=1, block=1000, particle_metadata=None):
         self.f = h5py.File(path, "w")
+        if particle_metadata is not None:
+            from equitraj.topology import write_metadata
+            write_metadata(self.f, particle_metadata, n_atoms)
         self.n_atoms = n_atoms
         self.force_every = force_every
         self.block = block
@@ -80,5 +83,9 @@ def read_traj(path, start=0, stop=None, stride=1):
         out["forces"] = f["forces"][:]
         out["masses"] = f["masses"][:]
         out["elements"] = np.array([e.decode() for e in f["elements"][:]])
+        from equitraj.topology import read_metadata
+        metadata = read_metadata(f, len(out["masses"]))
+        if metadata is not None:
+            out["particle_metadata"] = metadata
         out["attrs"] = dict(f.attrs)
     return out
