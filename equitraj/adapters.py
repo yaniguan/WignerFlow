@@ -87,7 +87,11 @@ def _generic(src):
         with np.load(src, allow_pickle=False) as f:
             return {k: f[k] for k in f.files}
     with h5py.File(src, "r") as f:
-        return {k: f[k][:] for k in f if isinstance(f[k], h5py.Dataset)}
+        data = {k: f[k][:] for k in f if isinstance(f[k], h5py.Dataset)}
+        from equitraj.topology import read_metadata
+        if "positions" in data:
+            data["particle_metadata"] = read_metadata(f, data["positions"].shape[1])
+        return data
 
 
 def _read(src, topology, fmt):
@@ -152,7 +156,7 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
                       velocity_unit=None, velocity_source=None, dt_fs=1.0,
                       save_every=1, traj_index=0, periodic=None, system="imported",
                       drop_drude=True, unwrap=True, elements=None, masses=None,
-                      box=None, overwrite=False):
+                      box=None, overwrite=False, particle_metadata=None):
     """Import DCD/XTC+PDB, ASE-readable files, or generic HDF5/NPZ.
 
     Generic inputs require unit='angstrom' or 'nm'. Velocities default to
@@ -244,7 +248,13 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     # TrajWindows trusts existing caches without consulting the HDF5 timestamp.
     for field in ("pos", "vel", "meta"):
         (out_dir / "npy" / f"{path.stem}_{field}.npy").unlink(missing_ok=True)
-    writer = TrajWriter(path, int(keep.sum()), mass[keep], elem[keep], attrs)
+    if particle_metadata is None:
+        particle_metadata = data.get("particle_metadata")
+    if particle_metadata is not None:
+        from equitraj.topology import remap_metadata
+        particle_metadata = remap_metadata(particle_metadata, keep)
+    writer = TrajWriter(path, int(keep.sum()), mass[keep], elem[keep], attrs,
+                        particle_metadata=particle_metadata)
     try:
         for t in range(len(x)):
             ke = 0.5 * np.sum(mass[keep, None] * v[t] ** 2)

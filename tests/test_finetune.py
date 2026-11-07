@@ -97,3 +97,42 @@ def test_compare_v0_verdict(tmp_path):
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert json.loads(out.read_text())["v1_beats_v0_on_all_four"] is True
+
+
+def test_micro_batch_gradient_equals_full_batch():
+    from equitraj.train import accumulate_gradients, micro_batch_size_for, training_loss
+
+    # deterministic setup: regression head and no input noise, so no random draws inside the loss
+    kw = dict(head="regression", lmax=1, channels=8, heads=2, n_rbf=8, cutoff=5.0, n_spatial=1, n_fusion=1,
+              n_denoiser=1, parity=True, use_velocity=True, target="residual",
+              repulsion_prior={"enabled": True, "strength": 0.5, "rmin_scale": 0.95})
+    torch.manual_seed(0)
+    model = EquiTraj(n_types=1, k=3, stride_fs=50.0, **kw).double()
+    model.prior.rmin.fill_(2.0)
+    b, n, m = 4, 8, 4
+    pos = torch.rand(b, 1, n, 3, dtype=torch.float64) * 12.0
+    pos = pos + 0.05 * torch.arange(3 + m, dtype=torch.float64).view(1, -1, 1, 1) * torch.randn(b, 1, n, 3, dtype=torch.float64)
+    vel = 0.05 * torch.randn(b, 3 + m, n, 3, dtype=torch.float64)
+    box = (torch.eye(3, dtype=torch.float64) * 12.0).repeat(b, 1, 1)
+    types, masses = torch.zeros(n, dtype=torch.long), torch.full((n,), 40.0, dtype=torch.float64)
+    opts = dict(unroll_weights=[1.0, 1.0, 1.0, 1.0], overlap_weight=0.1,
+                overlap_r0=torch.full((1, 1), 3.0, dtype=torch.float64))
+
+    full = training_loss(model, pos, vel, box, types, masses, m, 0.0, "truncated", 2, **opts)
+    model.zero_grad()
+    full.backward()
+    full_grads = [p.grad.clone() for p in model.parameters()]
+
+    for size in (1, 3):  # 3 gives uneven micro-batches (3 + 1)
+        model.zero_grad()
+        value = accumulate_gradients(model, pos, vel, box, types, masses, m, 0.0, "truncated", 2, size, **opts)
+        assert math.isclose(value, full.item(), rel_tol=1e-9)
+        for g_full, p in zip(full_grads, model.parameters()):
+            assert torch.allclose(p.grad, g_full, rtol=1e-8, atol=1e-12)
+
+    tc = {"batch_size": 8}
+    assert micro_batch_size_for(tc, 3) == 8           # below m=4: full batch
+    assert micro_batch_size_for(tc, 4) == 4           # default: half the batch
+    assert micro_batch_size_for({"batch_size": 8, "micro_batch_size": 2}, 4) == 2
+    assert micro_batch_size_for({"batch_size": 8, "micro_batch_min_m": 1}, 2) == 4
+    assert micro_batch_size_for({"batch_size": 8, "micro_batch_size": 99}, 4) == 8

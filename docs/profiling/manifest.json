@@ -1,0 +1,114 @@
+{
+ "wf_argon_a100_train": {
+  "repo": "WignerFlow",
+  "label": "WF argon train_stable_ft (A100-80GB)",
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "gpu_mem_gb": 85.1,
+  "summary": "1UnurTZNv3r12iJUxpTxsb26s6mQeIV6w_summary.json",
+  "summary_path": [
+   "train"
+  ],
+  "key_averages": "wf_key_averages.txt",
+  "gpu_csv": "1mTC8nvIqt8_XWlyXtzlan2T91oBqtLM__gpu_samples.csv"
+ },
+ "ocsr_A_probe": {
+  "repo": "ouroboros-ocsr",
+  "label": "ocsr A finetune_v2 (probe phases; full-train util)",
+  "gpu": "not recorded in artifact",
+  "summary": "1JwnZ0WfJaQ2G3Qo3MvB1pTiekPK0rJmV_summary.json",
+  "summary_path": [
+   "arms",
+   "A",
+   "probe"
+  ],
+  "gpu_csv": "1KA7xHGXXnr_VDqnRvgMrrEu11GhSHXgX_nvidia_smi_train_A.csv",
+  "trace": "../traces/ocsr_trace_A.json"
+ },
+ "ocsr_C_probe": {
+  "repo": "ouroboros-ocsr",
+  "label": "ocsr C finetune_v2 (probe phases; full-train util)",
+  "gpu": "not recorded in artifact",
+  "summary": "1JwnZ0WfJaQ2G3Qo3MvB1pTiekPK0rJmV_summary.json",
+  "summary_path": [
+   "arms",
+   "C",
+   "probe"
+  ],
+  "gpu_csv": "1kj3KvwB392JuF6wqLrCILHznuyC2Sr64_nvidia_smi_train_C.csv"
+ },
+ "ylm_A_s1": {
+  "repo": "YLM",
+  "label": "YLM full_A seg1",
+  "summary": "1dvvlohMdFiYBd4RNiKkv9cfKpIBoTkqx_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_A_s2": {
+  "repo": "YLM",
+  "label": "YLM full_A seg2",
+  "summary": "1qYuC0PHLel70H1DnuVpkY_cnyH5e34rt_summary.json",
+  "key_averages": "ylm_A_key_averages.txt",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_B_s1": {
+  "repo": "YLM",
+  "label": "YLM full_B seg1",
+  "summary": "1pRA0KAfpZ2TZZpjLEHV5Z8FMIx3sZ-TC_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_B_s2": {
+  "repo": "YLM",
+  "label": "YLM full_B seg2",
+  "summary": "1ciYzQ_rYRodbMonP_MsNmNr6cqEPIhpE_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_B_s3": {
+  "repo": "YLM",
+  "label": "YLM full_B seg3",
+  "summary": "1vCQgfsx_ZglBdTKAl2RtScICZ_O8yS7b_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_B_s4": {
+  "repo": "YLM",
+  "label": "YLM full_B seg4",
+  "summary": "1YYQmUnc1iDIURsPLRQsZ7DVuRAvJdkZn_summary.json",
+  "key_averages": "ylm_B_key_averages.txt",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s1": {
+  "repo": "YLM",
+  "label": "YLM full_C seg1",
+  "summary": "1wXzKQqjbcJQ7jt1WpRV4cPXcPGtwWDQG_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s2": {
+  "repo": "YLM",
+  "label": "YLM full_C seg2",
+  "summary": "13ZWdXX6p7LVo3LqKnJ5w8OGVpYVkUg5q_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s3": {
+  "repo": "YLM",
+  "label": "YLM full_C seg3",
+  "summary": "1HkViA8pIJGpdH-vHqejsulpZKsMHeI3-_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s4": {
+  "repo": "YLM",
+  "label": "YLM full_C seg4",
+  "summary": "102ku_Wh1AjF2PnUaoEQkdonGnfnmoVa8_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s5": {
+  "repo": "YLM",
+  "label": "YLM full_C seg5",
+  "summary": "1XdC-O6F0e48U1L2UmLBC5gg8wS9rcm71_summary.json",
+  "gpu": "not recorded in artifact"
+ },
+ "ylm_C_s6": {
+  "repo": "YLM",
+  "label": "YLM full_C seg6",
+  "summary": "1TBWCsbNZoG6r_TfdfqAThfcebyPuG_z0_summary.json",
+  "key_averages": "ylm_C_key_averages.txt",
+  "gpu": "not recorded in artifact"
+ }
+}
