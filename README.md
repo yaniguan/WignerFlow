@@ -155,3 +155,13 @@ Keep each molecule whole and use unwrapped coordinates in a common rest frame.
 Motion of charges within a molecule can affect Einstein–Helfand estimates over
 the measured time lags, even if those charges stay close together.
 These estimates alone do not show that the trajectories are long enough.
+
+Pair exclusions are off by default. To exclude pairs, use a boolean `(N,N)`
+mask with `True` for each excluded pair. The mask must be symmetric and use
+the current particle order. Pass `excluded_pairs=mask` to `RepulsionPrior`,
+`overlap_penalty`, `estimate_rmin`, and `rollout` (or `StabilityMonitor`).
+These skip the excluded pairs when pushing atoms apart, damping velocities,
+computing the overlap loss, estimating distance limits, and checking or
+reporting overlaps. Pairs in the same molecule are not excluded automatically.
+The prior's mask is not saved in checkpoints. Supply it again when loading
+a model, using the same particle order. Other crash checks still apply.
