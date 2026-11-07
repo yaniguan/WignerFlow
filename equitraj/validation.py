@@ -96,7 +96,7 @@ def _prepare(data, elements, masses, box, dt_fs, wrapped, min_distance, max_temp
     return dict(x=x, v=v, elements=elem, masses=m, dt=dt, box=cells, temperature=temp), info
 
 
-def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy):
+def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy, molecule_ids=None):
     x, v, cells, dt = d["x"], d["v"], d["box"], d["dt"]
     lag = min(len(x) - 1, max_lag if max_lag is not None else max(1, len(x) // 2))
     if lag < 1:
@@ -124,26 +124,64 @@ def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy):
     result["rdf_kind"] = "g(r)" if cells is not None else "pair_distance_density_per_A"
     for a, b in combinations_with_replacement(species, 2):
         result["rdf"][f"{a}-{b}"] = _rdf(x, cells, indices[a], indices[b], edges).tolist()
+    q = None
     if charges is not None:
+        if isinstance(charges, dict):
+            if not all(s in charges for s in species):
+                raise ValueError("charges must specify every species, including neutral species")
+            q = np.array([charges[s] for s in d["elements"]], dtype=float)
+        else:
+            q = np.asarray(charges, dtype=float)
+        if q.shape != (x.shape[1],) or not np.isfinite(q).all():
+            raise ValueError("charges must be a finite aligned per-atom array or species mapping")
+    # Keep molecules separate even when they contain the same elements.
+    transport_x = x
+    transport_q = q
+    if molecule_ids is not None:
+        ids = np.asarray(molecule_ids)
+        if ids.shape != (x.shape[1],) or ids.dtype.kind not in "iu" or np.any(ids < 0):
+            raise ValueError("molecule_ids must be aligned nonnegative integers")
+        coms = []
+        molecule_charges = []
+        result["molecules"] = {}
+        for mid in np.unique(ids):
+            idx = np.flatnonzero(ids == mid)
+            mass = d["masses"][idx]
+            if mass.sum() <= 0:
+                raise ValueError("each molecule must have positive total mass")
+            com = np.einsum("n,tnc->tc", mass, x[:, idx]) / mass.sum()
+            coms.append(com)
+            msd = analysis.msd(com[:, None], np.arange(lag + 1))
+            diffusion = _fit(times, msd, window) / 6
+            item = dict(msd_A2=msd.tolist(), diffusion_A2_per_fs=diffusion,
+                        diffusion_cm2_per_s=diffusion * .1, mass_amu=float(mass.sum()))
+            if q is not None:
+                charge = float(q[idx].sum())
+                molecule_charges.append(charge)
+                item["charge_e"] = charge
+            result["molecules"][str(mid)] = item
+        transport_x = np.stack(coms, axis=1)
+        if q is not None:
+            transport_q = np.array(molecule_charges)
+    if q is not None:
         if cells is None:
             raise ValueError("conductivity requires a periodic volume")
-        if not all(s in charges for s in species):
-            raise ValueError("charges must specify every species, including neutral species")
         t_k = float(temperature_K if temperature_K is not None else temperature)
         if not np.isfinite(t_k) or t_k <= 0:
             raise ValueError("conductivity requires positive temperature_K or kinetic temperature")
         volume = float(np.mean(np.abs(np.linalg.det(cells)))) * 1e-30
-        # D [Å²/fs] -> m²/s = 1e-5. q is supplied in units of e.
-        ne = sum(len(indices[s]) * charges[s] ** 2 * result["species"][s]["diffusion_A2_per_fs"]
-                 for s in species) * _E ** 2 * 1e-5 / (volume * _KB_SI * t_k)
-        q = np.array([charges[s] for s in d["elements"]], dtype=float)
-        if not np.isfinite(q).all():
-            raise ValueError("charges must be finite")
+        # Nernst–Einstein uses atom motion unless molecule_ids is supplied.
+        # Einstein–Helfand always uses atom charges and positions.
+        self_msd = np.zeros(lag + 1)
+        for i, charge in enumerate(transport_q):
+            self_msd += charge ** 2 * analysis.msd(transport_x[:, i:i + 1], np.arange(lag + 1))
+        ne = _fit(times, self_msd, window) * _E ** 2 * 1e-5 / (6 * volume * _KB_SI * t_k)
         collective = np.einsum("n,tnc->tc", q, x)[:, None, :]
         charge_msd = analysis.msd(collective, np.arange(lag + 1))
         eh = _fit(times, charge_msd, window) * _E ** 2 * 1e-5 / (6 * volume * _KB_SI * t_k)
         result["conductivity"] = dict(nernst_einstein_S_per_m=float(ne), einstein_helfand_S_per_m=float(eh),
                                         collective_charge_msd_e2_A2=charge_msd.tolist(),
+                                        nernst_einstein_basis="molecule_com" if molecule_ids is not None else "atom",
                                         temperature_K=t_k, mean_volume_m3=volume,
                                         net_charge_e=float(q.sum()))
     if energy is not None:
@@ -160,7 +198,7 @@ def _metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy):
 def validate(rollout, reference, *, elements=None, masses=None, box=None, dt_fs=None,
              wrapped=False, r_max=None, n_bins=100, max_lag=None, fit_window_fs=None,
              charges=None, temperature_K=None, dof=None, energy=None,
-             min_distance=None, max_temperature=None):
+             min_distance=None, max_temperature=None, molecule_ids=None):
     """Compare trajectory mappings with positions and velocities in Å and Å/fs.
 
     Mappings may supply elements, masses, box and dt_fs (saved-frame spacing),
@@ -169,6 +207,11 @@ def validate(rollout, reference, *, elements=None, masses=None, box=None, dt_fs=
     Nonfinite frames and optional distance/temperature failures truncate analysis
     at the first failure. stable_frames can explicitly mark a valid prefix.
     Default kinetic DOF is 3N; pass dof for constraints/COM removal.
+    charges accepts a dictionary by element or one charge per atom, in units
+    of the elementary charge. Pass one integer molecule_ids value per atom
+    to report mass-weighted center of mass diffusion and use each molecule's
+    net charge for Nernst–Einstein conductivity. This is off by default.
+    Keep each molecule whole and use unwrapped coordinates in a common rest frame.
     RDF radius is limited to half the minimum cell height of both series.
     """
     prepared, report = {}, {"units": "Å, fs, amu; conductivity S/m", "errors": {}}
@@ -206,7 +249,7 @@ def validate(rollout, reference, *, elements=None, masses=None, box=None, dt_fs=
         raise ValueError("invalid RDF grid or radius exceeds half the minimum cell height")
     edges = np.linspace(0, r_max, n_bins + 1)
     for name, d in prepared.items():
-        report[name].update(_metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy))
+        report[name].update(_metrics(d, edges, max_lag, fit_window_fs, charges, temperature_K, energy, molecule_ids))
     for key in report["reference"]["rdf"]:
         g = np.array(report["rollout"]["rdf"][key])
         ref = np.array(report["reference"]["rdf"][key])

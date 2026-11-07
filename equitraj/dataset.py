@@ -50,10 +50,79 @@ def npy_cache(h5_path):
     return paths
 
 
+def preflight(paths, *, reject_estimated_velocities=False):
+    """Check HDF5 files before using caches or making training windows.
+
+    Check element order. Optional atom_ids or particle_names also let us check
+    the order of atoms with the same element. Without them, we cannot check it.
+    Each trajectory can have its own fixed cell.
+    """
+    reference = None
+    for path in paths:
+        with h5py.File(path, "r") as f:
+            if not f.attrs.get("complete", False):
+                raise ValueError(f"{path}: incomplete trajectory")
+            x, v = f["positions"], f["velocities"]
+            if x.ndim != 3 or x.shape[-1] != 3 or x.shape != v.shape or x.shape[0] < 2 or x.shape[1] < 1:
+                raise ValueError(f"{path}: positions/velocities must match (T,N,3), T>=2")
+            n = x.shape[1]
+            elements, masses = f["elements"][:], f["masses"][:]
+            if elements.shape != (n,) or masses.shape != (n,) or not np.isfinite(masses).all() or np.any(masses <= 0):
+                raise ValueError(f"{path}: invalid particle elements or positive masses")
+            dt, save = float(f.attrs["dt_fs"]), float(f.attrs["save_every"])
+            if not np.isfinite(dt) or dt <= 0 or not np.isfinite(save) or save < 1 or save != int(save):
+                raise ValueError(f"{path}: invalid cadence")
+            times = f["time"][:]
+            if times.shape != (len(x),) or not np.isfinite(times).all() or not np.allclose(np.diff(times), dt * save / 1000, rtol=1e-6, atol=1e-10):
+                raise ValueError(f"{path}: time spacing disagrees with cadence")
+            periodic = bool(f.attrs.get("periodic", True))
+            cells = f["box"]
+            if cells.shape != (len(x), 3, 3):
+                raise ValueError(f"{path}: invalid cell shape")
+            first = cells[0]
+            if not np.isfinite(first).all() or (periodic and abs(np.linalg.det(first)) < 1e-12):
+                raise ValueError(f"{path}: invalid periodic cell")
+            for start in range(0, len(x), 10000):
+                if not np.allclose(cells[start:start + 10000], first, rtol=1e-6, atol=1e-8):
+                    raise ValueError(f"{path}: time-varying cell unsupported")
+                if not np.isfinite(x[start:start + 10000]).all() or not np.isfinite(v[start:start + 10000]).all():
+                    raise ValueError(f"{path}: nonfinite coordinates or velocities")
+            if reject_estimated_velocities and f.attrs.get("velocities_estimated", False):
+                raise ValueError(f"{path}: estimated velocities rejected")
+            identities = {}
+            for key in ("atom_ids", "particle_names"):
+                if key in f:
+                    identities[key] = f[key][:]
+            if reference is not None:
+                if not np.array_equal(elements, reference[0]):
+                    raise ValueError(f"{path}: atom order/elements differ")
+                if not np.allclose(masses, reference[1], rtol=1e-7, atol=1e-8):
+                    raise ValueError(f"{path}: masses differ")
+                if (dt, save, periodic) != reference[2:5]:
+                    raise ValueError(f"{path}: cadence or periodicity differs")
+                if identities.keys() != reference[5].keys():
+                    raise ValueError(f"{path}: particle identities/order differ")
+                for key, value in identities.items():
+                    if not np.array_equal(value, reference[5][key]):
+                        raise ValueError(f"{path}: particle identities/order differ")
+            else:
+                reference = (elements, masses, dt, save, periodic, identities)
+    if reference is None:
+        raise ValueError("no trajectories to validate")
+
+
 class TrajWindows(torch.utils.data.Dataset):
-    def __init__(self, data_dir, split, stride_steps, k, m=1, start_every=1):
+    def __init__(self, data_dir, split, stride_steps, k, m=1, start_every=1, *, reject_estimated_velocities=False):
         cfg = yaml.safe_load(open(os.path.join(data_dir, "config.yaml")))
+        for value in (stride_steps, k, m, start_every):
+            if int(value) != value or value < 1:
+                raise ValueError("stride, k, m and start_every must be positive integers")
         self.traj_ids = cfg["split"][split]
+        if not self.traj_ids:
+            raise ValueError(f"empty split: {split}")
+        ids = sorted({i for values in cfg["split"].values() for i in values})
+        preflight([os.path.join(data_dir, f"traj_{i:03d}.h5") for i in ids],
+                  reject_estimated_velocities=reject_estimated_velocities)
         self.pos, self.vel, self.boxes = [], [], []
         for i in self.traj_ids:
             paths = npy_cache(os.path.join(data_dir, f"traj_{i:03d}.h5"))
@@ -64,7 +133,8 @@ class TrajWindows(torch.utils.data.Dataset):
         self.meta = meta
         self.periodic = meta["periodic"]
         save_every = meta["save_every"]
-        assert stride_steps % save_every == 0, f"stride {stride_steps} is not a multiple of save_every {save_every}"
+        if stride_steps % save_every:
+            raise ValueError(f"stride {stride_steps} is not a multiple of save_every {save_every}")
         self.f = stride_steps // save_every
         self.k, self.m = k, m
         self.stride_fs = stride_steps * meta["dt_fs"]
@@ -73,6 +143,8 @@ class TrajWindows(torch.utils.data.Dataset):
         self.masses = torch.tensor(meta["masses"], dtype=torch.float32)
         span = (k + m - 1) * self.f
         self.index = [(t, s) for t in range(len(self.pos)) for s in range(0, len(self.pos[t]) - span, start_every)]
+        if not self.index:
+            raise ValueError("split contains no complete windows")
 
     def __len__(self):
         return len(self.index)
