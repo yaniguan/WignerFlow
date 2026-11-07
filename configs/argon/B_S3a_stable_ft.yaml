@@ -31,6 +31,8 @@ model:
 train:
   init_from: null          # set by the notebook to the chosen snapshot
   batch_size: 8
+  micro_batch_size: 4      # from micro_batch_min_m on: 2 micro-batches of 4, same gradient, less memory
+  micro_batch_min_m: 4     # m=4 with the full batch of 8 does not fit on an A100-40GB
   lr: 0.0001               # 1/3 of the original peak; fine-tuning
   steps: 16000
   warmup: 300

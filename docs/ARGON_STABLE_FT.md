@@ -46,6 +46,11 @@ settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400.
 - `loss_spike_factor: 5`: updates with a non-finite loss, or a loss above 5× the running median at the current
   m, are skipped and counted (`skipped_updates` in the log). Non-finite gradient norms are skipped too.
 - LR 1e-4 (warmup 300, cosine over 16k), grad clip 0.5.
+- Memory at m=4: with batch 8 one training step peaked at 50.2 GB (profiling, A100-80GB) and ran out of
+  memory on an A100-40GB. From `micro_batch_min_m: 4` on, each batch is run as micro-batches of
+  `micro_batch_size: 4` windows with gradient accumulation. The gradient and the loss are the same as for
+  the full batch (test_micro_batch_gradient_equals_full_batch); only the memory peak goes down. Both keys
+  are also the defaults in `equitraj/train.py`, so older runtime configs get them too.
 - Stability options (docs/STABILITY.md): repulsion prior (0.95 r_min, 2 iterations), noise annealing
   0.02 → 0.005, overlap penalty 0.1.
 - Selection: `best_stable.pt` (crash fraction, then steps survived, then RDF + |T−T_ref|/T_ref) on 8 × 2000-step
