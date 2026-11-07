@@ -144,3 +144,14 @@ for the constraints. Diagnostics record the remaining errors and correction
 sizes. The rollout raises an error if corrections fail to reach the tolerances.
 Periodic distances use the nearest image. Corrections can change kinetic energy
 and transport, so check the results for your physical system.
+
+`equitraj.validation.validate` accepts `charges` as one value per atom, in
+units of the elementary charge, or as a dictionary of charges by element.
+Pass integer `molecule_ids` to report each molecule's center of mass diffusion
+and use its net charge for Nernst–Einstein conductivity. The center of mass
+is weighted by atom mass. Molecular analysis is off by default.
+Einstein–Helfand conductivity always uses the combined motion of atom charges.
+Keep each molecule whole and use unwrapped coordinates in a common rest frame.
+Motion of charges within a molecule can affect Einstein–Helfand estimates over
+the measured time lags, even if those charges stay close together.
+These estimates alone do not show that the trajectories are long enough.
