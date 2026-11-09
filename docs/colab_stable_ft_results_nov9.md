@@ -6,14 +6,22 @@ Inventory date: 2026-11-09 (America/Los_Angeles)
 
 - Repository: `yaniguan/WignerFlow`
 - `main` commit: `3d650126703ba78556e2fc9ed8c1f9da5b0cf7d2`
-- Open pull requests: none
+- Open pull requests: this note is in open pull request #22. No other pull request is open.
 - Branches kept because Colab notebooks reference them:
   - `cursor/resilient-drive-ckpt-save-0ccc`
   - `cursor/attn-sup-colab-nov4-c49b`
 - Future restart rule (only if training is ever restarted later, not now):
-  - GPU: A100 only
+  - GPU: A100 only. The Drive longest-session max of `40430` MiB is close to a 40 GB A100, so "A100 only" may require an 80 GB card, or a confirmed fit with `micro_batch_size` 4. This note does not add a new memory measurement, and it does not start training.
   - `BRANCH`: `main` or `cursor/resilient-drive-ckpt-save-0ccc`
-  - `INIT_SNAPSHOT`: `step008000.pt`
+  - `INIT_SNAPSHOT`: `step008000.pt` is the written choice for a new fine-tune from the original train snapshot. The notebook does not always use it. See the conflict below.
+
+### Restart-rule conflict (notebook unchanged)
+
+`colab/argon_stable_ft.ipynb` sets the form default `INIT_SNAPSHOT = 'auto'`. If `FT_NAME` already contains `B_S3a_stable_ft_runtime.yaml`, the notebook keeps the original `init_from` from that file and does not apply `INIT_SNAPSHOT`. Training then resumes from `ckpt.pt` when that file exists (`equitraj/train.py`). For the existing Drive run `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/`, `INIT_SNAPSHOT=step008000.pt` is ignored.
+
+Yani needs to decide whether a later restart should continue the existing fine-tune (`ckpt.pt` around step 14000) or start a new `FT_NAME` from the original `MyDrive/WignerFlow_runs/argon_full_oct29/train/snapshots/step008000.pt`. Do not start training from this note. This pull request does not change the notebook.
+
+"Step 8000" names two different checkpoints. One is the original run's `train/snapshots/step008000.pt`. The other is step 8000 of this fine-tune, where the Drive log reports `val_crash_frac = 1.0`.
 
 ## Run Location and Training Process
 
@@ -23,8 +31,8 @@ Inventory date: 2026-11-09 (America/Los_Angeles)
 - Primary training log: `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/training.log` (modified 2026-11-05 at 10:54 AM PST; copied locally as `wignerflow_training.log`)
 - System setup recorded in `wignerflow_training.log`:
   - Element: `Ar` (256 Ar atoms per `profiling/summary.json`)
-  - Model parameters (`n_params`): `1,945,520` (`wignerflow_training.log` and `profiling/summary.json`)
-  - Training windows (`n_train_windows`): `799,520` (`wignerflow_training.log`)
+  - Model parameters (`n_params`): `1,945,520` (`docs/profiling/data.json` and `docs/profiling/README.md`; also the Drive log)
+  - Training windows (`n_train_windows`): `799,520` (Drive `wignerflow_training.log` only; not in this repository)
   - Target: `residual` (`wignerflow_training.log`)
   - Repulsion prior: `repulsion_prior_rmin = 3.1533050537109375`, `r0 = 2.9956398010253906`, `overlap_penalty_r0 = 3.1533050537109375` (`wignerflow_training.log`)
 
@@ -38,11 +46,13 @@ From `wignerflow_training.log` (`MyDrive/WignerFlow_runs/argon_full_oct29/train_
 4. Steps `8000` to `14250`: resumed with `{"unroll_m": 4, "at_step": 8000, "micro_batch_size": 4}` and continued across multiple Colab sessions (resumed at steps `8757`, `9517`, `10255`, `10780`, `11798`, `12000`, `12788`, `13313`, and `13821`).
 5. Last recorded training step: step `14250` with training `loss = 0.1335` (`0.1335360575467348`), `m = 4`, `lr = 3.0378420717485258e-06`, `grad_norm = 0.2348608708381653` (`wignerflow_training.log`).
 
-## Best Validation Metrics (Step 14000)
+## Best Checkpoint by selection_score (Step 14000)
 
-Source: `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/training.log` (`wignerflow_training.log`)
+Source: `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/training.log` (`wignerflow_training.log`). The metric values below are from that Drive log. They are not stored in this repository.
 
-Step `14000` is the best validation checkpoint so far:
+Step `14000` is the best checkpoint so far by `selection_score`, which is what writes `best_stable.pt`. It is not the best by `val_loss`. The table below shows step `0` has a lower `val_loss` (`0.03400` versus `0.05332` at step `14000`). In `equitraj/train.py`, `selection_score` ranks crash fraction first, then steps survived, then RDF L1 plus relative temperature error. When `sel_` keys are present, it uses those longer rollouts.
+
+These Nov 9 numbers are validation rollouts from `configs/argon/B_S3a_stable_ft.yaml`: 8 x 1000 steps (`rollout_starts` / `rollout_steps`), and 8 x 2000 steps for selection (`rollout_starts_select` / `rollout_steps_select`). They are not the `RESULTS.md` test protocol of 15 x 10^4 steps.
 
 | Metric | Value at Step 14000 | Source File |
 | --- | --- | --- |
@@ -68,7 +78,7 @@ Source: `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/training.log` 
 - **Steps 2000, 4000, 6000**: worse than the later recovery (`val_crash_frac = 0.0`, with elevated temperature drift and RDF error).
 - **Steps 8000 and 10000**: `val_crash_frac = 1.0` (temperature crashes, `val_crash_temperature = 8.0`).
 - **Step 12000 (recovered)**: `val_crash_frac = 0.0`, `val_T_rel_err = 0.0663` (`0.06631851617837924`), `val_rdf_l1 = 0.1393` (`0.13925397951888302`), `val_loss = 0.07229247498326004`.
-- **Step 14000 (best so far)**: `val_crash_frac = 0.0`, `val_T_rel_err = 0.0223435096013214`, `val_rdf_l1 = 0.13151098594868632`, `val_loss = 0.05332` (`0.053320590709336105`).
+- **Step 14000 (best by `selection_score`, not by `val_loss`)**: `val_crash_frac = 0.0`, `val_T_rel_err = 0.0223435096013214`, `val_rdf_l1 = 0.13151098594868632`, `val_loss = 0.05332` (`0.053320590709336105`). Step `0` still has the lower `val_loss`.
 
 Full table from `wignerflow_training.log`:
 
@@ -91,7 +101,9 @@ From `wignerflow_training.log` (`MyDrive/WignerFlow_runs/argon_full_oct29/train_
 
 - Error: `torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 74.00 MiB. GPU 0 has a total capacity of 22.03 GiB of which 75.12 MiB is free. Including non-PyTorch memory, this process has 21.95 GiB memory in use. Of the allocated memory 21.62 GiB is allocated by PyTorch, and 101.10 MiB is reserved by PyTorch but unallocated.`
 - Stack trace location: inside `accumulate_gradients` -> `training_loss` -> `model.predict_with_grad` -> `self.denoiser` -> `self.attn` -> `self.so2_1(per_l_scale(xe, rad, self.lmax))` at `/content/WignerFlow/equitraj/layers.py`, line 199 (`return x * torch.repeat_interleave(scale, reps, dim=1)`).
-- Why it failed: `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/profiling/summary.json` shows `peak_mem_GB = 50.20` during standard profiling and `40430 MiB` max memory in the longest training session (`training_session_1793811383`). An NVIDIA L4 only has `22.03 GiB` of GPU memory, which cannot fit the `unroll_m = 4`, `micro_batch_size = 4` equivariant attention activation graph.
+- Why it failed: the L4 has `22.03 GiB` (Drive `gpu.json` and `training.log`). The two larger memory figures below are different measures. Do not treat them as the memory of one micro-batched step.
+  - Full-batch profiling, torch allocated: `peak_mem_GB = 50.20` (`50.195597312` in `results/profiling/a100_oct29/profile.log`). `scripts/profile_run.py` calls `profile_training` (`equitraj/profiling.py`), which runs `training_loss` on the full batch (`batch_size` 8, `m` 4) with no micro-batching. Training at `m = 4` uses `micro_batch_size` 4 (`configs/argon/B_S3a_stable_ft.yaml`). Do not read 50.20 GB as the memory of a micro-batched training step.
+  - Longest training session on Drive: `40430` MiB max for `training_session_1793811383` in `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/profiling/summary.json`. That figure is not in this repository. `40430` MiB is close to a 40 GB A100, so "A100 only" may require an 80 GB card, or a confirmed fit with micro-batching. This note does not invent a measured peak for `micro_batch_size` 4.
 
 ## Artifacts Not to Push to GitHub
 
