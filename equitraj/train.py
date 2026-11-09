@@ -3,7 +3,10 @@
     python -m equitraj.train --config configs/argon/flow_s1_n10.yaml
 
 Resumable: a checkpoint is written every `ckpt_minutes` and at every evaluation; rerunning the
-same command continues from it. Each checkpoint is written under /tmp first, then copied into
+same command continues from it. ckpt.pt stores the model, optimizer, step, best scores, the
+torch/numpy/Python/CUDA RNG, the shuffle position in the current epoch, and the spike-guard
+history. An older checkpoint has no RNG state, so resume re-seeds with seed + step and does not
+replay the opening batches. Each checkpoint is written under /tmp first, then copied into
 out_dir, and retried if that folder disappears (a Google Drive unmount). Model selection uses
 short validation rollouts, not the loss:
 best.pt by legacy_score, best_stable.pt by selection_score (stability first). Optional stability
@@ -14,6 +17,7 @@ import argparse
 import json
 import math
 import os
+import random
 import shutil
 import tempfile
 import time
@@ -95,6 +99,14 @@ class SpikeGuard:
         self.hist.append(loss_value)
         self.hist = self.hist[-self.window:]
         return True
+
+    def state_dict(self):
+        return {"hist": [float(x) for x in self.hist], "m": self.m, "skipped": int(self.skipped)}
+
+    def load_state_dict(self, state):
+        self.hist = [float(x) for x in state.get("hist", [])]
+        self.m = state.get("m", None)
+        self.skipped = int(state.get("skipped", 0))
 
 
 def atomic_save(obj, path, retries=5, backoff=1.0):
@@ -353,6 +365,136 @@ def selection_score(m):
     return (float(m[p + "val_crash_frac"]), -float(m[p + "val_steps_before_crash"]), float(err))
 
 
+def _as_cpu_byte(tensor):
+    """Random-number state must stay a CPU byte tensor. Loading a checkpoint onto CUDA would move it."""
+    if not torch.is_tensor(tensor):
+        raise TypeError("RNG state must be a tensor")
+    return tensor.detach().to(dtype=torch.uint8, device="cpu").contiguous()
+
+
+def capture_rng_state():
+    """State stored in ckpt.pt: torch, numpy, Python random, and CUDA when CUDA is in use."""
+    state = {
+        "torch": torch.get_rng_state(),
+        "numpy": np.random.get_state(),
+        "python": random.getstate(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def restore_rng_state(state):
+    """Restore a state from capture_rng_state. CUDA is applied only when this process has CUDA."""
+    torch.set_rng_state(_as_cpu_byte(state["torch"]))
+    numpy_state = state["numpy"]
+    # torch.load can return a read-only array; numpy.set_state needs a writable one.
+    if isinstance(numpy_state, tuple) and len(numpy_state) >= 2 and isinstance(numpy_state[1], np.ndarray):
+        items = list(numpy_state)
+        items[1] = np.array(numpy_state[1], copy=True)
+        numpy_state = tuple(items)
+    np.random.set_state(numpy_state)
+    random.setstate(state["python"])
+    cuda = state.get("cuda")
+    if cuda is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([_as_cpu_byte(t) for t in cuda])
+
+
+def reseed_all(seed):
+    """Seed torch, numpy, and Python. Used when an old checkpoint has no saved RNG."""
+    seed = int(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed % (2**32))
+    random.seed(seed)
+
+
+class EpochBatchSampler(torch.utils.data.Sampler):
+    """Yields shuffled batches for one epoch.
+
+    The shuffle uses its own torch.Generator, not the global RNG. A checkpoint stores that
+    generator's state from the start of the epoch and how many batches were already taken.
+    Resume redraws the same order and skips those batches. The index list itself is not stored.
+    """
+
+    def __init__(self, n, batch_size, generator):
+        self.n = int(n)
+        self.batch_size = int(batch_size)
+        self.generator = generator
+        self.perm = None
+        self.next_batch = 0
+        self.epoch_gen_state = None
+
+    @property
+    def n_batches(self):
+        return self.n // self.batch_size  # last partial batch is dropped, as drop_last=True did
+
+    def new_epoch(self):
+        self.epoch_gen_state = self.generator.get_state().clone()
+        self.perm = torch.randperm(self.n, generator=self.generator).tolist()
+        self.next_batch = 0
+
+    def load_epoch(self, epoch_gen_state, next_batch):
+        self.generator.set_state(_as_cpu_byte(epoch_gen_state))
+        self.epoch_gen_state = self.generator.get_state().clone()
+        self.perm = torch.randperm(self.n, generator=self.generator).tolist()
+        self.next_batch = int(next_batch)
+        if not 0 <= self.next_batch <= self.n_batches:
+            self.perm = None
+            self.next_batch = 0
+            self.epoch_gen_state = None
+
+    def state_dict(self):
+        if self.epoch_gen_state is None:
+            return None
+        return {
+            "epoch_gen_state": self.epoch_gen_state,
+            "next_batch": int(self.next_batch),
+            "n": int(self.n),
+        }
+
+    def __iter__(self):
+        if self.perm is None or self.next_batch >= self.n_batches:
+            self.new_epoch()
+        for b in range(self.next_batch, self.n_batches):
+            start = b * self.batch_size
+            yield self.perm[start:start + self.batch_size]
+
+    def __len__(self):
+        if self.perm is None or self.next_batch >= self.n_batches:
+            return self.n_batches
+        return self.n_batches - self.next_batch
+
+
+def apply_resume_rng(ckpt, seed, step, data_gen, batch_sampler, n_windows):
+    """Restore RNG and the position in the current epoch.
+
+    A current checkpoint has both. Resume redraws that epoch and skips the batches already used.
+    An older checkpoint has neither, so this re-seeds with seed + step. A resumed session then
+    does not replay the opening batches of a fresh run. A checkpoint saved before the first
+    epoch starts has RNG but no epoch position; the global RNG is restored and the epoch is drawn
+    from seed + step (equal to the fresh seed when step is 0).
+    """
+    rng = ckpt.get("rng")
+    has_rng = isinstance(rng, dict) and "torch" in rng
+    if has_rng:
+        restore_rng_state(rng)
+    loader = ckpt.get("loader")
+    same_data = (
+        isinstance(loader, dict)
+        and int(loader.get("n", -1)) == int(n_windows)
+        and "epoch_gen_state" in loader
+    )
+    if has_rng and same_data:
+        batch_sampler.load_epoch(loader["epoch_gen_state"], loader["next_batch"])
+        return
+    if not has_rng:
+        reseed_all(int(seed) + int(step))
+    data_gen.manual_seed(int(seed) + int(step))
+    batch_sampler.perm = None
+    batch_sampler.next_batch = 0
+    batch_sampler.epoch_gen_state = None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -369,7 +511,8 @@ def main():
     with open(os.path.join(out_dir, "config.yaml"), "w") as f:
         yaml.safe_dump(cfg, f)
     device = torch.device(args.device)
-    torch.manual_seed(cfg.get("seed", 0))
+    seed = int(cfg.get("seed", 0))
+    torch.manual_seed(seed)
 
     m_max = max(m for _, m in tc["unroll"])
     train_ds = TrajWindows(cfg["data_dir"], "train", cfg["stride_steps"], cfg["k"], m=m_max, start_every=tc.get("start_every", 1),
@@ -377,21 +520,40 @@ def main():
     val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1,
                          reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
     workers = tc.get("workers", 4)
-    loader = torch.utils.data.DataLoader(train_ds, batch_size=tc["batch_size"], shuffle=True, drop_last=True,
-                                         num_workers=workers, persistent_workers=workers > 0)
+    # Own generator, separate from the noise RNG, so a resume can redraw this epoch's order.
+    # The loader's generator is only for the worker seed. Without it, each new epoch would
+    # draw that seed from the global RNG and shift the noise sequence.
+    data_gen = torch.Generator()
+    data_gen.manual_seed(seed)
+    loader_seed = torch.Generator()
+    loader_seed.manual_seed(seed)
+    batch_sampler = EpochBatchSampler(len(train_ds), int(tc["batch_size"]), data_gen)
+    if batch_sampler.n_batches < 1:
+        raise ValueError(
+            f"batch_size {tc['batch_size']} is larger than the {len(train_ds)} training windows, "
+            "so the epoch would be empty"
+        )
+    loader = torch.utils.data.DataLoader(
+        train_ds, batch_sampler=batch_sampler, num_workers=workers, persistent_workers=workers > 0,
+        generator=loader_seed)
     types, masses = train_ds.types.to(device), train_ds.masses.to(device)
 
     model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
     step, best, best_stable = 0, math.inf, None
+    ck = None
     if os.path.exists(ckpt_path):
         ck = torch.load(ckpt_path, map_location=device, weights_only=False)
         model.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         step, best = ck["step"], ck["best"]
         best_stable = tuple(ck["best_stable"]) if ck.get("best_stable") is not None else None
-        print(f"resumed from step {step}", flush=True)
+        apply_resume_rng(ck, seed, step, data_gen, batch_sampler, len(train_ds))
+        if isinstance(ck.get("rng"), dict) and "torch" in ck["rng"]:
+            print(f"resumed from step {step}", flush=True)
+        else:
+            print(f"resumed from step {step} (old checkpoint: re-seeded with seed + step)", flush=True)
     else:
         if model.prior is not None and not model.prior.rmin_fixed:
             model.prior.rmin.copy_(estimate_rmin(train_ds, model.prior.percentile))
@@ -435,10 +597,15 @@ def main():
             return tc["lr"] * (s + 1) / warm
         return tc["lr"] * 0.5 * (1 + math.cos(math.pi * min(1.0, (s - warm) / max(1, tc["steps"] - warm))))
 
+    guard = SpikeGuard(tc.get("loss_spike_factor", 0.0), tc.get("loss_spike_window", 200))
+    if ck is not None and isinstance(ck.get("spike_guard"), dict):
+        guard.load_state_dict(ck["spike_guard"])
+
     def save(path):
         atomic_save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
                      "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
-                     "elements": train_ds.elements}, path)
+                     "elements": train_ds.elements, "rng": capture_rng_state(),
+                     "loader": batch_sampler.state_dict(), "spike_guard": guard.state_dict()}, path)
 
     if args.no_tensorboard:
         class ScalarWriter:
@@ -451,7 +618,6 @@ def main():
     log = open(os.path.join(out_dir, "log.jsonl"), "a")
     t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses).mean().item()
     last_ckpt, t_start, running = time.time(), time.time(), []
-    guard = SpikeGuard(tc.get("loss_spike_factor", 0.0), tc.get("loss_spike_window", 200))
     rewarmup = int(tc.get("rewarmup_steps", 0))
     gnorms = []
     m_last = None
@@ -540,6 +706,7 @@ def main():
                     guard.skipped += 1
                     opt.zero_grad(set_to_none=True)
             step += 1
+            batch_sampler.next_batch += 1  # a later resume skips batches already used
             if math.isfinite(loss_value):
                 running.append(loss_value)
             if step % 50 == 0:

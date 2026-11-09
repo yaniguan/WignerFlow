@@ -45,6 +45,8 @@ settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400.
   the scale of the m=2 loss.
 - `loss_spike_factor: 5`: updates with a non-finite loss, or a loss above 5× the running median at the current
   m, are skipped and counted (`skipped_updates` in the log). Non-finite gradient norms are skipped too.
+  `ckpt.pt` stores the guard history, the current unroll length, and the skip count, and resume restores
+  them. An older checkpoint has no guard state, so the count starts again for that session.
 - LR 1e-4 (warmup 300, cosine over 16k), grad clip 0.5.
 - Memory at m=4: with batch 8 one training step peaked at 50.2 GB (profiling, A100-80GB) and ran out of
   memory on an A100-40GB. From `micro_batch_min_m: 4` on, each batch is run as micro-batches of
