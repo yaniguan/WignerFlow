@@ -1,0 +1,30 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a technical question about **WignerFlow** coarse-stride dynamics, periodic box sizing (`Yeh–Hummer`), electrolyte conductivity alignment (`CALiSol-23`), or `PocketMD` triage. Accepted replies earn the **Galaxy Brain** badge!
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Domain / Module
+      options:
+        - Coarse-Stride Flow Matching & EquiTraj Architecture
+        - Battery Electrolytes (CALiSol-23 / Yeh-Hummer / Cluster-NE)
+        - Protein-Ligand Pocket MD & tau-RAMD Triage
+        - CPU / GPU Profiling, Verlet Lists & Rollout Stability
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Scientific or Engineering Question
+      description: Describe the system size, timestep/stride, observable, or failure mode you are investigating.
+      placeholder: "e.g., Why does a 1,500-atom periodic box suffice for Cluster-Nernst-Einstein + Yeh-Hummer conductivity compared to a 10,000-atom Einstein-Helfand box?"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Setup / Command / Snippet (Optional)
+      render: bash
