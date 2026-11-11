@@ -43,7 +43,8 @@ def max_bond_deviation(pos, bonds, r0):
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
             thermostat=None, energy_fn=None, history=20, monitor=None, predictor=None,
-            constraint_projector=None, excluded_pairs=None):
+            constraint_projector=None, excluded_pairs=None, *, generator=None, return_state=False,
+            step_offset=0):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -59,13 +60,18 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     predictor: optional object with predict(); defaults to the model. Off unless passed in.
     constraint_projector: optional DistanceProjector. Off by default. Applied after the thermostat.
     excluded_pairs: optional symmetric boolean (N, N) mask. True skips that pair. Off by default.
+    generator: optional torch.Generator for deterministic flow noise and CSVR thermostat sampling.
+    return_state: when True, include a resumable 'state' dict (float64 context positions, float32
+        context velocities, global step count, and RNG state if generator is given).
+    step_offset: starting global step index before this call (0 for fresh rollouts).
     """
     from equitraj.monitor import StabilityMonitor  # monitor.py imports this module
 
-    if min(n_steps, save_every, check_every, sampling_steps) < 1:
-        raise ValueError("step counts and intervals must be positive")
+    if min(n_steps, save_every, check_every, sampling_steps) < 1 or step_offset < 0:
+        raise ValueError("step counts and intervals must be positive and step_offset >= 0")
     if predictor is None:
         predictor = model
+    base_model = getattr(predictor, "model", predictor)
     device = next(model.parameters()).device
     b = pos.shape[0]
     x = pos.to(device, torch.float64)
@@ -85,22 +91,28 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     saved_x, saved_v = [], []
     t0 = time.time()
     for step in range(1, n_steps + 1):
-        dx, v_new = predictor.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
+        global_step = step_offset + step
+        if (generator is not None and getattr(base_model, "head_type", None) == "flow"
+                and hasattr(base_model, "com_free_noise")):
+            noise = base_model.com_free_noise(b, types, masses, generator=generator, like=v)
+            dx, v_new = predictor.predict(x.float(), v, types, box, masses, noise=noise, n_steps=sampling_steps)
+        else:
+            dx, v_new = predictor.predict(x.float(), v, types, box, masses, n_steps=sampling_steps)
         if thermostat is not None:
             v_new = csvr(v_new, masses, thermostat["t_target"], thermostat["tau_fs"], thermostat["dt_fs"],
-                         dof=3 * v_new.shape[1] - 3 - n_constraints)
+                         dof=3 * v_new.shape[1] - 3 - n_constraints, generator=generator)
         x_new = x[:, -1] + dx.double()
         if constraint_projector is not None:
             x_new, v_new, stats = constraint_projector(x_new, v_new, masses, box)
-            projection_diagnostics.append({"step": step, **stats})
+            projection_diagnostics.append({"step": global_step, **stats})
         x = torch.cat([x[:, 1:], x_new[:, None]], dim=1)
         v = torch.cat([v[:, 1:], v_new[:, None]], dim=1)
-        if step % save_every == 0:
+        if global_step % save_every == 0:
             saved_x.append(x_new.float().cpu())
             saved_v.append(v_new.cpu())
-        if step % check_every == 0 or step == n_steps:
-            bad = monitor.check(step, x_new, v_new)
-            crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)
+        if global_step % check_every == 0 or step == n_steps:
+            bad = monitor.check(global_step, x_new, v_new)
+            crash = torch.where((crash < 0) & bad, torch.full_like(crash, global_step), crash)
             if (crash >= 0).all():
                 break
     if device.type == "cuda":
@@ -108,7 +120,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     diagnostics = monitor.diagnostics()
     if constraint_projector is not None:
         diagnostics["constraint_projection"] = projection_diagnostics
-    return {
+    out = {
         "positions": torch.stack(saved_x) if saved_x else None,
         "velocities": torch.stack(saved_v) if saved_v else None,
         "crash_step": crash.cpu(),
@@ -116,3 +128,14 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         "wall_s": time.time() - t0,
         "diagnostics": diagnostics,
     }
+    if return_state:
+        out["state"] = {
+            "context_positions": x.detach().cpu(),
+            "context_velocities": v.detach().cpu(),
+            "box": None if box is None else box.detach().cpu(),
+            "types": types.detach().cpu(),
+            "masses": masses.detach().cpu(),
+            "steps_done": step_offset + step,
+            "rng_state": None if generator is None else generator.get_state().clone().cpu(),
+        }
+    return out

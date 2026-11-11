@@ -26,8 +26,12 @@ def csvr(vel, masses, t_target, tau_fs, dt_fs, dof, generator=None):
     c = math.exp(-dt_fs / tau_fs)
     r1 = torch.randn(k.shape, generator=generator, dtype=k.dtype, device=k.device)
     # sum of (dof - 1) squared normals = chi-squared with dof - 1 degrees of freedom = 2 * Gamma((dof-1)/2)
-    gamma = torch.distributions.Gamma(torch.tensor((dof - 1) / 2.0, dtype=k.dtype), torch.tensor(1.0, dtype=k.dtype))
-    s = 2.0 * gamma.sample(k.shape).to(k.device)
+    if generator is None:
+        gamma = torch.distributions.Gamma(torch.tensor((dof - 1) / 2.0, dtype=k.dtype), torch.tensor(1.0, dtype=k.dtype))
+        s = 2.0 * gamma.sample(k.shape).to(k.device)
+    else:
+        conc = torch.full(k.shape, (dof - 1) / 2.0, dtype=k.dtype, device=k.device)
+        s = 2.0 * torch._standard_gamma(conc, generator=generator)
     k_new = k * c + k0 / dof * (1 - c) * (r1**2 + s) + 2 * math.sqrt(c) * torch.sqrt(k0 / dof * (1 - c) * k) * r1
     scale = torch.sqrt(torch.clamp(k_new, min=0.0) / k)
     return (v * scale[:, None, None]).to(vel.dtype)
