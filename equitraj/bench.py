@@ -18,9 +18,13 @@ import math
 import multiprocessing
 import os
 import queue
-import resource
 import sys
 import time
+
+try:
+    import resource
+except ImportError:  # Windows has no POSIX resource module
+    resource = None
 
 import torch
 
@@ -143,8 +147,42 @@ def summarize_trials(trials):
 
 # ---------------------------------------------------------------- speed and memory
 
+def _win32_rss_mb():
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        ]
+
+    pmc = PROCESS_MEMORY_COUNTERS()
+    pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+    kernel32 = ctypes.windll.kernel32
+    get_proc = kernel32.GetCurrentProcess
+    get_proc.argtypes = []
+    get_proc.restype = wintypes.HANDLE
+    fn = getattr(kernel32, "K32GetProcessMemoryInfo", None) or ctypes.windll.psapi.GetProcessMemoryInfo
+    fn.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS), wintypes.DWORD]
+    fn.restype = wintypes.BOOL
+    if not fn(get_proc(), ctypes.byref(pmc), pmc.cb):
+        return None, None
+    return pmc.WorkingSetSize / 2**20, pmc.PeakWorkingSetSize / 2**20
+
+
 def current_rss_mb():
-    """Resident memory of this process now, in MiB (Linux /proc only; None elsewhere)."""
+    """Resident memory of this process now, in MiB (Linux /proc and Windows Win32; None elsewhere)."""
+    if sys.platform == "win32":
+        return _win32_rss_mb()[0]
     try:
         with open("/proc/self/statm") as f:
             pages = int(f.read().split()[1])
@@ -155,6 +193,10 @@ def current_rss_mb():
 
 def peak_rss_mb():
     """High-water resident memory of this process since it started, in MiB."""
+    if sys.platform == "win32":
+        return _win32_rss_mb()[1]
+    if resource is None:
+        return None
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return peak / 2**20 if sys.platform == "darwin" else peak / 1024  # bytes on macOS, KiB on Linux
 
@@ -210,7 +252,8 @@ def bench_config(n_atoms, k=3, batch=1, head="flow", repeats=3, warmup=1, thread
         "edges_per_frame": edges_per_frame, "loss": loss.item(), "finite": bool(torch.isfinite(dx).all()),
         "forward_s": _median(fwd), "backward_s": _median(bwd), "fwd_bwd_s": _median([a + b for a, b in zip(fwd, bwd)]),
         "predict_s": _median(pred), "sampling_steps": sampling_steps,
-        "rss_before_mb": rss0, "peak_rss_mb": peak, "peak_delta_mb": None if rss0 is None else max(peak - rss0, 0.0),
+        "rss_before_mb": rss0, "peak_rss_mb": peak,
+        "peak_delta_mb": None if (rss0 is None or peak is None) else max(peak - rss0, 0.0),
     }
 
 
