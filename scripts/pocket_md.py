@@ -1,4 +1,4 @@
-"""PocketMD CLI and local zero-dependency web calculator."""
+"""PocketMD CLI and local zero-dependency web calculator.
 
 Fast CPU/edge pre-screening tool to decide whether a candidate small-molecule binding pose,
 electrolyte additive formulation, or WignerFlow neural checkpoint merits 50-500 GPU-hours
@@ -131,7 +131,7 @@ def cmd_batch(args):
 
 
 _WEB_UI_HTML = """<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
