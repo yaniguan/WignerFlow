@@ -21,15 +21,18 @@ import time
 # Less CUDA memory fragmentation for the large m=4 unroll steps. Must be set before CUDA starts.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+from contextlib import contextmanager, nullcontext
 import numpy as np
 import torch
 import yaml
 from torch.utils.checkpoint import checkpoint
 
-from equitraj import analysis
+from equitraj import analysis, so3
 from equitraj.dataset import TrajWindows, compute_stats
+from equitraj.ema import ExponentialMovingAverage, configure_matmul_precision
 from equitraj.model import EquiTraj
 from equitraj.monitor import REASONS
+from equitraj.neighbors import VerletList
 from equitraj.prior import estimate_rmin, overlap_penalty
 from equitraj.rollout import rollout, temperature
 
@@ -163,8 +166,62 @@ def unroll_weights_for(weights, m, like):
     return torch.tensor(w, dtype=like.dtype, device=like.device)
 
 
+def _single_frame_graph(verlet, pos_f, box_f, lmax):
+    """Single-frame neighbor graph from a stateful VerletList (differentiable w.r.t. pos_f)."""
+    src, dst, vec = verlet(pos_f, box_f)
+    return {
+        "src": src,
+        "dst": dst,
+        "vec": vec,
+        "dist": torch.linalg.norm(vec, dim=-1),
+        "wigner": so3.edge_wigner(vec, lmax),
+    }
+
+
+def _collate_frame_graphs(frames_flat, n):
+    """Concatenate single-frame graphs so node i in frame f has index f * n + i."""
+    return {
+        "src": torch.cat([fg["src"] + f * n for f, fg in enumerate(frames_flat)], dim=0),
+        "dst": torch.cat([fg["dst"] + f * n for f, fg in enumerate(frames_flat)], dim=0),
+        "vec": torch.cat([fg["vec"] for fg in frames_flat], dim=0),
+        "dist": torch.cat([fg["dist"] for fg in frames_flat], dim=0),
+        "wigner": torch.cat([fg["wigner"] for fg in frames_flat], dim=0),
+    }
+
+
+def _window_graphs(win_graphs, n):
+    """Build (graph_bk, graph_last) from sliding [b][k] single-frame graphs without duplicate work."""
+    frames_bk = [fg for sys_frames in win_graphs for fg in sys_frames]
+    frames_last = [sys_frames[-1] for sys_frames in win_graphs]
+    return _collate_frame_graphs(frames_bk, n), _collate_frame_graphs(frames_last, n)
+
+
+@contextmanager
+def _bind_encode_graphs(model, graphs):
+    """Supply precomputed `graphs` to `model.encode` (and `_encode_full` if present) during `model.loss`."""
+    orig_encode = model.encode
+    orig_full = getattr(model, "_encode_full", None)
+
+    def encode_cached(pos, vel, types, box, graphs_arg=None, *args, **kwargs):
+        return orig_encode(pos, vel, types, box, graphs if graphs_arg is None else graphs_arg, *args, **kwargs)
+
+    model.encode = encode_cached
+    if orig_full is not None:
+        def full_cached(pos, vel, types, box, graphs_arg=None, *args, **kwargs):
+            return orig_full(pos, vel, types, box, graphs if graphs_arg is None else graphs_arg, *args, **kwargs)
+
+        model._encode_full = full_cached
+    try:
+        yield
+    finally:
+        model.encode = orig_encode
+        if orig_full is not None:
+            model._encode_full = orig_full
+
+
 def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
-                  unroll_weights=None, noise_v_ratio=1.0, noise_type_scale=None, overlap_weight=0.0, overlap_r0=None):
+                  unroll_weights=None, noise_v_ratio=1.0, noise_type_scale=None, overlap_weight=0.0, overlap_r0=None,
+                  verlet_skin=None):
     """Loss for one batch. pos, vel: (B, k + m_max, N, 3); only the first k + m frames are used.
 
     m = 1 is teacher forcing. For m > 1 the model first predicts m-1 frames from its own outputs:
@@ -181,9 +238,11 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
       overlap_weight, overlap_r0: add overlap_weight * overlap_penalty on the predicted positions
           (every unrolled step in full mode, plus one differentiable prediction from the final context);
           overlap_r0 is the (T, T) wall distance in Å
+      verlet_skin: optional skin (Å) for Verlet neighbor reuse + sliding-window frame-graph caching across
+          the m unroll steps (None keeps per-step brute-force/cell graph construction)
     """
     k = model.k
-    b = pos.shape[0]
+    b, _, n, _ = pos.shape
     ctx_x, ctx_v = pos[:, :k].clone(), vel[:, :k].clone()
     if noise_sigma > 0:
         tb = types.repeat(b).view(b, 1, -1, 1)
@@ -196,23 +255,48 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
             nx, nv = nx * ts, nv * ts
         ctx_x = ctx_x + nx
         ctx_v = ctx_v + nv
+    verlets = None
+    win_graphs = None
+    if verlet_skin is not None:
+        verlets = [VerletList(model.cutoff, float(verlet_skin)) for _ in range(b)]
+        win_graphs = [
+            [_single_frame_graph(verlets[bi], ctx_x[bi, t], None if box is None else box[bi], model.lmax)
+             for t in range(k)]
+            for bi in range(b)
+        ]
     per_step = unroll_weights is not None
     losses, pred_x = [], []
     for j in range(m):
         last = (j == m - 1)
+        graphs = None if win_graphs is None else _window_graphs(win_graphs, n)
         if backprop == "full" or last or per_step:
             dx_t = pos[:, k + j] - ctx_x[:, -1]
-            losses.append(model.loss(ctx_x, ctx_v, types, box, masses, dx_t, vel[:, k + j]))
+            ctx_mgr = nullcontext() if graphs is None else _bind_encode_graphs(model, graphs)
+            with ctx_mgr:
+                losses.append(model.loss(ctx_x, ctx_v, types, box, masses, dx_t, vel[:, k + j]))
         if last:
             break
         if backprop == "full":
-            dx, v_new = checkpoint(model.predict_with_grad, ctx_x, ctx_v, types, box, masses,
-                                   unroll_sampling_steps, use_reentrant=False)
+            if graphs is None:
+                dx, v_new = checkpoint(model.predict_with_grad, ctx_x, ctx_v, types, box, masses,
+                                       unroll_sampling_steps, use_reentrant=False)
+            else:
+                dx, v_new = checkpoint(model.predict_with_grad, ctx_x, ctx_v, types, box, masses,
+                                       unroll_sampling_steps, None, graphs, use_reentrant=False)
         else:
             with torch.no_grad():
-                dx, v_new = model.predict(ctx_x, ctx_v, types, box, masses, n_steps=unroll_sampling_steps)
+                if graphs is None:
+                    dx, v_new = model.predict(ctx_x, ctx_v, types, box, masses, n_steps=unroll_sampling_steps)
+                else:
+                    dx, v_new = model.predict_with_grad(ctx_x, ctx_v, types, box, masses,
+                                                        n_steps=unroll_sampling_steps, graphs=graphs)
         ctx_x = torch.cat([ctx_x[:, 1:], (ctx_x[:, -1] + dx)[:, None]], dim=1)
         ctx_v = torch.cat([ctx_v[:, 1:], v_new[:, None]], dim=1)
+        if win_graphs is not None:
+            for bi in range(b):
+                new_fg = _single_frame_graph(verlets[bi], ctx_x[bi, -1],
+                                             None if box is None else box[bi], model.lmax)
+                win_graphs[bi] = win_graphs[bi][1:] + [new_fg]
         if backprop == "full":
             pred_x.append(ctx_x[:, -1])
     if per_step:
@@ -221,7 +305,8 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
     else:
         loss = torch.stack(losses).mean()
     if overlap_weight > 0:
-        dx, _ = model.predict_with_grad(ctx_x, ctx_v, types, box, masses, unroll_sampling_steps)
+        graphs = None if win_graphs is None else _window_graphs(win_graphs, n)
+        dx, _ = model.predict_with_grad(ctx_x, ctx_v, types, box, masses, unroll_sampling_steps, graphs=graphs)
         pred_x.append(ctx_x[:, -1] + dx)
         pen = torch.stack([overlap_penalty(x, box, types, overlap_r0) for x in pred_x]).mean()
         loss = loss + overlap_weight * pen
@@ -412,8 +497,18 @@ def main():
     if model.prior is not None:
         print(json.dumps({"repulsion_prior_rmin": model.prior.rmin.tolist(), "r0": model.prior.r0().tolist()}), flush=True)
 
+    if tc.get("matmul_precision") is not None:
+        print(json.dumps(configure_matmul_precision(tc["matmul_precision"])), flush=True)
+    ema = None
+    ema_path = os.path.join(out_dir, "ema.pt")
+    if tc.get("ema_decay") is not None and float(tc["ema_decay"]) > 0.0:
+        ema = ExponentialMovingAverage(model, decay=float(tc["ema_decay"]), warmup=bool(tc.get("ema_warmup", True)))
+        if step > 0 and os.path.exists(ema_path):
+            ema.load_state_dict(torch.load(ema_path, map_location=device, weights_only=True))
+
     # optional stability options (absent keys keep the original behavior)
-    loss_opts = {"unroll_weights": tc.get("unroll_loss_weights"), "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0))}
+    loss_opts = {"unroll_weights": tc.get("unroll_loss_weights"), "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0)),
+                 "verlet_skin": tc.get("verlet_skin")}
     nts = tc.get("noise_type_scale")
     if nts is not None:  # dict element -> scale (missing elements: 1) or list in train_ds.elements order
         if isinstance(nts, dict):
@@ -458,49 +553,53 @@ def main():
     def evaluate_and_select():
         nonlocal best, best_stable, last_ckpt
         model.eval()
-        with torch.no_grad():
-            val = []
-            for i in np.linspace(0, len(val_ds) - 1, ec.get("val_batches", 20) * tc["batch_size"]).astype(int).reshape(-1, tc["batch_size"]):
-                items = [val_ds[j] for j in i]
-                vp = torch.stack([it[0] for it in items]).to(device)
-                vv = torch.stack([it[1] for it in items]).to(device)
-                vb = torch.stack([it[2] for it in items]).to(device) if val_ds.periodic else None
-                val.append(training_loss(model, vp, vv, vb, types, masses, 1, 0.0, "truncated", 2).item())
-            metrics = {"step": step, "val_loss": float(np.mean(val))}
-            diags = []
-            metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
-                                              ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags))
-            if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
-                sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
-                                         ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
-                                         diag_sink=diags)
-                metrics.update({"sel_" + key: value for key, value in sel.items()})
-        for key, value in metrics.items():
-            if key != "step":
-                writer.add_scalar(f"val/{key}", value, step)
-        score = legacy_score(metrics)
-        metrics["score"] = score
-        if score < best:
-            best = score
-            save(os.path.join(out_dir, "best.pt"))
-        stable = selection_score(metrics)
-        metrics["stability_score"] = list(stable)
-        if best_stable is None or stable < best_stable:
-            best_stable = stable
-            save(os.path.join(out_dir, "best_stable.pt"))
-        crashed_diags = [d for d in diags if any(c is not None for c in d["crashes"])]
-        if crashed_diags:
-            with open(os.path.join(out_dir, "crash_diagnostics.jsonl"), "a") as f:
-                for d in crashed_diags:
-                    f.write(json.dumps({"step": step, **d}) + "\n")
-        # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
-        # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
-        atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
-                    os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
+        ema_ctx = nullcontext() if ema is None else ema.average_parameters(model)
+        with ema_ctx:
+            with torch.no_grad():
+                val = []
+                for i in np.linspace(0, len(val_ds) - 1, ec.get("val_batches", 20) * tc["batch_size"]).astype(int).reshape(-1, tc["batch_size"]):
+                    items = [val_ds[j] for j in i]
+                    vp = torch.stack([it[0] for it in items]).to(device)
+                    vv = torch.stack([it[1] for it in items]).to(device)
+                    vb = torch.stack([it[2] for it in items]).to(device) if val_ds.periodic else None
+                    val.append(training_loss(model, vp, vv, vb, types, masses, 1, 0.0, "truncated", 2).item())
+                metrics = {"step": step, "val_loss": float(np.mean(val))}
+                diags = []
+                metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
+                                                  ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags))
+                if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
+                    sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
+                                             ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
+                                             diag_sink=diags)
+                    metrics.update({"sel_" + key: value for key, value in sel.items()})
+            for key, value in metrics.items():
+                if key != "step":
+                    writer.add_scalar(f"val/{key}", value, step)
+            score = legacy_score(metrics)
+            metrics["score"] = score
+            if score < best:
+                best = score
+                save(os.path.join(out_dir, "best.pt"))
+            stable = selection_score(metrics)
+            metrics["stability_score"] = list(stable)
+            if best_stable is None or stable < best_stable:
+                best_stable = stable
+                save(os.path.join(out_dir, "best_stable.pt"))
+            crashed_diags = [d for d in diags if any(c is not None for c in d["crashes"])]
+            if crashed_diags:
+                with open(os.path.join(out_dir, "crash_diagnostics.jsonl"), "a") as f:
+                    for d in crashed_diags:
+                        f.write(json.dumps({"step": step, **d}) + "\n")
+            # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
+            # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
+            atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+                        os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
         log.write(json.dumps(metrics) + "\n")
         log.flush()
         print(json.dumps(metrics), flush=True)
         save(ckpt_path)
+        if ema is not None:
+            atomic_save(ema.state_dict(), ema_path)
         last_ckpt = time.time()
         model.train()
 
@@ -535,6 +634,8 @@ def main():
                 gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
                 if torch.isfinite(gnorm):
                     opt.step()
+                    if ema is not None:
+                        ema.update(model)
                     gnorms.append(gnorm.item())
                 else:
                     guard.skipped += 1
@@ -556,8 +657,12 @@ def main():
                 evaluate_and_select()
             elif time.time() - last_ckpt > 60 * tc.get("ckpt_minutes", 20):
                 save(ckpt_path)
+                if ema is not None:
+                    atomic_save(ema.state_dict(), ema_path)
                 last_ckpt = time.time()
     save(ckpt_path)
+    if ema is not None:
+        atomic_save(ema.state_dict(), ema_path)
     with open(os.path.join(out_dir, "done.json"), "w") as f:
         json.dump({"step": step, "best_score": best, "hours": (time.time() - t_start) / 3600}, f)
 
