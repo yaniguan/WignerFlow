@@ -19,15 +19,17 @@ class FastRollout:
     """
     def __init__(self, model, *, sampling_steps=10, precision="fp32", neighbor="verlet",
                  skin=1.0, rebuild_every=None, compile=False, compile_mode="reduce-overhead",
-                 cuda_graphs=False, edge_capacity=None):
+                 cuda_graphs=False, edge_capacity=None, sampler="euler"):
         if precision not in {"fp32", "bf16", "fp8"} or sampling_steps < 1:
             raise ValueError("invalid precision or sampling_steps")
+        if sampler not in {"euler", "heun"}:
+            raise ValueError("sampler must be euler or heun")
         if neighbor not in {"brute", "cell", "verlet"}:
             raise ValueError("neighbor must be brute, cell or verlet")
         if compile_mode not in {"reduce-overhead", "max-autotune"}:
             raise ValueError("invalid compile mode")
         self.model = copy.deepcopy(model).float().eval()
-        self.sampling_steps, self.precision = sampling_steps, precision
+        self.sampling_steps, self.precision, self.sampler = sampling_steps, precision, sampler
         self.neighbor, self.skin, self.rebuild_every = neighbor, skin, rebuild_every
         self.cuda_graphs, self.edge_capacity = cuda_graphs, edge_capacity
         self._lists = {}
@@ -131,7 +133,7 @@ class FastRollout:
             noise = self.model.com_free_noise(r, types, masses, like=pos)
         if n_steps is None:
             n_steps = self.sampling_steps
-        args = (pos, vel, types, box, masses, n_steps, noise, graphs)
+        args = (pos, vel, types, box, masses, n_steps, noise, graphs, self.sampler)
         if self.cuda_graphs and pos.is_cuda:
             try:
                 # Tensor tree copies keep captured addresses stable across calls.

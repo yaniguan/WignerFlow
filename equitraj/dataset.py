@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import yaml
 
+from equitraj.topology import read_metadata
 from equitraj.units import NM_PER_PS_TO_A_PER_FS, NM_TO_A
 
 
@@ -93,6 +94,7 @@ def preflight(paths, *, reject_estimated_velocities=False):
             for key in ("atom_ids", "particle_names"):
                 if key in f:
                     identities[key] = f[key][:]
+            pff = read_metadata(f, n)
             if reference is not None:
                 if not np.array_equal(elements, reference[0]):
                     raise ValueError(f"{path}: atom order/elements differ")
@@ -105,8 +107,17 @@ def preflight(paths, *, reject_estimated_velocities=False):
                 for key, value in identities.items():
                     if not np.array_equal(value, reference[5][key]):
                         raise ValueError(f"{path}: particle identities/order differ")
+                ref_pff = reference[6]
+                if (pff is None) != (ref_pff is None):
+                    raise ValueError(f"{path}: pff_metadata presence differs across trajectories")
+                if pff is not None:
+                    if not np.allclose(pff["charges"], ref_pff["charges"], rtol=1e-7, atol=1e-8):
+                        raise ValueError(f"{path}: pff_metadata charges differ")
+                    for key in ("ff_types", "molecule_ids", "bonds", "constraints", "drude_parent_map"):
+                        if pff[key] != ref_pff[key]:
+                            raise ValueError(f"{path}: pff_metadata {key} differs")
             else:
-                reference = (elements, masses, dt, save, periodic, identities)
+                reference = (elements, masses, dt, save, periodic, identities, pff)
     if reference is None:
         raise ValueError("no trajectories to validate")
 
@@ -141,6 +152,19 @@ class TrajWindows(torch.utils.data.Dataset):
         self.elements = sorted(set(meta["elements"]))
         self.types = torch.tensor([self.elements.index(e) for e in meta["elements"]])
         self.masses = torch.tensor(meta["masses"], dtype=torch.float32)
+        with h5py.File(os.path.join(data_dir, f"traj_{self.traj_ids[0]:03d}.h5"), "r") as f0:
+            pff = read_metadata(f0, len(self.types))
+        self.particle_metadata = pff
+        if pff is not None:
+            self.charges = torch.tensor(pff["charges"], dtype=torch.float32)
+            self.ff_type_names = sorted(set(pff["ff_types"]))
+            self.ff_types = torch.tensor([self.ff_type_names.index(t) for t in pff["ff_types"]], dtype=torch.long)
+            self.bonds = torch.tensor(pff["bonds"], dtype=torch.long).reshape(-1, 2)
+        else:
+            self.charges = None
+            self.ff_type_names = None
+            self.ff_types = None
+            self.bonds = None
         span = (k + m - 1) * self.f
         self.index = [(t, s) for t in range(len(self.pos)) for s in range(0, len(self.pos[t]) - span, start_every)]
         if not self.index:
@@ -176,4 +200,14 @@ def compute_stats(ds, n_samples=2000, seed=0):
     def per_type(x):
         return torch.stack([x[:, ds.types == t].pow(2).mean().sqrt() for t in range(len(ds.elements))])
 
-    return {"dx_std": per_type(dx), "v_std": per_type(v), "res_dx_std": per_type(res_dx), "res_v_std": per_type(res_v)}
+    sqrt_m = ds.masses.to(dx.dtype).sqrt()[None, :, None]
+    return {
+        "dx_std": per_type(dx),
+        "v_std": per_type(v),
+        "res_dx_std": per_type(res_dx),
+        "res_v_std": per_type(res_v),
+        "mass_dx_std": (dx * sqrt_m).pow(2).mean().sqrt(),
+        "mass_v_std": (v * sqrt_m).pow(2).mean().sqrt(),
+        "mass_res_dx_std": (res_dx * sqrt_m).pow(2).mean().sqrt(),
+        "mass_res_v_std": (res_v * sqrt_m).pow(2).mean().sqrt(),
+    }

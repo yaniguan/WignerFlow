@@ -228,11 +228,12 @@ class GraphAttention(nn.Module):
       6. sum of attention * value into dst, then a linear layer
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0):
         super().__init__()
         assert c % heads == 0
         self.lmax, self.c, self.heads, self.n_rbf, self.cutoff = lmax, c, heads, n_rbf, cutoff
-        self.radial = MLP([n_rbf, 64, (lmax + 1) * 2 * c])
+        self.edge_dim = int(edge_dim)
+        self.radial = MLP([n_rbf + self.edge_dim, 64, (lmax + 1) * 2 * c])
         self.so2_1 = SO2Linear(lmax, 2 * c, c, parity)
         self.logits = MLP([c, c, heads])
         self.gate = Gate(lmax, c)
@@ -243,7 +244,13 @@ class GraphAttention(nn.Module):
         src, dst, dist, wigner = graph["src"], graph["dst"], graph["dist"], graph["wigner"]
         e = src.shape[0]
         xe = torch.cat([so3.to_edge_frame(wigner, x[src]), so3.to_edge_frame(wigner, x[dst])], dim=-1)
-        rad = self.radial(gaussian_rbf(dist, self.cutoff, self.n_rbf)).view(e, self.lmax + 1, 2 * self.c)
+        rbf = gaussian_rbf(dist, self.cutoff, self.n_rbf)
+        if self.edge_dim > 0:
+            edge_attr = graph.get("edge_attr")
+            if edge_attr is None:
+                edge_attr = rbf.new_zeros(e, self.edge_dim)
+            rbf = torch.cat([rbf, edge_attr.to(rbf.dtype)], dim=-1)
+        rad = self.radial(rbf).view(e, self.lmax + 1, 2 * self.c)
         h = self.so2_1(per_l_scale(xe, rad, self.lmax))
         env = envelope(dist, self.cutoff)
         # Avoid log(0) in backward even for masked edges.
@@ -259,10 +266,10 @@ class GraphAttention(nn.Module):
 class Block(nn.Module):
     """x + attention(norm(x)), then x + feedforward(norm(x))."""
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0):
         super().__init__()
         self.norm1 = EquivariantRMSNorm(lmax, c)
-        self.attn = GraphAttention(lmax, c, heads, n_rbf, cutoff, parity)
+        self.attn = GraphAttention(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim)
         self.norm2 = EquivariantRMSNorm(lmax, c)
         self.ff = FeedForward(lmax, c, 2 * c)
 
