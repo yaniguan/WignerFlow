@@ -20,16 +20,11 @@ def test_benchmark_missing_root_raises(tmp_path: Path):
 
 
 def test_benchmark_on_synthetic_plb_fixture(tmp_path: Path):
-    chem = pytest.importorskip("rdkit.Chem")
-    allchem = pytest.importorskip("rdkit.Chem.AllChem")
-    pytest.importorskip("yaml")
-
     t_dir = tmp_path / "cdk2"
     (t_dir / "01_protein" / "crd").mkdir(parents=True)
     (t_dir / "02_ligands").mkdir(parents=True)
     (t_dir / "00_data").mkdir(parents=True)
 
-    # Create a clash-free 12-atom heavy pocket shell at radius ~3.8 A around origin
     pdb_lines = []
     coords = [
         (3.8, 0.0, 0.0, "O"), (-3.8, 0.0, 0.0, "N"), (0.0, 3.8, 0.0, "C"), (0.0, -3.8, 0.0, "C"),
@@ -43,13 +38,22 @@ def test_benchmark_on_synthetic_plb_fixture(tmp_path: Path):
     pdb_lines.append("END")
     (t_dir / "01_protein" / "crd" / "protein.pdb").write_text("\n".join(pdb_lines), encoding="utf-8")
 
-    mol = chem.AddHs(chem.MolFromSmiles("CCO"))
-    mol.SetProp("_Name", "lig_test")
-    allchem.EmbedMolecule(mol, randomSeed=7)
-    w = chem.SDWriter(str(t_dir / "02_ligands" / "ligands.sdf"))
-    w.write(mol)
-    w.close()
-
+    # Standard V2000 SDF block so test runs with or without RDKit installed
+    sdf_text = "\n".join([
+        "lig_test",
+        "  WignerFlow",
+        "",
+        "  3  2  0  0  0  0  0  0  0  0999 V2000",
+        "   -0.8000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+        "    0.6500    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+        "    1.3500    1.1500    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0",
+        "  1  2  1  0",
+        "  2  3  1  0",
+        "M  END",
+        "$$$$",
+        "",
+    ])
+    (t_dir / "02_ligands" / "ligands.sdf").write_text(sdf_text, encoding="utf-8")
     (t_dir / "00_data" / "ligands.yml").write_text(
         "lig_test:\n  measurement:\n    type: Ki\n    value: 25.0\n    unit: nM\n", encoding="utf-8"
     )

@@ -36,17 +36,70 @@ def compute_pose_auroc(natives: list[dict], decoys: list[dict]) -> dict:
     }
 
 
+def _parse_sdf_fallback(sdf_path: Path, limit: int) -> list[dict]:
+    """Pure-Python V2000 SDF parser fallback when RDKit is not installed."""
+    atomic_masses = {"H": 1.008, "B": 10.81, "C": 12.011, "N": 14.007, "O": 15.999, "F": 18.998,
+                     "P": 30.974, "S": 32.06, "Cl": 35.45, "Br": 79.904}
+    partial_q = {"H": 0.06, "C": 0.04, "N": -0.28, "O": -0.36, "F": -0.22, "S": -0.12, "Cl": -0.14}
+    blocks = sdf_path.read_text(encoding="utf-8", errors="replace").split("$$$$")
+    entries = []
+    for idx_b, raw in enumerate(blocks):
+        lines = [ln.rstrip("\r") for ln in raw.strip("\n").splitlines()]
+        if len(lines) < 4:
+            continue
+        name = lines[0].strip() or f"lig_{idx_b}"
+        counts = lines[3]
+        try:
+            n_atoms = int(counts[:3].strip())
+            n_bonds = int(counts[3:6].strip())
+        except ValueError:
+            parts = counts.split()
+            if len(parts) < 2:
+                continue
+            n_atoms, n_bonds = int(parts[0]), int(parts[1])
+        pos, elems, masses, charges, bonds = [], [], [], [], []
+        for a_line in lines[4:4 + n_atoms]:
+            cols = a_line.split()
+            pos.append([float(cols[0]), float(cols[1]), float(cols[2])])
+            el = cols[3]
+            elems.append(el)
+            masses.append(atomic_masses.get(el, 12.011))
+            charges.append(partial_q.get(el, 0.0))
+        for b_line in lines[4 + n_atoms:4 + n_atoms + n_bonds]:
+            a1 = int(b_line[:3].strip()) - 1 if len(b_line) >= 6 and b_line[:3].strip().isdigit() else int(b_line.split()[0]) - 1
+            a2 = int(b_line[3:6].strip()) - 1 if len(b_line) >= 6 and b_line[3:6].strip().isdigit() else int(b_line.split()[1]) - 1
+            bonds.append((a1, a2))
+        q_arr = np.asarray(charges, dtype=np.float64)
+        if len(q_arr) > 0:
+            q_arr = q_arr - q_arr.mean()
+        entries.append({
+            "name": name,
+            "pos": np.asarray(pos, dtype=np.float64),
+            "elems": elems,
+            "masses": np.asarray(masses, dtype=np.float64),
+            "charges": q_arr,
+            "bonds": bonds,
+        })
+        if len(entries) >= limit:
+            break
+    return entries
+
+
 def benchmark_binding_pose_and_potency(plb_root: str | Path | None = None, *,
                                        targets: tuple[str, ...] = ("cdk2", "mcl1", "thrombin", "tyk2"),
                                        max_ligands_per_target: int = 5, n_frames: int = 36, seed: int = 0) -> dict:
     """Benchmark fast pocket MD rollout on real X-ray protein-ligand complexes vs. clash/flipped decoys."""
-    import yaml
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-
     if plb_root is None or not Path(plb_root).exists():
         raise FileNotFoundError(f"OpenForceField benchmark root not found: {plb_root}")
     plb_root = Path(plb_root)
+
+    import yaml
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        has_rdkit = True
+    except ImportError:
+        has_rdkit = False
 
     records = []
     t0_bench = time.perf_counter()
@@ -67,22 +120,38 @@ def benchmark_binding_pose_and_potency(plb_root: str | Path | None = None, *,
         with yml_path.open("r", encoding="utf-8") as f:
             aff_meta = yaml.safe_load(f)
 
-        mols = [m for m in Chem.SDMolSupplier(str(sdf_path), removeHs=False) if m is not None][:max_ligands_per_target]
-        for m_idx, mol in enumerate(mols):
-            AllChem.ComputeGasteigerCharges(mol)
-            conf = mol.GetConformer()
-            lig_name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"{t_name}_{m_idx}"
-            n_lig = mol.GetNumAtoms()
-            lig_pos = np.array([[conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y, conf.GetAtomPosition(i).z]
-                                for i in range(n_lig)], dtype=np.float64)
-            lig_elem = [mol.GetAtomWithIdx(i).GetSymbol() for i in range(n_lig)]
-            lig_mass = np.array([mol.GetAtomWithIdx(i).GetMass() for i in range(n_lig)], dtype=np.float64)
-            lig_q = np.array([
-                float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))
-                if mol.GetAtomWithIdx(i).HasProp("_GasteigerCharge") and
-                math.isfinite(float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))) else 0.0
-                for i in range(n_lig)
-            ], dtype=np.float64)
+        if has_rdkit:
+            mols = [m for m in Chem.SDMolSupplier(str(sdf_path), removeHs=False) if m is not None][:max_ligands_per_target]
+            parsed_ligs = []
+            for m_idx, mol in enumerate(mols):
+                AllChem.ComputeGasteigerCharges(mol)
+                conf = mol.GetConformer()
+                n_lig = mol.GetNumAtoms()
+                parsed_ligs.append({
+                    "name": mol.GetProp("_Name") if mol.HasProp("_Name") else f"{t_name}_{m_idx}",
+                    "pos": np.array([[conf.GetAtomPosition(i).x, conf.GetAtomPosition(i).y, conf.GetAtomPosition(i).z]
+                                     for i in range(n_lig)], dtype=np.float64),
+                    "elems": [mol.GetAtomWithIdx(i).GetSymbol() for i in range(n_lig)],
+                    "masses": np.array([mol.GetAtomWithIdx(i).GetMass() for i in range(n_lig)], dtype=np.float64),
+                    "charges": np.array([
+                        float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))
+                        if mol.GetAtomWithIdx(i).HasProp("_GasteigerCharge") and
+                        math.isfinite(float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))) else 0.0
+                        for i in range(n_lig)
+                    ], dtype=np.float64),
+                    "bonds": [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()],
+                })
+        else:
+            parsed_ligs = _parse_sdf_fallback(sdf_path, max_ligands_per_target)
+
+        for m_idx, lig_entry in enumerate(parsed_ligs):
+            lig_name = lig_entry["name"]
+            lig_pos = lig_entry["pos"]
+            n_lig = len(lig_pos)
+            lig_elem = lig_entry["elems"]
+            lig_mass = lig_entry["masses"]
+            lig_q = lig_entry["charges"]
+            lig_bonds = lig_entry["bonds"]
 
             heavy_mask = np.array([e != "H" for e in prot_elem], dtype=bool)
             heavy_idx = np.flatnonzero(heavy_mask)
@@ -99,7 +168,6 @@ def benchmark_binding_pose_and_potency(plb_root: str | Path | None = None, *,
             pock_mass = prot_mass[near_pock]
             pock_q = np.array([-0.38 if e == "O" else (-0.28 if e == "N" else 0.08) for e in pock_elem], dtype=np.float64)
 
-            lig_bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
             dg_exp = None
             if lig_name in aff_meta and "measurement" in aff_meta[lig_name]:
                 m_entry = aff_meta[lig_name]["measurement"]
