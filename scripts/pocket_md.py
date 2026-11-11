@@ -1,4 +1,4 @@
-"""PocketMD CLI & Local Zero-Dependency Web Calculator ("随身科学计算器").
+"""PocketMD CLI and local zero-dependency web calculator."""
 
 Fast CPU/edge pre-screening tool to decide whether a candidate small-molecule binding pose,
 electrolyte additive formulation, or WignerFlow neural checkpoint merits 50-500 GPU-hours
@@ -135,7 +135,7 @@ _WEB_UI_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PocketMD — WignerFlow 随身科学计算器</title>
+<title>PocketMD — WignerFlow pocket calculator</title>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
   .wrap { max-width: 980px; margin: 28px auto; padding: 0 18px; }
@@ -154,29 +154,29 @@ _WEB_UI_HTML = """<!DOCTYPE html>
 <body>
 <div class="wrap">
   <div class="card">
-    <h2 style="margin:0 0 6px 0;">PocketMD · WignerFlow 随身科学计算器 (Live CPU Server)</h2>
-    <div style="color:#94a3b8;font-size:14px;">秒级 CPU 快速轨迹推演：决定小分子结合构象 / 电解液添加剂配方是否值得投入 50–500 GPU 小时大 MD。</div>
+    <h2 style="margin:0 0 6px 0;">PocketMD · WignerFlow pocket calculator (live CPU server)</h2>
+    <div style="color:#94a3b8;font-size:14px;">Second-scale CPU trajectory triage: decide whether a docked pose or electrolyte additive is worth 50–500 GPU hours of production MD.</div>
     <div class="row">
-      <button onclick="run('binding','aspirin_cox_stable')">药物口袋：Aspirin 稳定构象</button>
-      <button class="sec" onclick="run('binding','aspirin_induced_fit')">药物口袋：诱导契合构象</button>
-      <button class="sec" onclick="run('binding','aspirin_decoy_clash')">药物口袋：碰撞假阳性构象</button>
+      <button onclick="run('binding','aspirin_cox_stable')">Drug pocket: stable aspirin pose</button>
+      <button class="sec" onclick="run('binding','aspirin_induced_fit')">Drug pocket: induced-fit pose</button>
+      <button class="sec" onclick="run('binding','aspirin_decoy_clash')">Drug pocket: steric-clash decoy</button>
     </div>
     <div class="row">
-      <button onclick="run('electrolyte','li_ec_fec_additive')">电解液：EC/DMC + 10% FEC</button>
-      <button class="sec" onclick="run('electrolyte','li_ec_base')">电解液：1M LiPF6/EC 基准</button>
-      <button class="sec" onclick="run('electrolyte','li_ec_vc_additive')">电解液：高粘度 VC 添加剂</button>
-      <button class="sec" onclick="run('electrolyte','li_high_salt_agg')">电解液：强配对 AGG 陷阱</button>
-      <button onclick="run('checkpoint','argon_flow_v1_cpu_reduced')">WignerFlow 神经网络推演 (CPU)</button>
+      <button onclick="run('electrolyte','li_ec_fec_additive')">Electrolyte: EC/DMC + 10% FEC</button>
+      <button class="sec" onclick="run('electrolyte','li_ec_base')">Electrolyte: 1M LiPF6/EC baseline</button>
+      <button class="sec" onclick="run('electrolyte','li_ec_vc_additive')">Electrolyte: high-viscosity VC additive</button>
+      <button class="sec" onclick="run('electrolyte','li_high_salt_agg')">Electrolyte: strong-pairing AGG trap</button>
+      <button onclick="run('checkpoint','argon_flow_v1_cpu_reduced')">WignerFlow neural rollout (CPU)</button>
     </div>
   </div>
   <div class="card">
-    <div id="status">点击上方任一候选体系，立即在本地 CPU 实时推演 MD 轨迹...</div>
+    <div id="status">Click a candidate above to run a live MD triage on this CPU...</div>
     <pre id="receipt">Waiting for calculation...</pre>
   </div>
 </div>
 <script>
 async function run(mode, preset) {
-  document.getElementById('status').innerHTML = '正在本地 CPU 上快速推演 <b>' + preset + '</b> ...';
+  document.getElementById('status').innerHTML = 'Running a fast CPU triage of <b>' + preset + '</b> ...';
   const r = await fetch('/api/triage', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({mode, preset})

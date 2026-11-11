@@ -1,4 +1,4 @@
-# PocketMD v2: Literature-Aligned Fast CPU Triage Calculator ("随身科学计算器")
+# PocketMD v2: Literature-Aligned Fast CPU Triage Calculator
 
 Before committing **50–500 GPU-hours** to production explicit-solvent MD, RB-FEP alchemical free-energy calculations, or *ab initio* MD (AIMD), computational chemists and battery scientists need a ~1-second "market calculator" check on a laptop CPU:
 

@@ -1,4 +1,4 @@
-"""PocketMD v2: literature-aligned CPU/edge molecular-dynamics triage calculator ("随身科学计算器").
+"""PocketMD v2: literature-aligned CPU/edge molecular-dynamics triage calculator.
 
 Turns WignerFlow's coarse-stride rollout engine and trajectory diagnostics into a lightweight
 pre-screening application that runs in ~1 second on a laptop CPU to answer one practical question
