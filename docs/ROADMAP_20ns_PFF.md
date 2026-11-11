@@ -16,7 +16,7 @@ The immediate target is a measured, resumable 20 ns argon rollout with correct e
 - The learned transition has no Hamiltonian. Energy can only be checked post hoc through a supplied force-field evaluator. Add energy/force consistency or a structured conservative component; measure secular energy and temperature drift rather than hiding it with a thermostat.
 - There is no NPT/barostat evolution. The dataset loader uses a fixed box per trajectory. Begin with fixed-volume NVE/weak NVT, then design cell/virial dynamics and ensemble tests before NPT claims.
 - There is no production OpenMM stepping interoperability beyond data generation (plus offline timing/analysis hooks). Design a common state/units/topology interface, synchronized force-field checks, uncertainty-triggered fallback, and validated state handoff before hybrid deployment.
-- Long-run orchestration is notebook-local: the existing rollout API does not return its final context or RNG. The notebook captures history with a monitor and commits HDF5 plus a state checkpoint. Promote this to a tested library API later. Training continuation currently restores weights/optimizer/step, not RNG/DataLoader state.
+- Long-run orchestration is notebook-local: the existing rollout API does not return its final context or RNG. The notebook captures history with a monitor and commits HDF5 plus a state checkpoint. Promote this to a tested library API later. Training continuation restores weights, optimizer, step, RNG state, the DataLoader epoch position, and spike-guard history. An older checkpoint without that state re-seeds with seed + step.
 
 ## What exists now on this branch
 
