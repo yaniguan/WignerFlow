@@ -1,55 +1,69 @@
-# PocketMD: WignerFlow Fast CPU Triage Calculator ("随身科学计算器")
+# PocketMD v2: Literature-Aligned Fast CPU Triage Calculator ("随身科学计算器")
 
-Before spending **50–500 GPU-hours** on full explicit-solvent MD, RB-FEP free-energy perturbations, or *ab initio* MD (AIMD), computational chemists and battery scientists need a 1-second "market calculator" check on a laptop CPU:
+Before committing **50–500 GPU-hours** to production explicit-solvent MD, RB-FEP alchemical free-energy calculations, or *ab initio* MD (AIMD), computational chemists and battery scientists need a ~1-second "market calculator" check on a laptop CPU:
 
-> **"Does this docked pose / electrolyte additive survive thermal fluctuations, or should we reject it before Big MD?"** (`GO` / `HOLD` / `REJECT`)
+> **"Does this docked pose, electrolyte additive, or neural checkpoint survive physical and epistemic stress tests, or should we reject it before Big MD?"** (`GO` / `HOLD` / `REJECT`)
 
-`equitraj.pocket` and `scripts/pocket_md.py` package WignerFlow's coarse-stride `FastRollout` engine, OpenFF XML/PDB parsers, and trajectory observables into a zero-OpenMM, CPU-friendly pre-screening application.
+`equitraj.pocket` and `scripts/pocket_md.py` turn WignerFlow's coarse-stride `FastRollout` engine, zero-OpenMM PDB/OpenFF-XML parsers, and physical observables into an instant CPU/edge pre-screening tool grounded in a **120-paper synthesis** across drug binding MD, battery electrolyte MD, and coarse-stride equivariant neural propagators.
 
 ---
 
-## 1. Three Built-In Workflows
+## 1. Three Literature-Aligned & Creative Workflows
 
 ### A. Drug Small-Molecule + Protein Pocket Pose Triage (`binding`)
- Docking scores frequently rank sterically strained or poorly anchored false-positive decoys near the top. Short thermal relaxation separates locked native poses from unstable decoys:
+Static docking scores routinely rank sterically strained or poorly anchored decoys at the top. PocketMD v2 combines community-standard multi-replica **OpenBPMD** stability scoring (`Clark et al., JCTC 2016`; `Lukauskis et al., JCIM 2022`), **PoseBusters** steric auditing (`Buttenschoen et al., Chem. Sci. 2024`), and a **50-fs direction-retention $\tau$-RAMD** impulse residence probe (`Kokh et al., JCTC 2018` — an exact 1:1 match to WignerFlow's 50-fs stride):
+
+$$\text{CompScore} = \text{PoseScore} - 5 \times \text{PersScore}$$
 
 | Observable | `GO` (Promote to RB-FEP) | `HOLD` (5 ns Equil. Check) | `REJECT` (Skip Big MD) |
 |---|---|---|---|
-| Pocket-aligned Ligand RMSD | $\le 1.6\text{ Å}$ | $1.6\text{–}3.0\text{ Å}$ | $\ge 3.0\text{ Å}$ |
-| Contact Persistence $R$ | $\ge 0.58$ | $0.35\text{–}0.58$ | $< 0.35$ |
-| Pocket Unbinding Event | `None` | `None` | Drift $\ge 4.5\text{ Å}$ |
+| OpenBPMD $\text{CompScore}$ | $\le -1.0$ | $-1.0\text{ to }+0.8$ | $\ge +0.8$ |
+| Replica-Mean $\text{PoseScore}$ (RMSD) | $\le 1.65\text{ Å}$ | $1.65\text{–}3.0\text{ Å}$ | $\ge 3.0\text{ Å}$ |
+| PoseBusters $\min d_{ij}/(r_i^{\text{vdW}}+r_j^{\text{vdW}})$ | $\ge 0.72$ | $0.50\text{–}0.72$ (induced fit) | Severe recoil + unbinding |
+| 50-fs $\tau$-RAMD Residence Blocks | High ($\ge 24$ blocks) | Intermediate | Rapid escape |
 
-### B. Battery Electrolyte + New Additive Screening (`electrolyte`)
-Screening a new film-forming or solvation-tuning small molecule (e.g. FEC, VC, fluorinated ethers) requires checking both **primary $\text{Li}^+$ solvation sheath participation** (`SCN`, `Additive CN`, `Anion CN`, `SSIP / CIP / AGG`) and **ionic transport** via Einstein MSD and Nernst–Einstein conductivity:
+Also reports **Kinetic Strain-Recoil Ratio** ($\max T_{\text{lig}}/T_0$) and **Multi-Replica Pose Entropy** ($\mathcal{H}_{\text{pose}}$).
 
-$$\sigma_{\text{NE}} = \frac{e^2}{V k_{\text{B}} T}\left(N_+ z_+^2 D_+ + N_- z_-^2 D_-\right), \qquad t_+^{\text{NE}} = \frac{N_+ z_+^2 D_+}{N_+ z_+^2 D_+ + N_- z_-^2 D_-}$$
+---
 
-- **`GO`**: Low ion-cluster trapping ($\text{AGG} < 0.35$, $\text{CIP}+\text{AGG} < 0.65$), $\sigma_{\text{NE}} \ge 8.0\text{ mS/cm}$, $t_+^{\text{NE}} \ge 0.20$.
-- **`HOLD`**: Good solvation shell (additive enters primary $\text{Li}^+$ sheath) but viscosity lowers $\sigma_{\text{NE}} < 8.0\text{ mS/cm}$ — lower additive wt% or add DMC co-solvent before 50 ns MD.
-- **`REJECT`**: Severe `CIP/AGG` ion clustering traps $\text{Li}^+$.
+### B. Battery Electrolyte + New Small-Molecule Additive Screening (`electrolyte`)
+Naive Nernst–Einstein conductivity ($\sigma_{\text{NE}}$) notoriously **overestimates** transport in strongly paired or low-dielectric formulations because neutral contact ion pairs ($[\text{Li}^+\text{PF}_6^-]^0$) and neutral aggregates ($[\text{Li}_2(\text{PF}_6)_2]^0$) co-diffuse with $D_+, D_- > 0$ while carrying **zero net charge**!
 
-### C. WignerFlow Neural Checkpoint Rollout (`checkpoint`)
-Runs any `.pt` WignerFlow release checkpoint on CPU with Verlet neighbor-graph reuse (`FastRollout`) and automatically checks kinetic temperature stability, radial distribution function ($g(r)$ $L_1$ error & coordination number), minimum pair distance, and self-diffusion $D$.
+PocketMD v2 implements **Cluster Nernst–Einstein ($\sigma_{\text{cNE}}$)**, **Inverse Haven Ionicity ($\mathcal{I} = H_R^{-1}$)**, and **Cluster Transference ($t_+^{\text{cNE}}$)** (`France-Lanord & Grossman, PRL 2019`; `Fong, Self & Persson, ACS Energy Lett. 2019`), alongside a **Structural Hopping vs. Vehicular Index ($\chi_{\text{hop}}$)** (`Self et al., 2019`) and **Competitive Additive Grafting Score ($\text{CAGS}_{\text{add}}$)** (`Gao, Yao & Zhang, JACS 2023`):
+
+$$\sigma_{\text{cNE}} = \frac{e^2}{V k_{\text{B}} T}\sum_{c} z_c^2 D_c, \qquad \mathcal{I} = \frac{\sigma_{\text{cNE}}}{\sigma_{\text{NE}}}, \qquad \text{CAGS}_{\text{add}} = \ln\!\left(\frac{(\text{CN}_{\text{add}}+\epsilon)/x_{\text{add}}}{(\text{CN}_{\text{solv}}+\epsilon)/x_{\text{solv}}}\right)$$
+
+- **`GO`**: $\sigma_{\text{cNE}} \ge 8.0\text{ mS/cm}$, $t_+^{\text{cNE}} \ge 0.20$, and high ionicity $\mathcal{I} \ge 0.60$ (e.g., EC/DMC + 10% FEC with $\text{CAGS}_{\text{add}} > 0$ sacrificial SEI sheath).
+- **`HOLD`**: Healthy ionicity and inner-shell grafting ($\text{CAGS}_{\text{add}} > 0$), but viscosity suppresses $\sigma_{\text{cNE}} < 8.0\text{ mS/cm}$ — reduce additive wt% or add linear carbonate co-solvent before 50 ns MD.
+- **`REJECT`**: Neutral `CIP/AGG` ion clustering collapses $\sigma_{\text{cNE}} \ll \sigma_{\text{NE}}$ ($\mathcal{I} < 0.35$).
+
+---
+
+### C. WignerFlow Coarse-Stride Neural Checkpoint Audit (`checkpoint`)
+Runs any `.pt` WignerFlow checkpoint on CPU via `FastRollout` (Verlet neighbor-graph reuse) and performs:
+1. **Fu et al. (*TMLR* 2023) Physical Audit**: normalized vdW overlap ratio, temperature drift, $g(r)$ $L_1$ error, coordination number, self-diffusivity $D$, and **Flying-Ice-Cube COM kinetic leakage** ($\max_t K_{\text{COM}}/K_{\text{tot}}$, `Bussi 2007`).
+2. **Committee-Free Dual Epistemic Gate** (`Vita & Schwalbe-Koda 2023`): reuses a single `encode()` pass to measure 2nd-order **Heun–Euler ODE curvature** ($\delta_{\text{ODE}}$) and **$O(3)$-invariant multi-seed stochastic flow spread** ($\sigma_{\text{flow}}$) without training a $5\times$ model ensemble.
 
 ---
 
 ## 2. Quickstart CLI & Local Web Calculator
 
 ```bash
-# 1. List built-in presets and public MD dataset import commands
+# 1. List built-in presets and 6 curated public MD dataset import recipes
 python scripts/pocket_md.py presets
 
-# 2. Screen a docked drug pose (~0.2 s on CPU) or your own PDB + OpenFF XML
-python scripts/pocket_md.py binding --preset aspirin_cox_stable
+# 2. Multi-replica OpenBPMD + 50-fs tau-RAMD binding triage (~0.7 s on CPU)
+python scripts/pocket_md.py binding --preset aspirin_cox_stable --replicas 3
 python scripts/pocket_md.py binding --pdb my_pose.pdb --xml my_ligand.xml
 
-# 3. Screen a battery electrolyte + additive formulation (~0.5 s on CPU)
+# 3. Cluster-NE + Hopping + CAGS battery electrolyte triage (~0.5 s on CPU)
 python scripts/pocket_md.py electrolyte --preset li_ec_fec_additive
+python scripts/pocket_md.py electrolyte --preset li_high_salt_agg
 
-# 4. Run WignerFlow neural checkpoint CPU rollout triage
+# 4. WignerFlow neural checkpoint CPU rollout + dual epistemic audit
 python scripts/pocket_md.py checkpoint --ckpt checkpoints/argon_flow_v1_cpu_reduced.pt
 
-# 5. Batch-screen all candidates and estimate GPU-hours saved
+# 5. Batch-screen all 8 candidates and export JSON report
 python scripts/pocket_md.py batch --json-out pocket_batch.json
 
 # 6. Launch zero-dependency local browser calculator UI
@@ -58,9 +72,9 @@ python scripts/pocket_md.py serve --port 8765
 
 ---
 
-## 3. Connecting Real Public Drug & Electrolyte MD Datasets
+## 3. Connecting Public Drug, Electrolyte & Benchmark MD Datasets
 
-Use `scripts/import_md.py` to ingest external trajectories into WignerFlow's HDF5 format for surrogate training or direct observable triage:
+Use `scripts/import_md.py` to ingest external trajectories into WignerFlow's HDF5 format:
 
 1. **MISATO** (~17,000 protein–ligand complexes in explicit water, Zenodo `7711953`):
    ```bash

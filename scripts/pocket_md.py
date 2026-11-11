@@ -61,6 +61,7 @@ def cmd_binding(args):
         pdb_path=args.pdb,
         xml_path=args.xml,
         n_frames=args.frames,
+        n_replicas=args.replicas,
         seed=args.seed,
     )
     print(pocket.format_receipt(rep))
@@ -105,23 +106,27 @@ def cmd_batch(args):
     total_s = sum(r["wall_s"] for r in reports)
     saved_gpu_h = sum(80 if r["verdict"] == "REJECT" else (30 if r["verdict"] == "HOLD" else 0) for r in reports)
 
-    print("=" * 88)
-    print(f" PocketMD Batch Triage Summary  |  {len(reports)} candidates screened in {total_s:.2f} s on CPU")
-    print("-" * 88)
-    print(f" {'Domain':<12s} | {'Candidate':<24s} | {'Time(s)':>7s} | {'Verdict':<8s} | Key Diagnostic")
-    print("-" * 88)
+    print("=" * 100)
+    print(f" PocketMD v2 Batch Triage Summary  |  {len(reports)} candidates screened in {total_s:.2f} s on CPU")
+    print("-" * 100)
+    print(f" {'Domain':<12s} | {'Candidate':<25s} | {'Time(s)':>7s} | {'Verdict':<7s} | Literature-Aligned Diagnostics")
+    print("-" * 100)
     for r in reports:
         m = r["metrics"]
         if r["mode"] == "binding":
-            diag = f"RMSD={m['ligand_rmsd_plateau_A']:.2f} A, R={m['contact_persistence_R']:.2f}, HB={m['hbond_contacts_mean']:.1f}"
+            diag = (f"CompScore={m['comp_score']:+.2f}, Pose={m['pose_score_A']:.2f}A, "
+                    f"vdW={m['posebusters_min_vdw_ratio']:.2f}, tau50={m['tau_ramd_blocks_50fs']:.0f}blk")
         elif r["mode"] == "electrolyte":
-            diag = f"SCN={m['solvent_cn']:.1f}+Add={m['additive_cn']:.1f}, SSIP={m['ssip_fraction']:.2f}, sig={m['sigma_NE_mS_cm']:.1f} mS/cm"
+            cags_txt = "base" if m["cags_additive_score"] is None else f"{m['cags_additive_score']:+.2f}"
+            diag = (f"sig_cNE={m['sigma_cNE_mS_cm']:.1f} (NE {m['sigma_NE_mS_cm']:.1f}) mS/cm, "
+                    f"Ion={m['ionicity_haven_inv']:.2f}, CAGS={cags_txt}")
         else:
-            diag = f"T={m['T_mean_K']:.1f}K (ref {m['T_ref_K']}K), RDF_L1={m['rdf_l1_err_A']} A, D={m['diffusion_cm2_s']}"
-        print(f" {r['mode']:<12s} | {r['name']:<24s} | {r['wall_s']:>7.2f} | {r['verdict']:<8s} | {diag}")
-    print("-" * 88)
+            diag = (f"T={m['T_mean_K']:.1f}K, RDF_L1={m['rdf_l1_err_A']}A, "
+                    f"dODE={m['ode_curvature_delta_A']}A, sFlow={m['flow_epistemic_spread_A']}A")
+        print(f" {r['mode']:<12s} | {r['name']:<25s} | {r['wall_s']:>7.2f} | {r['verdict']:<7s} | {diag}")
+    print("-" * 100)
     print(f" Estimated Big-MD / RB-FEP compute saved by filtering REJECT/HOLD candidates: ~{saved_gpu_h} GPU-hours")
-    print("=" * 88)
+    print("=" * 100)
     _write_json(args.json_out, {"total_wall_s": round(total_s, 3), "saved_gpu_hours_est": saved_gpu_h, "reports": reports})
 
 
@@ -263,6 +268,7 @@ def build_parser():
     p_bind.add_argument("--pdb", help="Custom complex or ligand PDB file")
     p_bind.add_argument("--xml", help="Optional OpenMM force-field XML file")
     p_bind.add_argument("--frames", type=int, default=70)
+    p_bind.add_argument("--replicas", type=int, default=3, help="Number of short OpenBPMD thermal replicas")
     p_bind.add_argument("--seed", type=int, default=0)
     p_bind.add_argument("--json-out", help="Write full triage JSON report (including curves & viewer frames)")
     p_bind.set_defaults(func=cmd_binding)
