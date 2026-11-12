@@ -34,9 +34,24 @@ count after loading is a little lower than 13,825.
 
 ## Results
 
-Conductivity accuracy on CALiSol-23 (R², MAE, Spearman) is **not yet reproduced in this
-repo**: no metrics file from a full `align-eval` run is committed. Run the command below to
-produce one, and commit the JSON before quoting any number.
+One run of `--mode align-eval` (seed 42, CPU, about 5.5 minutes) is saved in
+`results/calisol/align_eval_seed42.json`. After loading, 13,228 rows remain; they are split
+by recipe group into 10,476 train and 2,752 test rows.
+
+| Model | Test set | R² | MAE (mS/cm) | Spearman |
+| :--- | :--- | :---: | :---: | :---: |
+| Raw rollout, Nernst-Einstein | 72-row rollout panel | `-0.4143` | `4.181` | `0.0871` |
+| Stage 1 post-training + Yeh-Hummer | 72-row rollout panel | `-15.8541` | `18.873` | `0.1565` |
+| Stage 1 + Stage 2 aligner | 72-row rollout panel | `0.5739` | `2.076` | `0.8296` |
+| Stage 2 aligner, recipe descriptors only | all 2,752 test rows | `0.7218` | `1.275` | `0.9058` |
+
+How to read this:
+
+- Raw rollouts of these small toy boxes do not predict conductivity (R² below zero).
+- Most of the accuracy comes from the Stage 2 aligner. On the full test set it uses only recipe
+  descriptors (no rollout input), so the `0.7218` row is a descriptor model result, not an MD
+  result.
+- The rollout panel numbers change from run to run because the rollouts are random.
 
 ## Usage
 
