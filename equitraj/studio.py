@@ -347,7 +347,7 @@ STUDIO_HTML = r"""<!DOCTYPE html>
     <div class="grid-2">
       <div class="card">
         <h3><span>Fast Drug-in-Pocket Stability Check</span></h3>
-        <p style="color:var(--muted);margin-top:0;">Before spending 50+ GPU hours on a heavy binding calculation, wiggle the drug inside the protein pocket for ~0.5 seconds on CPU to see if it stays put or pops out:</p>
+        <p style="color:var(--muted);margin-top:0;">Before a heavy binding calculation, wiggle the drug inside the protein pocket in a short CPU run to see if it stays put or pops out:</p>
         <label>Candidate Drug Pose</label>
         <select id="bindPreset">
           <option value="aspirin_cox_stable">COX-1 + Aspirin · Good Crystal Pose (Expected: GO)</option>
@@ -409,13 +409,13 @@ STUDIO_HTML = r"""<!DOCTYPE html>
         </div>
 
         <div class="card">
-          <h3><span>CALiSol-23 Real Lab Conductivity vs. WignerFlow MD Trajectory Conductivity (Unseen Recipes)</span></h3>
-          <p style="color:var(--muted);margin-top:0;">Raw unaligned MD (`sigma_raw_ne`, R² = -0.61) fails because a small box drags ions down while neutral pairs get over-counted. Post-training + physics fixes (`WignerFlow-Align`, R² = 0.72 across 2,752 unseen recipes) recovers real lab conductivity:</p>
-          <table class="bench" id="calisolParityTable"></table>
+          <h3><span>CALiSol-23 Lab Conductivity vs. Model (Experimental)</span></h3>
+          <p style="color:var(--muted);margin-top:0;">Numbers come from <code>results/calisol/align_eval_seed42.json</code>. Raw rollouts of small toy boxes do not predict conductivity; most of the accuracy comes from the Stage 2 aligner, which on the full test set uses recipe descriptors only. See <code>docs/CALISOL_ALIGNMENT.md</code>.</p>
+          <div class="kpi-grid" id="calisolKpisElec"></div>
         </div>
 
         <div class="card">
-          <h3><span>1,000,000-Recipe Screen · Top Candidates &amp; Li+ Shell Breakdown (Free Ions vs Stuck Pairs)</span></h3>
+          <h3><span>1,000,000-Recipe Screen · Top Recipes &amp; Li+ Shell Breakdown (toy model output, not lab-tested)</span></h3>
           <table class="bench" id="solvationTable"></table>
         </div>
       </div>
@@ -425,12 +425,12 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <!-- ======================= WORKSPACE 5: UNIFIED BENCHMARKS ======================= -->
   <div id="ws-benchmarks" class="workspace">
     <div class="card">
-      <h3><span>Big Time-Step Test (10 fs &amp; 20 fs Jumps) · Quantum Molecules &amp; 60-Atom DNA Pair at 500 K</span></h3>
+      <h3><span>Big Time-Step Test (10 fs &amp; 20 fs) on MD17 / MD22 at 500 K · pair-model coarse-step baseline, not the WignerFlow network</span></h3>
       <table class="bench" id="md17Table"></table>
     </div>
     <div class="grid-2">
       <div class="card">
-        <h3><span>CALiSol-23 Battery Conductivity Summary (72 3D Rollouts &amp; 2,752 Unseen Lab Measurements)</span></h3>
+        <h3><span>CALiSol-23 Conductivity Summary and Measured CPU Speed (Experimental)</span></h3>
         <div class="kpi-grid" id="calisolKpis"></div>
         <table class="bench" id="calisolBoxTable"></table>
       </div>
@@ -947,7 +947,7 @@ function togglePlay(key) {
 function populateBenchmarks(ov) {
   const b = ov.benchmarks;
   document.getElementById('md17Table').innerHTML = `
-    <thead><tr><th>Molecule (Quantum Split)</th><th>Atoms</th><th>Naive VV 10 fs</th><th>WignerFlow 10 fs (20×)</th><th>WignerFlow 20 fs (40×)</th><th>MAE h(r)</th><th>VDOS Cos</th><th>COM Drift (Å/fs)</th><th>CPU Speed</th></tr></thead>
+    <thead><tr><th>Molecule (Quantum Split)</th><th>Atoms</th><th>Plain Verlet 10 fs</th><th>Coarse step 10 fs</th><th>Coarse step 20 fs</th><th>MAE h(r)</th><th>VDOS Cos</th><th>COM Drift (Å/fs)</th><th>CPU Speed</th></tr></thead>
     <tbody>${b.pure_md_md17_md22.map(r => `
       <tr>
         <td><b>${r.system}</b></td><td>${r.atoms}</td>
@@ -958,34 +958,21 @@ function populateBenchmarks(ov) {
       </tr>`).join('')}</tbody>`;
 
   const cal = b.calisol23_alignment;
-  document.getElementById('calisolKpis').innerHTML = [
-    ['Unseen Lab Tests', `${cal.n_formulations} 3D / ${cal.n_heldout_total} Total`],
-    ['Rank Order (Before -> After)', `${cal.unaligned_spearman_rho} -> ${cal.aligned_spearman_rho}`],
-    ['Avg Error MAE (Before -> After)', `${cal.unaligned_mae_mS_cm} -> ${cal.aligned_mae_mS_cm} mS/cm`],
-    ['R² Fit (Raw -> Aligned)', `${cal.unaligned_r2} -> ${cal.aligned_r2}`]
-  ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const calKpis = cal.available ? [
+    ['Test rows', `${cal.n_formulations} rollout panel / ${cal.n_heldout_total} all`],
+    ['R² raw rollout (panel)', `${cal.unaligned_r2}`],
+    ['R² aligner (panel)', `${cal.panel_aligned_r2}`],
+    ['R² aligner, descriptors only (all)', `${cal.aligned_r2}`],
+    ['MAE aligner (all)', `${cal.aligned_mae_mS_cm} mS/cm`],
+    ['Spearman aligner (all)', `${cal.aligned_spearman_rho}`]
+  ] : [['Status', 'No saved align-eval run in results/calisol']];
+  const kpiHtml = calKpis.map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  document.getElementById('calisolKpis').innerHTML = kpiHtml;
+  if (document.getElementById('calisolKpisElec')) document.getElementById('calisolKpisElec').innerHTML = kpiHtml;
 
   document.getElementById('calisolBoxTable').innerHTML = `
-    <thead><tr><th>Box Atoms</th><th>Box Size L (Å)</th><th>CPU 50-Step Time</th><th>H200 200-ps Time</th><th>Speedup vs 12h H200 OpenMM</th></tr></thead>
-    <tbody>${cal.box_scaling.map(x => `<tr><td>${x.atoms}</td><td>${x.box_A}</td><td>${x.cpu_wall_s} s</td><td><b>${x.h200_s} s</b></td><td><span class="pill PASS">${x.speedup_vs_h200_12h}</span></td></tr>`).join('')}</tbody>`;
-
-  if (cal.parity_samples && document.getElementById('calisolParityTable')) {
-    document.getElementById('calisolParityTable').innerHTML = `
-      <thead><tr><th>Salt + Solvents</th><th>Conc (M)</th><th>Temp (K)</th><th>CALiSol-23 Lab (mS/cm)</th><th>Raw WignerFlow MD (mS/cm)</th><th>WignerFlow-Align MD (mS/cm)</th><th>Aligned Error</th></tr></thead>
-      <tbody>${cal.parity_samples.map(p => {
-        const err = (p.sigma_aligned - p.sigma_exp).toFixed(2);
-        const sign = Number(err) >= 0 ? '+' : '';
-        return `<tr>
-          <td><b>${p.salt}</b> in ${p.solvents}</td>
-          <td>${p.c_M.toFixed(2)}</td>
-          <td>${p.T_K.toFixed(1)}</td>
-          <td><b>${p.sigma_exp.toFixed(2)}</b></td>
-          <td style="color:#fda4af;">${p.sigma_raw_ne.toFixed(2)}</td>
-          <td style="color:#6ee7b7;font-weight:700;">${p.sigma_aligned.toFixed(2)}</td>
-          <td><code>${sign}${err}</code></td>
-        </tr>`;
-      }).join('')}</tbody>`;
-  }
+    <thead><tr><th>Model</th><th>Atoms</th><th>Box L (Å)</th><th>CPU ms per 50 fs step</th><th>CPU ns/day</th></tr></thead>
+    <tbody>${cal.box_scaling.map(x => `<tr><td>${x.config}</td><td>${x.atoms}</td><td>${x.box_A}</td><td>${x.cpu_ms_per_step}</td><td>${x.ns_day}</td></tr>`).join('')}</tbody>`;
 
   document.getElementById('solvationTable').innerHTML = `
     <thead><tr><th>Rank</th><th>Formulation</th><th>σ_298K</th><th>σ_253K</th><th>Speciation (SSIP / CIP / AGG-I / AGG-net)</th><th>τ_ex (ps)</th><th>Readiness</th><th>Regime</th></tr></thead>

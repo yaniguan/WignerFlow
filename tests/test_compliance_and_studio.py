@@ -116,3 +116,18 @@ def test_studio_http_endpoints_end_to_end():
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_benchmark_tables_come_from_result_files():
+    from equitraj.studio_data import _read_json, load_benchmark_suites
+
+    suites = load_benchmark_suites()
+    md = _read_json("pure_md_md17/md17_md22_benchmark.json")
+    if md is None:
+        assert suites["pure_md_md17_md22"] == []
+    else:
+        assert [r["mae_hr"] for r in suites["pure_md_md17_md22"]] == [m["wf_10fs_hr_mae"] for m in md["molecules"]]
+    cal = _read_json("calisol/align_eval_seed42.json")
+    assert suites["calisol23_alignment"]["available"] is (cal is not None)
+    if cal is not None:
+        assert suites["calisol23_alignment"]["aligned_r2"] == cal["calisol_alignment"]["full_heldout_test_metrics"]["r2"]

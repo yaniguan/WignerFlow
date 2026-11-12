@@ -23,8 +23,8 @@ python scripts/wignerflow_studio.py --audit-only --target aspirin_hetero_o3 --pr
 | **1. Physics Rules Check (`G1-G10`)** | Test trained models (`argon_flow_v1`) or multi-element molecules (`aspirin_hetero_o3`) under any 3D rotation, or click **`F1-F10` Break-a-Rule switches** to see how bugs get caught. | 3D rotated-vs-unrotated arrows, 5-axis accuracy radar, and a 10-rule pass/fail list. |
 | **2. Molecule Simulator (`3D & .xyz`)** | Run fast CPU simulations on built-in molecules (`aspirin`, `ala2`, `ethanol`, `li_ec_pf6`) or paste your own `.xyz` coordinates. | Live 3D moving molecule, temperature curve, bond-stretch check, and `.xyz` download. |
 | **3. Drug Pocket Check** | Wiggle a candidate drug pose inside a protein pocket for ~0.5 seconds on CPU to see if it stays locked in (`GO`) or clashes and pops out (`REJECT`). | 3D pocket + drug view, distance drift (`RMSD`), hydrogen bonds, and `GO / HOLD / REJECT` badge. |
-| **4. Battery Electrolytes & CALiSol-23** | Simulate a lithium battery liquid box, separate free ions from stuck neutral pairs, and compare real `CALiSol-23` lab conductivity with WignerFlow MD numbers. | 3D repeating battery box, `Li+-O` neighbor curve, `CALiSol-23` lab vs MD table, and Top 15 recipes from a 1,000,000-recipe screen. |
-| **5. All Benchmark Numbers** | Browse results across quantum molecules (`MD17`/`MD22`), `CALiSol-23` conductivity, and one-line dataset import commands. | Clean summary tables and `.json` report download. |
+| **4. Battery Electrolytes & CALiSol-23** | Simulate a small lithium electrolyte box and separate free ions from ion pairs. Shows the saved CALiSol-23 aligner metrics and the top 15 recipes from the 1,000,000-recipe screen (toy model output, not lab-tested). | 3D periodic box, `Li+-O` neighbor curve, CALiSol-23 metrics, and the top 15 table. |
+| **5. All Benchmark Numbers** | Browse saved results: the MD17/MD22 large-time-step test, CALiSol-23 metrics, measured CPU speed, and one-line dataset import commands. | Summary tables and `.json` report download. |
 
 ---
 
@@ -40,3 +40,17 @@ python scripts/wignerflow_studio.py --audit-only --target aspirin_hetero_o3 --pr
 8. **`G8` — No Atom Overlap & Intact Bonds**: Non-bonded atoms must not crash inside each other's size radius, and covalent bonds must stay near their natural lengths (`F8`).
 9. **`G9` — 100% Survival & Target Temperature**: A multi-step trajectory must finish without blowing up and stay near the target temperature (`F9`).
 10. **`G10` — Smooth Flow Path (`Euler` vs `Heun`)**: 1-step Euler and 2-step Heun solvers agree closely when the learned flow path is smooth and straight (`F10`).
+
+---
+
+## 4. Where the numbers come from
+
+The benchmark tables are read at start-up from the committed result files:
+
+- `results/pure_md_md17/md17_md22_benchmark.json` (MD17/MD22 large-time-step test; a pair-model baseline, not the WignerFlow network)
+- `results/calisol/align_eval_seed42.json` and `results/calisol/box_scaling_cpu.json` (CALiSol-23 metrics and measured CPU speed)
+- `results/solvation_top15/top15_solvation_report.json` (top 15 recipes; toy-model output)
+
+If a file is missing, its table is left empty. No benchmark number is hard-coded in the app.
+WignerFlow's public generation results are for argon only.
+

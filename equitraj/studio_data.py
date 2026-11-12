@@ -249,71 +249,105 @@ def run_studio_rollout(
     }
 
 
-BENCHMARK_SUITES = {
-    "pure_md_md17_md22": [
-        {"system": "Ethanol (MD17-CCSD(T))", "atoms": 9, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.1846, "vdos_cos": 0.7336, "com_drift": "3.97e-19", "ns_day": 1303},
-        {"system": "Malonaldehyde (MD17-CCSD(T))", "atoms": 9, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.2143, "vdos_cos": 0.6290, "com_drift": "5.84e-19", "ns_day": 1401},
-        {"system": "Benzene (MD17-CCSD(T))", "atoms": 12, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.4027, "vdos_cos": 0.5620, "com_drift": "7.36e-19", "ns_day": 1328},
-        {"system": "Uracil (MD17 DFT)", "atoms": 12, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.3055, "vdos_cos": 0.5665, "com_drift": "7.11e-19", "ns_day": 1390},
-        {"system": "Toluene (MD17-CCSD(T))", "atoms": 15, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.1710, "vdos_cos": 0.7759, "com_drift": "8.59e-19", "ns_day": 1316},
-        {"system": "Aspirin (MD17-CCSD)", "atoms": 21, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.1311, "vdos_cos": 0.6161, "com_drift": "1.13e-18", "ns_day": 1254},
-        {"system": "AT-AT DNA Base Pair (MD22 DFT)", "atoms": 60, "vv_10fs": "0% (0.01 ps)", "wf_10fs": "100% (1.0 ps)", "wf_20fs": "100% (1.0 ps)", "mae_hr": 0.1076, "vdos_cos": 0.7470, "com_drift": "1.98e-18", "ns_day": 907},
-    ],
-    "calisol23_alignment": {
-        "n_formulations": 72,
-        "n_heldout_total": 2752,
-        "unaligned_spearman_rho": -0.208,
-        "aligned_spearman_rho": 0.905,
-        "unaligned_mae_mS_cm": 4.52,
-        "aligned_mae_mS_cm": 1.28,
-        "unaligned_r2": -0.606,
-        "panel_aligned_r2": 0.668,
-        "aligned_r2": 0.720,
-        "box_scaling": [
-            {"atoms": 765, "box_A": 20.25, "cpu_wall_s": 21.0, "h200_s": 1.80, "speedup_vs_h200_12h": "24,000x"},
-            {"atoms": 1531, "box_A": 25.51, "cpu_wall_s": 42.1, "h200_s": 3.18, "speedup_vs_h200_12h": "13,566x"},
-            {"atoms": 3072, "box_A": 32.14, "cpu_wall_s": 84.5, "h200_s": 6.39, "speedup_vs_h200_12h": "6,761x"},
-            {"atoms": 12266, "box_A": 51.02, "cpu_wall_s": 337.3, "h200_s": 25.51, "speedup_vs_h200_12h": "1,693x"},
-        ],
-        "parity_samples": [
-            {"salt": "LiPF6", "solvents": "PC", "c_M": 1.45, "T_K": 204.2, "sigma_exp": 0.00, "sigma_raw_ne": 2.38, "sigma_aligned": 0.71},
-            {"salt": "LiBPFPB", "solvents": "PC", "c_M": 0.50, "T_K": 258.3, "sigma_exp": 0.52, "sigma_raw_ne": 0.45, "sigma_aligned": 0.62},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 1.00, "T_K": 271.4, "sigma_exp": 1.15, "sigma_raw_ne": 1.74, "sigma_aligned": 1.65},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 0.50, "T_K": 261.7, "sigma_exp": 1.24, "sigma_raw_ne": 0.68, "sigma_aligned": 1.27},
-            {"salt": "LiPF6", "solvents": "PC", "c_M": 0.57, "T_K": 253.3, "sigma_exp": 1.35, "sigma_raw_ne": 0.77, "sigma_aligned": 1.66},
-            {"salt": "LiBOB", "solvents": "DME", "c_M": 1.00, "T_K": 228.4, "sigma_exp": 2.42, "sigma_raw_ne": 1.96, "sigma_aligned": 2.02},
-            {"salt": "LiPF6", "solvents": "PC", "c_M": 1.37, "T_K": 282.9, "sigma_exp": 2.85, "sigma_raw_ne": 2.95, "sigma_aligned": 3.35},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 0.31, "T_K": 302.6, "sigma_exp": 3.27, "sigma_raw_ne": 0.17, "sigma_aligned": 3.48},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 0.50, "T_K": 300.1, "sigma_exp": 4.04, "sigma_raw_ne": 0.47, "sigma_aligned": 4.13},
-            {"salt": "LiPF6", "solvents": "EMC+FEC", "c_M": 2.00, "T_K": 283.1, "sigma_exp": 4.19, "sigma_raw_ne": 8.13, "sigma_aligned": 4.62},
-            {"salt": "LiBPFPB", "solvents": "PC", "c_M": 1.00, "T_K": 332.5, "sigma_exp": 4.64, "sigma_raw_ne": 0.48, "sigma_aligned": 4.62},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 1.00, "T_K": 319.8, "sigma_exp": 5.50, "sigma_raw_ne": 1.07, "sigma_aligned": 5.95},
-            {"salt": "LiBOB", "solvents": "PC", "c_M": 0.88, "T_K": 332.1, "sigma_exp": 7.48, "sigma_raw_ne": 0.88, "sigma_aligned": 7.80},
-            {"salt": "LiBMB", "solvents": "DMSO", "c_M": 0.50, "T_K": 322.5, "sigma_exp": 8.39, "sigma_raw_ne": 0.25, "sigma_aligned": 7.86},
-            {"salt": "LiPF6", "solvents": "PC", "c_M": 0.45, "T_K": 332.1, "sigma_exp": 9.77, "sigma_raw_ne": 0.53, "sigma_aligned": 9.93},
-            {"salt": "LiPF6", "solvents": "PC", "c_M": 1.52, "T_K": 332.1, "sigma_exp": 10.05, "sigma_raw_ne": 1.96, "sigma_aligned": 10.54},
-            {"salt": "LiPF6", "solvents": "EC+EMC+PC", "c_M": 0.88, "T_K": 313.1, "sigma_exp": 12.05, "sigma_raw_ne": 1.21, "sigma_aligned": 12.95},
-            {"salt": "LiPF6", "solvents": "EC+EMC+PC", "c_M": 1.77, "T_K": 333.1, "sigma_exp": 12.71, "sigma_raw_ne": 2.82, "sigma_aligned": 12.96},
-            {"salt": "LiPF6", "solvents": "EC+EMC+PC+TFP", "c_M": 0.97, "T_K": 323.1, "sigma_exp": 13.56, "sigma_raw_ne": 1.28, "sigma_aligned": 14.67},
-            {"salt": "LiClO4", "solvents": "2-Glyme+EC", "c_M": 1.00, "T_K": 323.1, "sigma_exp": 14.51, "sigma_raw_ne": 1.48, "sigma_aligned": 12.97},
-            {"salt": "LiAsF6", "solvents": "2-MeTHF+DME+EC+PC", "c_M": 1.00, "T_K": 353.1, "sigma_exp": 31.19, "sigma_raw_ne": 0.35, "sigma_aligned": 28.70},
-        ],
-        "bell_curve_ec_dmc_298K": [
-            {"c_M": 0.15, "sigma_aligned": 4.76},
-            {"c_M": 0.40, "sigma_aligned": 9.56},
-            {"c_M": 0.70, "sigma_aligned": 11.88},
-            {"c_M": 1.00, "sigma_aligned": 11.84},
-            {"c_M": 1.60, "sigma_aligned": 8.84},
-            {"c_M": 2.00, "sigma_aligned": 6.46},
-            {"c_M": 3.20, "sigma_aligned": 2.65},
-        ],
-    },
-    "top15_solvation_champions": [
-        {"rank": "Baseline", "formula": "1.0M LiPF6 in EC:DMC (1:1)", "sigma_298": 10.80, "sigma_253": 3.10, "ssip": 90.2, "cip": 9.8, "agg_i": 0.0, "agg_net": 0.0, "tau_ex_ps": 2.37, "readiness": 58.9, "regime": "SSIP_SOLVENT_DOMINATED"},
-        {"rank": "#11", "formula": "1.0M LiFSI in EC:DMC (7:3) + 35wt% F-Ester-5", "sigma_298": 24.12, "sigma_253": 10.45, "ssip": 55.6, "cip": 35.9, "agg_i": 8.5, "agg_net": 0.0, "tau_ex_ps": 1.72, "readiness": 89.1, "regime": "GOLDILOCKS_FAST_CHARGE_SEI"},
-        {"rank": "#4", "formula": "1.0M LiFSI in FEC:MA (3:7) + 35wt% F-Ester-2", "sigma_298": 27.64, "sigma_253": 12.11, "ssip": 47.5, "cip": 40.3, "agg_i": 12.2, "agg_net": 0.0, "tau_ex_ps": 1.58, "readiness": 83.7, "regime": "GOLDILOCKS_FAST_CHARGE_SEI"},
-        {"rank": "#2", "formula": "1.0M LiFSI in AN:DMC (7:3) + 5wt% F-Ester-1", "sigma_298": 30.85, "sigma_253": 15.01, "ssip": 77.1, "cip": 21.0, "agg_i": 1.9, "agg_net": 0.0, "tau_ex_ps": 1.44, "readiness": 73.8, "regime": "GOLDILOCKS_FAST_CHARGE_SEI"},
-        {"rank": "#1", "formula": "1.0M LiFSI in AN:MA (7:3) + 10wt% F-Nitrile-1", "sigma_298": 32.40, "sigma_253": 16.20, "ssip": 74.8, "cip": 22.8, "agg_i": 2.4, "agg_net": 0.0, "tau_ex_ps": 1.39, "readiness": 75.4, "regime": "GOLDILOCKS_FAST_CHARGE_SEI"},
-        {"rank": "#6", "formula": "1.2M LiFSI in 2-MeTHF:DME + 15wt% F-Ether-2", "sigma_298": 21.30, "sigma_253": 9.85, "ssip": 18.2, "cip": 29.4, "agg_i": 19.4, "agg_net": 33.0, "tau_ex_ps": 2.81, "readiness": 46.2, "regime": "PERCOLATED_AGG_RISK"},
-    ],
-}
+_RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
+
+
+def _read_json(rel_path: str):
+    path = _RESULTS_DIR / rel_path
+    if not path.exists():
+        return None
+    import json
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _md17_rows() -> list[dict]:
+    data = _read_json("pure_md_md17/md17_md22_benchmark.json")
+    if not data:
+        return []
+    rows = []
+    for m in data.get("molecules", []):
+        horizon = m.get("sim_horizon_ps", data.get("sim_horizon_ps", 1.0))
+        rows.append({
+            "system": f"{m['label']} ({m['theory']})",
+            "atoms": m["n_atoms"],
+            "vv_10fs": "stable" if m["naive_verlet_10fs_stable"] else f"fails at {m['naive_verlet_10fs_t_stab_ps']} ps",
+            "wf_10fs": f"stable for {horizon} ps" if m["wf_10fs_stable"] else "fails",
+            "wf_20fs": f"stable for {horizon} ps" if m["wf_20fs_stable"] else "fails",
+            "mae_hr": m["wf_10fs_hr_mae"],
+            "vdos_cos": m["wf_10fs_vdos_cosine"],
+            "com_drift": f"{m['wf_10fs_com_drift_a_fs']:.2e}",
+            "ns_day": round(m["wf_10fs_ns_per_day_cpu"]),
+        })
+    return rows
+
+
+def _calisol_summary() -> dict:
+    run = _read_json("calisol/align_eval_seed42.json")
+    sweep = _read_json("calisol/box_scaling_cpu.json") or []
+    out: dict = {"available": bool(run), "box_scaling": [], "parity_samples": [], "bell_curve_ec_dmc_298K": []}
+    for row in sweep:
+        out["box_scaling"].append({
+            "config": row["config"],
+            "atoms": row["atoms"],
+            "box_A": row["box_L_A"],
+            "cpu_ms_per_step": row["cpu_ms_per_50fs_step"],
+            "ns_day": row["cpu_ns_per_day"],
+        })
+    if run:
+        cal = run["calisol_alignment"]
+        panel = cal["panel_metrics"]
+        full = cal["full_heldout_test_metrics"]
+        out.update({
+            "n_formulations": cal["dataset_summary"]["rollout_panel_rows"],
+            "n_heldout_total": cal["dataset_summary"]["heldout_test_rows"],
+            "unaligned_spearman_rho": panel["raw_unaligned_ne"]["spearman_rho"],
+            "panel_aligned_spearman_rho": panel["wignerflow_align_stage1_stage2"]["spearman_rho"],
+            "aligned_spearman_rho": full["spearman_rho"],
+            "unaligned_mae_mS_cm": panel["raw_unaligned_ne"]["mae_mS_cm"],
+            "aligned_mae_mS_cm": full["mae_mS_cm"],
+            "unaligned_r2": panel["raw_unaligned_ne"]["r2"],
+            "panel_aligned_r2": panel["wignerflow_align_stage1_stage2"]["r2"],
+            "aligned_r2": full["r2"],
+            "bell_curve_ec_dmc_298K": [
+                {"c_M": x["c_M"], "sigma_aligned": x["sigma_aligned_mS_cm"]}
+                for x in cal["concentration_bell_curve_ec_dmc_298K"]
+            ],
+        })
+    return out
+
+
+def _top15_rows() -> list[dict]:
+    data = _read_json("solvation_top15/top15_solvation_report.json")
+    if not data:
+        return []
+    rows = []
+    for label, r in [("Baseline", data["commercial_baseline"])] + [(f"#{c['rank']}", c) for c in data["candidates"]]:
+        rows.append({
+            "rank": label,
+            "formula": r["formula"],
+            "sigma_298": r["sigma_298K_mS_cm"],
+            "sigma_253": r["sigma_253K_mS_cm"],
+            "ssip": round(100.0 * r["ssip_frac"], 1),
+            "cip": round(100.0 * r["cip_frac"], 1),
+            "agg_i": round(100.0 * r["agg_dimer_frac"], 1),
+            "agg_net": round(100.0 * r["agg_network_frac"], 1),
+            "tau_ex_ps": r["tau_exchange_ps"],
+            "readiness": r["fast_charge_sei_readiness_100"],
+            "regime": r["solvation_regime"],
+        })
+    return rows
+
+
+def load_benchmark_suites() -> dict:
+    """Read benchmark numbers from the committed result files in `results/`.
+
+    Nothing is hard-coded here: if a result file is missing, its table is empty.
+    """
+    return {
+        "pure_md_md17_md22": _md17_rows(),
+        "calisol23_alignment": _calisol_summary(),
+        "top15_solvation_champions": _top15_rows(),
+    }
+
+
+BENCHMARK_SUITES = load_benchmark_suites()

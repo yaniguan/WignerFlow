@@ -320,7 +320,21 @@ def _rel_frob(a: torch.Tensor, b: torch.Tensor) -> float:
 
 
 @torch.no_grad()
-def run_compliance_audit(
+def run_compliance_audit(**kwargs) -> dict:
+    """Run all 10 physics and symmetry checks (`G1`–`G10`), with an optional injected fault.
+
+    Some callers (and tests) change torch's global default dtype. The checks build a few tensors
+    with the default dtype, so we pin it to float32 here and restore it afterwards.
+    """
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        return _run_compliance_audit(**kwargs)
+    finally:
+        torch.set_default_dtype(previous)
+
+
+def _run_compliance_audit(
     *,
     target_id: str = "argon_flow_v1",
     fault: str = "none",
@@ -330,7 +344,6 @@ def run_compliance_audit(
     sampling_steps: int = 3,
     seed: int = 0,
 ) -> dict:
-    """Execute all 10 physical & symmetry compliance gates (`G1`–`G10`) with optional fault injection."""
     valid_faults = {f["id"] for f in FAULT_CATALOG}
     if fault not in valid_faults:
         raise ValueError(f"Unknown fault={fault!r}; valid faults: {sorted(valid_faults)}")
