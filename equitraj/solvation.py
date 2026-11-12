@@ -405,7 +405,7 @@ def score_fast_charging_sei_readiness(
     *,
     fluorine_index: float = 0.0,
 ) -> Dict[str, object]:
-    """Evaluate Yu/Cui/Borodin/Wang Goldilocks Fast-Charge + Anion-Derived SEI window."""
+    """Classify the solvation regime with our heuristic target ranges (not values from one paper)."""
     cip = float(speciation["cip_frac"])
     agg_tot = float(speciation["agg_total_frac"])
     agg_net = float(speciation["agg_network_frac"])
@@ -901,8 +901,8 @@ def analyze_top15_funnel_candidates(
     base_rep, base_curves = analyze_candidate_solvation_3d(
         base_desc,
         rank=0,
-        sigma_298k=11.20,
-        sigma_253k=2.85,
+        sigma_298k=11.20,  # hand-entered approximate value; CALiSol-23 lists 12.09 mS/cm at 297.9 K (doi 10.1016/j.jpowsour.2011.06.030)
+        sigma_253k=2.85,  # hand-entered approximate value; CALiSol-23 lists 3.31 mS/cm at 253.4 K (same source)
         n_ion_pairs=n_ion_pairs,
         prod_frames=prod_frames,
         seed=seed,

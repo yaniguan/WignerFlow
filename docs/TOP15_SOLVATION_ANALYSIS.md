@@ -1,32 +1,66 @@
-# Fine-Grained 3D Solvation Shell & Exchange Kinetics of Top 15 `1,000k`-Funnel Electrolytes
+# Li+ solvation shells of the top 15 funnel recipes (experimental)
 
-Building on our 40-paper solvation survey (`Xu 2014`; `Rajput & Persson JACS 2015`; `Zhang & Maginn JPCL 2015`; `Borodin et al. 2017/2020`; `Yamada et al. Nat. Energy 2019`; `Cao et al. Nat. Energy 2019`; `France-Lanord & Grossman PRL 2019`; `Yu, Cui & Bao Nat. Energy 2020/2022`; `Xu, Borodin & Wang Nature 2023`), [`equitraj/solvation.py`](../equitraj/solvation.py) performs explicit multi-component 3D periodic BAOAB solvation rollouts across all **Top 15 novel formulations** discovered by the `1,000,000`-candidate funnel alongside a **`1.0 M LiPF6 in EC:DMC (1:1)` commercial baseline**.
+`equitraj/solvation.py` and `scripts/analyze_top15_solvation.py` take the top 15 recipes
+from the 1,000,000-recipe funnel (`results/funnel_1m/top15_novel_electrolytes.json`) plus a
+`1.0 M LiPF6 in EC:DMC (1:1)` baseline, build a small periodic box for each, run a short
+Langevin (BAOAB) simulation with a simple toy force field, and look at which molecules sit
+next to each Li+ ion.
 
-## 1. Microscopic Observables Computed
+This is a demo of the analysis tools. The force field is a coarse toy model, the boxes are
+small, and the runs are short. None of these numbers has been checked against full MD or
+experiment. WignerFlow's public generation results are for argon only.
 
-- **Partial RDFs & Auto-Cutoffs**: Minimum-image $g_{\text{Li},\text{Backbone}}(r)$, $g_{\text{Li},\text{Additive}}(r)$, $g_{\text{Li},\text{Anion}}(r)$, running $CN(r)$, and automated first-minimum cutoff $r_c$.
-- **Exact Bipartite Connected-Component Speciation**:
-  - **Cation-centric**: `SSIP`, `CIP` ($|V_+|=1, |V_-|=1$), finite dimers `AGG-I` ($\le 4$ ions), extended networks `AGG-net` ($\ge 5$ ions), and percolation order parameter $P_\infty$.
-  - **Anion-centric Raman Proxy**: `Free`, `CIP`, `AGG-I`, `AGG-II` + `cNE` cluster ionicity $\mathcal{I}_{\text{cNE}}$.
-- **Competitive Additive Enrichment & Cage Exchange**: Enrichment index $\alpha_{\text{enr}}$, $\Delta G_{\text{pref}}$ ($\text{kJ/mol}$), Yamada free-solvent fraction $f_{\text{free}}$, and FFT intermittent cage lifetime $\tau_{\text{ex}}$.
+## What is computed
 
-## 2. Top 15 Solvation Audit vs. Commercial `EC:DMC` Baseline
+- **Partial RDFs and coordination numbers** for Li+ with solvent, additive, and anion, with the
+  cutoff set at the first minimum.
+- **Ion-pair types**, from the connected clusters of Li+ and anions:
+  - `SSIP`: Li+ with only solvent around it (free ion).
+  - `CIP`: Li+ touching exactly one anion (simple ion pair).
+  - `AGG-I`: small clusters (up to 4 ions). `AGG-net`: larger connected networks (5 or more ions).
+- **Additive enrichment**: how much more often the additive sits next to Li+ than its share in
+  the liquid would suggest.
+- **Shell exchange time** `tau_ex`: how long a neighbor stays in a Li+ shell.
+- **Readiness score** (0 to 100) and **regime** label: our own heuristic rules, not a validated
+  metric. The working ranges are listed in
+  `docs/literature/SOLVATION_AND_PURE_MD_40_PAPER_SURVEY.md`.
 
-| Rank | Formulation | $\sigma_{298\text{K}}$ (mS/cm) | $\sigma_{253\text{K}}$ (mS/cm) | `SSIP` | `CIP` | `AGG-I` | `AGG-net` | $\tau_{\text{ex}}$ (ps) | Readiness (/100) | Regime |
+## Results from the saved run
+
+All numbers below come from `results/solvation_top15/top15_solvation_report.json`.
+Conductivities are copied from the funnel output (model predictions). The baseline
+conductivities (11.20 and 2.85 mS/cm) are hand-entered approximate values; CALiSol-23 lists
+12.09 mS/cm at 297.9 K and 3.31 mS/cm at 253.4 K for this recipe (doi 10.1016/j.jpowsour.2011.06.030).
+
+| Rank | Recipe | sigma 298 K (mS/cm) | sigma 253 K (mS/cm) | SSIP | CIP | AGG-I | AGG-net | tau_ex (ps) | Readiness | Regime |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Base** | `1.0M LiPF6 in EC:DMC (1:1)` | `11.20` | `2.85` | `0.90` | `0.10` | `0.00` | `0.00` | `2.37` | `58.9` | `SSIP_SOLVENT_DOMINATED` |
-| **#2** | `1.0M LiFSI in AN:DMC + 5wt% F-Ester-1` | **`30.85`** | **`15.01`** | `0.64` | **`0.21`** | `0.10` | `0.04` | `0.80` | **`73.8`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
-| **#3** | `1.0M LiFSI in EC:MA + 35wt% F-Ester-2` | `24.59` | `12.05` | `0.38` | **`0.38`** | `0.23` | `0.00` | `1.03` | **`72.3`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
-| **#4** | `1.0M LiFSI in FEC:MA + 35wt% F-Ester-2` | `20.19` | `9.84` | `0.52` | **`0.25`** | `0.23` | `0.00` | `1.68` | **`83.7`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
-| **#5** | `1.0M LiFSI in EC:DME + 35wt% F-Ester-3` | `20.48` | `9.52` | `0.41` | **`0.34`** | `0.25` | `0.00` | `0.57` | **`76.1`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
-| **#6** | `1.0M LiFSI in 2-MeTHF:DME + 35wt% F-Ester-3` | `18.70` | `8.71` | `0.26` | `0.31` | `0.09` | **`0.33`** | `1.90` | `70.2` | `AGGREGATE_ENRICHED_WSE` *(Flagged)* |
-| **#11** | `1.0M LiFSI in EC:DMC + 35wt% F-Ester-5` | `14.88` | `6.52` | `0.75` | **`0.25`** | `0.00` | `0.00` | `3.33` | **`89.1`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
-| **#13** | `1.0M LiFSI in GBL:DMC + 35wt% F-Ester-7` | `14.12` | `6.18` | `0.47` | **`0.34`** | `0.18` | `0.00` | `2.78` | **`78.9`** | **`GOLDILOCKS_FAST_CHARGE_ANION_SEI`** |
+| Baseline | 1.0M LiPF6 in EC:DMC (1:1) | 11.20 | 2.85 | 0.90 | 0.10 | 0.00 | 0.00 | 2.37 | 58.9 | `SSIP_SOLVENT_DOMINATED` |
+| #1 | 1.0M LiFSI in AN:EA + 5wt% F-Ester-1 | 35.65 | 18.35 | 0.75 | 0.00 | 0.25 | 0.00 | 1.73 | 46.6 | `AGGREGATE_ENRICHED_WSE` |
+| #2 | 1.0M LiFSI in AN:DMC + 5wt% F-Ester-1 | 30.85 | 15.01 | 0.64 | 0.21 | 0.10 | 0.04 | 0.80 | 73.8 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #3 | 1.0M LiFSI in EC:MA + 35wt% F-Ester-2 | 24.59 | 12.05 | 0.38 | 0.38 | 0.23 | 0.00 | 1.03 | 72.3 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #4 | 1.0M LiFSI in FEC:MA + 35wt% F-Ester-2 | 20.19 | 9.84 | 0.52 | 0.25 | 0.23 | 0.00 | 1.68 | 83.7 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #5 | 1.0M LiFSI in EC:DME + 35wt% F-Ester-3 | 20.48 | 9.52 | 0.41 | 0.34 | 0.25 | 0.00 | 0.57 | 76.1 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #6 | 1.0M LiFSI in 2-MeTHF:DME + 35wt% F-Ester-3 | 16.85 | 10.41 | 0.26 | 0.31 | 0.09 | 0.33 | 1.90 | 70.2 | `AGGREGATE_ENRICHED_WSE` |
+| #7 | 1.0M LiFSI in FEC:EA + 35wt% F-Ester-4 | 17.82 | 8.39 | 0.88 | 0.12 | 0.00 | 0.00 | 1.33 | 70.8 | `SSIP_SOLVENT_DOMINATED` |
+| #8 | 1.0M LiFSI in PC:EA + 35wt% F-Ester-4 | 17.18 | 8.24 | 0.38 | 0.62 | 0.00 | 0.00 | 1.08 | 44.6 | `AGGREGATE_ENRICHED_WSE` |
+| #9 | 1.0M LiFSI in DME:DOL + 20wt% F-Ester-5 | 13.93 | 8.17 | 0.30 | 0.45 | 0.25 | 0.00 | 1.23 | 61.1 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #10 | 1.0M LiFSI in PC:DMC + 35wt% F-Ester-6 | 15.00 | 6.66 | 0.50 | 0.38 | 0.05 | 0.07 | 2.03 | 72.7 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #11 | 1.0M LiFSI in EC:DMC + 35wt% F-Ester-5 | 15.11 | 6.42 | 0.75 | 0.25 | 0.00 | 0.00 | 3.33 | 89.1 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #12 | 1.0M LiFSI in EC:EMC + 35wt% F-Ester-6 | 14.57 | 6.11 | 0.36 | 0.64 | 0.00 | 0.00 | 1.10 | 44.0 | `AGGREGATE_ENRICHED_WSE` |
+| #13 | 1.0M LiFSI in GBL:DMC + 35wt% F-Ester-7 | 12.95 | 6.38 | 0.47 | 0.34 | 0.18 | 0.00 | 2.78 | 78.9 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #14 | 1.0M LiFSI in FEC:EMC + 35wt% Cyc-Acetal-1 | 13.26 | 5.82 | 0.50 | 0.14 | 0.36 | 0.00 | 0.60 | 65.3 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
+| #15 | 1.0M LiFSI in PC:EMC + 35wt% F-Ester-7 | 13.21 | 5.75 | 0.52 | 0.44 | 0.04 | 0.00 | 3.22 | 64.6 | `GOLDILOCKS_FAST_CHARGE_ANION_SEI` |
 
-- **10 of 15 (`66.7%`)** top funnel hits satisfy the **Goldilocks Fast-Charge + Anion-Derived SEI window** ($\chi_{\text{CIP}} \in [15\%, 45\%]$, $\chi_{\text{AGG-net}} \le 15\%$, $P_\infty < 0.35$), tripling primary-shell anion participation relative to commercial `EC:DMC` (`32.6%` mean `CIP` vs `9.8%`) while accelerating solvation-cage turnover by `31%`.
-- **Actionable De-Risking**: Candidate `#6` (`2-MeTHF:DME`) is automatically flagged for `33%` extended `AGG-net` formation due to low cyclic-ether dielectric screening, whereas `#2` (`AN:DMC + 5wt% F-Ester-1`), `#4` (`FEC:MA + 35wt% F-Ester-2`), and `#11` (`EC:DMC + 35wt% F-Ester-5`) balance bulk rate capability and inorganic $\text{LiF}$ SEI formation.
+Summary over the top 15 (from `top15_summary`):
 
-## 3. Reproducing the Analysis
+- 10 of 15 recipes fall in our working target range (`GOLDILOCKS_FAST_CHARGE_ANION_SEI`).
+- Mean CIP fraction is 32.6% vs. 9.8% for the baseline.
+- Mean shell exchange time is 1.63 ps vs. 2.37 ps for the baseline.
+- Recipe #6 (`2-MeTHF:DME`) has the largest AGG-net fraction (33%).
+
+These trends come from a toy model and may not hold in real electrolytes.
+
+## Reproduce
 
 ```bash
 python scripts/analyze_top15_solvation.py

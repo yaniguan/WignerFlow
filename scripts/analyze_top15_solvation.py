@@ -69,7 +69,7 @@ def plot_solvation_summary(
     ax2.grid(alpha=0.22)
 
     # Panel C: Trade-off Pareto front — Sub-zero -20C Conductivity vs CIP Anion-SEI Fraction
-    ax3.axvspan(15.0, 45.0, color="#377eb8", alpha=0.12, label="Yu/Cui/Wang Goldilocks CIP Window (15-45%)")
+    ax3.axvspan(15.0, 45.0, color="#377eb8", alpha=0.12, label="Working CIP target range (15-45%, heuristic)")
     ax3.scatter(
         [base["cip_frac"] * 100.0],
         [base["sigma_253K_mS_cm"]],
@@ -88,7 +88,7 @@ def plot_solvation_summary(
         edgecolors="#222222",
         linewidths=0.6,
         zorder=6,
-        label="Top 15 Novel Funnel Candidates",
+        label="Top 15 funnel candidates (model output)",
     )
     for r in cands[:5]:
         ax3.annotate(
@@ -140,7 +140,7 @@ def plot_solvation_summary(
     ax4.grid(axis="y", alpha=0.22)
 
     fig.suptitle(
-        "Fine-Grained 3D Solvation Shell, Ion Speciation & Exchange Kinetics of Top 15 Novel Electrolytes",
+        "Li+ solvation shells of the top 15 funnel recipes (toy force field, model output)",
         fontsize=12.8,
         fontweight="bold",
         y=0.99,
