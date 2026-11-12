@@ -1,8 +1,8 @@
 """PocketMD v2: literature-aligned CPU/edge molecular-dynamics triage calculator.
 
 Turns WignerFlow's coarse-stride rollout engine and trajectory diagnostics into a lightweight
-pre-screening application that runs in ~1 second on a laptop CPU to answer one practical question
-before committing 50-500 GPU-hours to production MD / RB-FEP / AIMD:
+pre-screening application that runs on a laptop CPU to answer one practical question
+before committing expensive GPU time to production MD / RB-FEP / AIMD:
 
     "Is this candidate pose / electrolyte additive / neural checkpoint worth sending to Big MD?"
     -> GO / HOLD / REJECT
@@ -77,7 +77,7 @@ DATASET_CATALOG = [
         "title": "MISATO (Protein-Ligand MD + QM, ~17,000 complexes, Siebenmorgen et al. Nat. Comput. Sci. 2024)",
         "url": "https://zenodo.org/record/7711953",
         "import_hint": "python scripts/import_md.py MD.hdf5 --out-dir data/misato_case --dt-fs 2.0 --unit angstrom",
-        "pain_point": "Filter false-positive docked poses via CompScore & tau-RAMD before 50-GPU-hour RB-FEP.",
+        "pain_point": "Filter false-positive docked poses via CompScore & tau-RAMD before running RB-FEP.",
     },
     {
         "id": "mdbind_affinity",
@@ -1129,7 +1129,7 @@ def _build_aspirin_pocket(preset):
 def triage_binding(preset="aspirin_cox_stable", *, pdb_path=None, xml_path=None, ligand_indices=None,
                    pocket_indices=None, n_frames=70, substeps=8, dt_fs=1.5, temperature_k=300.0,
                    n_replicas=3, seed=0):
-    """Screen a docked small-molecule binding pose on CPU in <1 s before committing to RB-FEP / Big MD."""
+    """Screen a docked small-molecule binding pose on CPU before committing to RB-FEP / Big MD."""
     t0 = time.perf_counter()
     if pdb_path is not None:
         pdb = parse_pdb(pdb_path)
@@ -1504,7 +1504,7 @@ def _build_electrolyte_box(preset):
 
 def triage_electrolyte(preset="li_ec_fec_additive", *, n_frames=90, substeps=10, dt_fs=3.0,
                        temperature_k=300.0, seed=0):
-    """Screen a battery electrolyte / additive formulation on CPU in ~0.5 s before 50 ns MD / AIMD."""
+    """Screen a battery electrolyte / additive formulation on CPU before 50 ns MD / AIMD."""
     t0 = time.perf_counter()
     setup = _build_electrolyte_box(preset)
     traj_x, traj_v = setup["engine"].run(

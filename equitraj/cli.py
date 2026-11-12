@@ -455,7 +455,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wignerflow-pocket",
         description=(
-            "WignerFlow PocketMD: sub-second CPU molecular dynamics triage & rollout calculator "
+            "WignerFlow PocketMD: quick CPU molecular dynamics triage & rollout calculator "
             "for drug binding poses, battery electrolytes, and equivariant checkpoints."
         ),
     )

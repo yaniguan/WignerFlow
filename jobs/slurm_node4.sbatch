@@ -1,8 +1,8 @@
 #!/bin/bash
-# Full Expanse GPU node (4x V100): trains up to 4 configs at once, one per GPU.
-# Usage: sbatch -J <name> -t 48:00:00 jobs/expanse_node4.sbatch cfg1.yaml [cfg2.yaml cfg3.yaml cfg4.yaml]
+# Full 4-GPU node on a SLURM cluster: trains up to 4 configs at once, one per GPU.
+# Usage: sbatch -J <name> -t 48:00:00 jobs/slurm_node4.sbatch cfg1.yaml [cfg2.yaml cfg3.yaml cfg4.yaml]
 # Why: the per-account job limit on gpu-shared is low, so packing 4 runs per job gets more runs going.
-#SBATCH -A cla175
+# Pass your allocation on the command line: sbatch -A <account> ...
 #SBATCH -p gpu
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=4

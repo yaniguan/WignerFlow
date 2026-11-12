@@ -40,7 +40,7 @@ No OpenMM and no data files needed. The demo rolls out 256 argon atoms from the 
 
 ### PocketMD: Fast CPU Triage Calculator
 
-Need a 1-second CPU pre-screen ("Should I send this docked pose or electrolyte additive to 50-GPU-hour Big MD?")? Run [`scripts/pocket_md.py`](scripts/pocket_md.py) (full guide in [`docs/POCKET_MD.md`](docs/POCKET_MD.md)):
+Need a quick CPU pre-screen ("Should I send this docked pose or electrolyte additive to expensive production MD?")? Run [`scripts/pocket_md.py`](scripts/pocket_md.py) (full guide in [`docs/POCKET_MD.md`](docs/POCKET_MD.md)):
 
 ```bash
 python scripts/pocket_md.py batch                  # screen drug poses + LiPF6 electrolyte additives + checkpoint

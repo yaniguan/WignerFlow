@@ -1,6 +1,6 @@
 # PocketMD v2: Literature-Aligned Fast CPU Triage Calculator
 
-Before committing **50–500 GPU-hours** to production explicit-solvent MD, RB-FEP alchemical free-energy calculations, or *ab initio* MD (AIMD), computational chemists and battery scientists need a ~1-second "market calculator" check on a laptop CPU:
+Before committing expensive GPU time to production explicit-solvent MD, RB-FEP alchemical free-energy calculations, or *ab initio* MD (AIMD), computational chemists and battery scientists need a quick check that runs on a laptop CPU:
 
 > **"Does this docked pose, electrolyte additive, or neural checkpoint survive physical and epistemic stress tests, or should we reject it before Big MD?"** (`GO` / `HOLD` / `REJECT`)
 
@@ -56,7 +56,7 @@ python scripts/pocket_md.py presets
 python scripts/pocket_md.py binding --preset aspirin_cox_stable --replicas 3
 python scripts/pocket_md.py binding --pdb my_pose.pdb --xml my_ligand.xml
 
-# 3. Cluster-NE + Hopping + CAGS battery electrolyte triage (~0.5 s on CPU)
+# 3. Cluster-NE + Hopping + CAGS battery electrolyte triage (short CPU run)
 python scripts/pocket_md.py electrolyte --preset li_ec_fec_additive
 python scripts/pocket_md.py electrolyte --preset li_high_salt_agg
 
