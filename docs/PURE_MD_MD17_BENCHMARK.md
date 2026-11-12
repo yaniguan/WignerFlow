@@ -1,35 +1,60 @@
-# Public Pure-MD Coarse-Stride Benchmark (`MD17-CCSD(T)`, `MD17` & `MD22`)
+# Large time step test on MD17 and MD22 molecules
 
-Aligned with our 40-paper literature survey (`Chmiela et al., Sci. Adv. 2017`, `Nat. Commun. 2018`, `Sci. Adv. 2023`; `Fu et al., ICLR/TMLR 2023`; `Schreiner et al., ITO 2023`; `Thiemann et al., TrajCast 2025`), [`equitraj/mdbench.py`](../equitraj/mdbench.py) evaluates WignerFlow's coarse-stride phase-space propagation (`10 fs` = `20x` stride and `20 fs` = `40x` stride over `0.5 fs` quantum MD) across **7 authentic public quantum MD ensembles (`9` to `60` atoms)**.
+`equitraj/mdbench.py` and `scripts/bench_pure_md17.py` test whether a simple
+coarse-step integrator stays stable at `10 fs` and `20 fs` time steps on 7 public
+quantum MD datasets (`9` to `60` atoms). Normal MD uses about `0.5 fs`.
 
-## 1. Benchmark Protocol (`Fu et al. ICLR/TMLR 2023` 4-Pillar Suite)
+## What this benchmark is (and is not)
 
-1. **Bond-Rupture & Steric-Clash Stability Horizon ($T_{\text{stab}}$)**:
-   $$\max_{(i,j)\in\mathcal{B}}\left|\|\mathbf{r}_i(t)-\mathbf{r}_j(t)\| - b_{ij}^0\right| > 0.5\text{ \AA} \quad \lor \quad \min_{i<j}\|\mathbf{r}_i(t)-\mathbf{r}_j(t)\| < 0.7\text{ \AA}$$
-2. **All-Pair Interatomic Distance Density Error ($\text{MAE}_{h(r)}$)** against strictly held-out `CCSD(T)` / `DFT-PBE+MBD` test splits:
-   $$\text{MAE}_{h(r)} = \int_0^{r_{\max}} \left|\hat{h}_{\text{model}}(r) - h_{\text{QM,test}}(r)\right| dr$$
-3. **Nyquist-Bounded Vibrational Density of States (`VDOS`) Cosine Similarity** up to $\tilde{\nu}_{\text{Nyq}} = \frac{1}{2 c \Delta t}$.
-4. **Chapman-Kolmogorov Multi-Stride Consistency** ($\text{MAE}_{h(r)}(10\text{ fs vs }20\text{ fs})$), **`TrajCast` COM Linear/Angular Momentum Drift**, and **Single-CPU Throughput (`ns/day`)**.
+- The force model is `EquivariantPairFlowModel`: a small pair model (harmonic bonds and
+  angles plus a fitted radial residual) fit on the training split of each dataset.
+- The coarse step (`rollout_wigner_coarse`) evaluates the slow forces once per big step,
+  then keeps bond lengths in range with a bond projection and holds the temperature with
+  a velocity-rescaling thermostat.
+- It is **not** the trained WignerFlow neural network. It is a baseline for the
+  stability checks we want any coarse-step model to pass.
+- The reference is a `0.5 fs` Velocity-Verlet run with the same pair model, not a
+  quantum-level MD run. Speedups are measured against that reference on one CPU.
 
-## 2. Held-Out Quantum Benchmark Results (`1.0 ps` Horizon at `500 K`)
+Data comes from the public sGDML / MD22 archives (Chmiela et al., Sci. Adv. 2017,
+Nat. Commun. 2018, Sci. Adv. 2023). The scripts download them on first use.
 
-| System | Theory | Atoms | Naive Verlet `10 fs` $T_{\text{stab}}$ | WignerFlow `10 fs` Stable | WignerFlow `20 fs` Stable | Held-Out $\text{MAE}_{h(r)}$ (`10 fs`) | `VDOS` Cosine (`10 fs`) | Speedup (`20 fs` vs `0.5 fs`) | CPU Throughput (`10 fs`) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Ethanol** | `CCSD(T)` | 9 | `0.01 ps` (Blowup) | **100%** | **100%** | `0.1997` | `0.6161` | `4.79x` | `1,379 ns/day` |
-| **Malonaldehyde** | `CCSD(T)` | 9 | `0.01 ps` (Blowup) | **100%** | **100%** | `0.2385` | `0.5071` | `4.62x` | `1,173 ns/day` |
-| **Benzene** | `CCSD(T)` | 12 | `0.01 ps` (Blowup) | **100%** | **100%** | `0.5152` | `0.5388` | `3.70x` | `1,142 ns/day` |
-| **Uracil** | `DFT-PBE+TS` | 12 | `0.01 ps` (Blowup) | **100%** | **100%** | `0.1653` | `0.7227` | `3.95x` | `1,139 ns/day` |
-| **Toluene** | `CCSD(T)` | 15 | `0.01 ps` (Blowup) | **100%** | **100%** | `0.2615` | `0.7759` | `5.68x` | `2,013 ns/day` |
-| **Aspirin** | `CCSD` | 21 | `0.01 ps` (Blowup) | **100%** | **100%** | **`0.1311`** | **`0.7220`** | `5.23x` | `1,420 ns/day` |
-| **MD22 AT-AT (DNA)** | `DFT-PBE+MBD` | 60 | `0.01 ps` (Blowup) | **100%** | **100%** | **`0.1076`** | **`0.7470`** | **`9.76x`** | `633 ns/day` |
-| **Panel Mean** | — | `9–60` | **`0%` Survival** | **`100%` Survival** | **`100%` Survival** | **`0.2170`** | **`0.6614`** | **`5.39x`** | **`1,271 ns/day`** |
+## Metrics (following Fu et al., TMLR 2023)
 
-- **Exact Conservation**: Center-of-mass velocity drift remains below **`1.97e-18 A/fs`** across all 7 molecules, and mean kinetic temperature drift is **`0.01%–0.84%`**.
-- **Supramolecular Scaling**: Speedup increases monotonically with molecular size, reaching **`6.35x` (`10 fs`)** and **`9.76x` (`20 fs`)** on the 60-atom hydrogen-bonded `MD22 AT-AT` DNA base pair with $\text{MAE}_{h(r)} = 0.1076$ and Chapman-Kolmogorov drift `0.0756`.
+1. **Stability**: a run fails if any bond moves more than `0.5 Å` from its reference
+   length, or any two atoms come closer than `0.7 Å`.
+2. **h(r) error**: mean absolute error between the all-pair distance histogram of the
+   rollout and that of the held-out quantum test frames.
+3. **VDOS cosine**: cosine similarity of the vibrational spectrum, up to the Nyquist limit
+   of the step size.
+4. **Step-size consistency**: h(r) difference between the `10 fs` and `20 fs` runs.
+5. **Drift and speed**: center-of-mass drift, temperature drift, and CPU `ns/day`.
 
-## 3. Reproducing the Benchmark
+## Results (`1.0 ps` runs at `500 K`)
+
+All numbers below come from `results/pure_md_md17/md17_md22_benchmark.json`.
+
+| System | Theory | Atoms | Plain Verlet `10 fs` | Coarse `10 fs` stable | Coarse `20 fs` stable | h(r) MAE (`10 fs`) | VDOS cosine (`10 fs`) | Speedup `10 fs` | Speedup `20 fs` | CPU ns/day (`10 fs`) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Ethanol | CCSD(T) | 9 | fails at `0.01 ps` | yes | yes | `0.1997` | `0.6161` | `2.38x` | `4.79x` | `1,379` |
+| Malonaldehyde | CCSD(T) | 9 | fails at `0.01 ps` | yes | yes | `0.1388` | `0.5074` | `1.99x` | `4.62x` | `1,173` |
+| Benzene | CCSD(T) | 12 | fails at `0.01 ps` | yes | yes | `0.5152` | `0.5388` | `1.88x` | `3.70x` | `1,142` |
+| Uracil | DFT | 12 | fails at `0.01 ps` | yes | yes | `0.1653` | `0.7227` | `1.73x` | `3.95x` | `1,139` |
+| Toluene | CCSD(T) | 15 | fails at `0.01 ps` | yes | yes | `0.2615` | `0.7759` | `3.72x` | `5.68x` | `2,013` |
+| Aspirin | CCSD | 21 | fails at `0.01 ps` | yes | yes | `0.1311` | `0.7220` | `3.67x` | `5.23x` | `1,420` |
+| MD22 AT-AT | DFT-PBE+MBD | 60 | fails at `0.01 ps` | yes | yes | `0.1076` | `0.7470` | `6.35x` | `9.76x` | `633` |
+| Mean | | | 0 of 7 stable | 7 of 7 | 7 of 7 | `0.2170` | `0.6614` | `3.10x` | `5.39x` | `1,271` |
+
+For comparison, the `0.5 fs` reference run has a mean h(r) MAE of `0.1388`, so the big
+step adds error. The `20 fs` runs have a mean h(r) MAE of `0.3191`. The largest
+center-of-mass drift is about `2e-18 Å/fs`, and temperature drift is `0.01%` to `0.84%`.
+
+These are 1 ps runs on single small molecules. They show the coarse step does not blow
+up; they do not show that it gives correct long-time dynamics.
+
+## Reproduce
 
 ```bash
-python scripts/bench_pure_md17.py --horizon-ps 1.0
+python scripts/bench_pure_md17.py --horizon-ps 1.0   # also writes results/pure_md_md17/md17_coarse_step_benchmark.png
 pytest tests/test_mdbench.py -q
 ```

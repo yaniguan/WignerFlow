@@ -716,7 +716,7 @@ class EquivariantPairFlowModel:
         seed: int = 42,
         tau_thermostat_fs: float = 80.0,
     ) -> Tuple[np.ndarray, np.ndarray, float]:
-        """WignerFlow two-tier coarse-stride phase-space propagator (stable at 10-20 fs).
+        """Two-tier coarse-step propagator baseline (pair model; not the WignerFlow network).
 
         Evaluates the slow equivariant anharmonic force field ONCE per macro-step,
         applies Wigner rotational + OU thermal filtering on 1-3 valence angles
@@ -915,7 +915,7 @@ def evaluate_md17_molecule(
     )
     vv10_stab = compute_bond_stability(vv10_r, z, pos0, dt_frame_fs=10.0)
 
-    # 3. WignerFlow 10-fs coarse-stride rollout (20x stride over 0.5 fs)
+    # 3. Coarse-step 10-fs rollout (20x the 0.5 fs step)
     wf10_r, wf10_v, wf10_wall = model.rollout_wigner_coarse(
         pos0, vel0, n_steps=n_10fs, dt_fs=10.0, seed=seed
     )
@@ -933,7 +933,7 @@ def evaluate_md17_molecule(
     )
     ns_per_day_10 = (sim_horizon_ps * 1e-3) / max(wf10_wall, 1e-9) * 86400.0
 
-    # 4. WignerFlow 20-fs coarse-stride rollout (40x stride + Chapman-Kolmogorov test)
+    # 4. Coarse-step 20-fs rollout (40x the 0.5 fs step) and step-size consistency check
     n_20fs = int(round(sim_horizon_ps * 1000.0 / 20.0))
     wf20_r, _wf20_v, wf20_wall = model.rollout_wigner_coarse(
         pos0, vel0, n_steps=n_20fs, dt_fs=20.0, seed=seed + 1

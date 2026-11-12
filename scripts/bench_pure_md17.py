@@ -53,14 +53,14 @@ def plot_md_panel_summary(
         [r["wf_10fs_t_stab_ps"] for r in rows],
         width=w,
         color="#1b9e77",
-        label="WignerFlow (10 fs, 20x)",
+        label="Coarse step (10 fs)",
     )
     ax1.bar(
         x + w,
         [r["sim_horizon_ps"] if r["wf_20fs_stable"] else 0.0 for r in rows],
         width=w,
         color="#386cb0",
-        label="WignerFlow (20 fs, 40x)",
+        label="Coarse step (20 fs)",
     )
     ax1.set_xticks(x)
     ax1.set_xticklabels(names, rotation=22, ha="right", fontsize=8.5)
@@ -82,14 +82,14 @@ def plot_md_panel_summary(
         [r["wf_10fs_hr_mae"] for r in rows],
         width=w,
         color="#1b9e77",
-        label="WignerFlow (10 fs)",
+        label="Coarse step (10 fs)",
     )
     ax2.bar(
         x + w,
         [r["wf_20fs_hr_mae"] for r in rows],
         width=w,
         color="#386cb0",
-        label="WignerFlow (20 fs)",
+        label="Coarse step (20 fs)",
     )
     ax2.axhline(
         0.10,
@@ -130,7 +130,7 @@ def plot_md_panel_summary(
         color="#1b9e77",
         linestyle="--",
         linewidth=2.0,
-        label="WignerFlow 10 fs Rollout (20x Stride)",
+        label="Coarse step 10 fs rollout",
     )
     ax3.fill_between(r_grid, h_qm, h_wf, color="#1b9e77", alpha=0.18)
     ax3.set_xlabel("Interatomic Distance $r$ ($\\mathrm{\\AA}$)")
@@ -145,14 +145,14 @@ def plot_md_panel_summary(
         [r["wf_10fs_speedup_vs_05fs"] for r in rows],
         width=0.34,
         color="#1b9e77",
-        label="WignerFlow 10 fs Speedup",
+        label="Coarse step 10 fs speedup",
     )
     ax4.bar(
         x + 0.17,
         [r["wf_20fs_speedup_vs_05fs"] for r in rows],
         width=0.34,
         color="#386cb0",
-        label="WignerFlow 20 fs Speedup",
+        label="Coarse step 20 fs speedup",
     )
     ax4.set_xticks(x)
     ax4.set_xticklabels(names, rotation=22, ha="right", fontsize=8.5)
@@ -162,7 +162,7 @@ def plot_md_panel_summary(
     ax4.grid(axis="y", alpha=0.25)
 
     fig.suptitle(
-        "WignerFlow Pure-MD Coarse-Stride Benchmark on Public MD17-CCSD(T), MD17 & MD22 Quantum Ensembles",
+        "Coarse-step baseline on public MD17 and MD22 data (pair model, not the WignerFlow network)",
         fontsize=12.8,
         fontweight="bold",
         y=0.99,
@@ -185,7 +185,7 @@ def main() -> None:
     parser.add_argument(
         "--out-fig",
         type=Path,
-        default=REPO_ROOT / "results" / "pure_md_md17" / "md17_wignerflow_benchmark.png",
+        default=REPO_ROOT / "results" / "pure_md_md17" / "md17_coarse_step_benchmark.png",
     )
     args = parser.parse_args()
 
