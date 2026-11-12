@@ -1,0 +1,32 @@
+title: "[Q&A] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a technical question about **WignerFlow**: large-time-step (coarse-stride) MD, the model, training, rollout stability, or the CPU tools in this repo.
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Topic
+      options:
+        - Coarse-stride flow matching and the EquiTraj model
+        - Training and checkpoints
+        - Rollout stability and physics checks
+        - CPU / GPU speed and neighbor lists
+        - Pocket MD and electrolyte CPU tools
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe the system size, time step or stride, what you measured, and what went wrong or what you expected.
+      placeholder: "e.g., My argon rollout heats up after 200 steps at a 50 fs stride. Which settings should I check first?"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Setup / command / snippet (optional)
+      render: bash
