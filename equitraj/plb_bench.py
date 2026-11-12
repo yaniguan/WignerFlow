@@ -266,6 +266,5 @@ def benchmark_binding_pose_and_potency(plb_root: str | Path | None = None, *,
         "decoy_mean_tau_ramd_ps": round(float(np.mean([r["tau_ramd_ps"] for r in decoys])), 3) if decoys else None,
         "mean_wall_s_per_pose_cpu": round(mean_wall, 3),
         "total_wall_s": round(total_wall, 3),
-        "speedup_vs_explicit_openbpmd_6_5h": round((6.5 * 3600.0) / max(mean_wall, 1e-4), 0),
-        "sample_records": records[:12],
+        "records": records,
     }
