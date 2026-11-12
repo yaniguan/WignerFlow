@@ -1,11 +1,11 @@
-# WignerFlow Studio & Physical Compliance Auditor: A Verified 40-Paper Annotated Literature Survey
+# Literature survey for WignerFlow Studio and the physics checks (40 papers)
 
 **Target Systems:**
 1. **WignerFlow Equivariant Neural MD Physical Compliance Auditor** (`equitraj/validation.py`, `equitraj/monitor.py`, `equitraj/so3.py`, `equitraj/thermostat.py`)
 2. **WignerFlow Studio — Interactive Web Evaluation Workbench & Fault-Injection Sandbox** (`scripts/pocket_md.py`, WebGL/WebGPU linked-view browser studio)
 
 > [!IMPORTANT]
-> **Scope & Verification Standard:** Every entry in this 40-paper survey has been bibliographically verified for exact author lists, publication titles, journal/conference venues, years, and DOIs/arXiv identifiers. Rather than treating symmetry unit tests, long-horizon molecular dynamics (MD) stability metrics, and interactive 3D web visualization as separate engineering tasks, this synthesis unifies them into a single **10-Gate Physical Compliance Specification (`G1`–`G10`)** paired with an **Interactive Fault-Injection Design Matrix (`F1`–`F10`)** for WignerFlow's 50 fs coarse-stride phase-space generator.
+> **Plain-English summary:** This note collects 40 papers on three topics: (A) how to build neural networks that respect 3D rotations, mirror images, and atom order; (B) the physics rules a neural MD model must not break (momentum, heat balance, no atom overlap, stable long runs); and (C) existing tools for viewing MD in a desktop app or web browser. We use these papers to design a 10-rule physics check (`G1`–`G10`) and a set of deliberate bugs (`F1`–`F10`) that each rule should catch. Citations were spot-checked against Crossref, arXiv, and publisher pages; please report any error you find. Design choices written here are ours, not claims from the papers.
 
 ---
 
