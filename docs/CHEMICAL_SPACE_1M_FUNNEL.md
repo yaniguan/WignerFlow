@@ -26,8 +26,9 @@ CPU wall times of `0.992 s` (step 1), `22.136 s` (step 2), `20.347 s` (step 3), 
 `43.66 s` in total.
 
 All conductivities in that file are **model predictions**. The aligner's accuracy on
-CALiSol-23 is not yet reproduced in this repo (see `docs/CALISOL_ALIGNMENT.md`), and none of
-the top recipes has been checked by full MD or by experiment. Treat the list as a demo of the
+known CALiSol-23 recipes is reported in `docs/CALISOL_ALIGNMENT.md`; the funnel recipes use new
+additives outside that data, so the error there is unknown. None of the top recipes has been
+checked by full MD or by experiment. Treat the list as a demo of the
 screening pipeline, not as a list of discovered electrolytes. WignerFlow's public generation
 results are for argon only.
 
