@@ -8,8 +8,6 @@
   "wall_time_tier2_s": 22.136,
   "wall_time_tier3_s": 20.347,
   "wall_time_total_s": 43.66,
-  "openmm_pff_equivalent_gpu_hours": 12000000.0,
-  "effective_funnel_speedup_vs_12h_pff": 989464299.0,
   "space_summary": {
     "sigma_298K_median_mS_cm": 6.55,
     "sigma_298K_p99_mS_cm": 23.4,
