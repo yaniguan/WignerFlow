@@ -3,28 +3,30 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ask a technical question about **WignerFlow** coarse-stride dynamics, periodic box sizing (`Yeh–Hummer`), electrolyte conductivity alignment (`CALiSol-23`), or `PocketMD` triage. Accepted replies earn the **Galaxy Brain** badge!
+        Ask a technical question about **WignerFlow**: large-time-step (coarse-stride) MD, the model, training, rollout stability, or the CPU tools in this repo.
   - type: dropdown
     id: domain
     attributes:
-      label: Domain / Module
+      label: Topic
       options:
-        - Coarse-Stride Flow Matching & EquiTraj Architecture
-        - Battery Electrolytes (CALiSol-23 / Yeh-Hummer / Cluster-NE)
-        - Protein-Ligand Pocket MD & tau-RAMD Triage
-        - CPU / GPU Profiling, Verlet Lists & Rollout Stability
+        - Coarse-stride flow matching and the EquiTraj model
+        - Training and checkpoints
+        - Rollout stability and physics checks
+        - CPU / GPU speed and neighbor lists
+        - Pocket MD and electrolyte CPU tools
+        - Other
     validations:
       required: true
   - type: textarea
     id: question
     attributes:
-      label: Scientific or Engineering Question
-      description: Describe the system size, timestep/stride, observable, or failure mode you are investigating.
-      placeholder: "e.g., Why does a 1,500-atom periodic box suffice for Cluster-Nernst-Einstein + Yeh-Hummer conductivity compared to a 10,000-atom Einstein-Helfand box?"
+      label: Question
+      description: Describe the system size, time step or stride, what you measured, and what went wrong or what you expected.
+      placeholder: "e.g., My argon rollout heats up after 200 steps at a 50 fs stride. Which settings should I check first?"
     validations:
       required: true
   - type: textarea
     id: context
     attributes:
-      label: Setup / Command / Snippet (Optional)
+      label: Setup / command / snippet (optional)
       render: bash
