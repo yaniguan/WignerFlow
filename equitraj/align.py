@@ -289,7 +289,7 @@ def yeh_hummer_correction_cm2_s(box_length_a: float, temperature_k: float, visco
 
 
 def analyze_electrolyte_box(desc: dict, *, n_ion_pairs: int = 10, cutoff_a: float = 5.0, skin_a: float = 0.8) -> dict:
-    """Quantify periodic box geometry, atom count, Yeh-Hummer finite-size error, and H200/CPU wall time."""
+    """Estimate periodic box geometry, atom count, Yeh-Hummer correction, and a rough CPU wall time."""
     if n_ion_pairs < 1:
         raise ValueError("n_ion_pairs must be >= 1")
     c_m = desc["c_molar"]
@@ -309,13 +309,9 @@ def analyze_electrolyte_box(desc: dict, *, n_ion_pairs: int = 10, cutoff_a: floa
     pbc_underest_frac = float(np.clip(d_yh / max(d_inf_ref, 1e-12), 0.0, 0.85))
 
     min_image_ok = box_l > 2.0 * (cutoff_a + skin_a)
-    # Calibrated throughput from measured CPU Verlet sweep & A100/H200 BF16+CUDAGraphs scaling
-    # 200 ps coarse rollout = 4,000 steps at 50 fs stride (sufficient for particle-averaged cNE + hopping)
-    steps_200ps = 4000
-    cpu_fast_step_s = 0.00055 * n_atoms_est  # WignerFlow-Fast (c=32, l=1, s=1) measured ~0.55 ms/atom on CPU
-    h200_fast_step_s = max(0.00045, 5.2e-7 * n_atoms_est)  # H200 BF16 + CUDA Graphs
-    h200_200ps_s = steps_200ps * h200_fast_step_s
-    openmm_pff_12h_s = 12.0 * 3600.0
+    # Rough CPU cost: ~0.55 ms per atom per 50 fs step for WignerFlow-Fast (c=32, l=1, s=1),
+    # read off the measured sweep in results/calisol/box_scaling_cpu.json. This is an estimate.
+    cpu_fast_step_s = 0.00055 * n_atoms_est
 
     return {
         "n_ion_pairs": int(n_ion_pairs),
@@ -327,10 +323,7 @@ def analyze_electrolyte_box(desc: dict, *, n_ion_pairs: int = 10, cutoff_a: floa
         "estimated_viscosity_mPa_s": round(eta_est, 3),
         "yeh_hummer_delta_D_cm2_s": float(f"{d_yh:.3e}"),
         "uncorrected_pbc_drag_percent": round(100.0 * pbc_underest_frac, 1),
-        "post_yh_residual_error_percent": round(max(1.2, 18.0 / max(n_ion_pairs, 1)), 1),
-        "cpu_50step_burst_s": round(50 * cpu_fast_step_s, 2),
-        "h200_200ps_cne_rollout_s": round(h200_200ps_s, 2),
-        "speedup_vs_openmm_pff_12h": round(openmm_pff_12h_s / max(h200_200ps_s, 1e-4), 0),
+        "est_cpu_50step_s": round(50 * cpu_fast_step_s, 2),
     }
 
 

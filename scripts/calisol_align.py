@@ -36,7 +36,7 @@ from equitraj.model import EquiTraj
 
 
 def run_box_study() -> list[dict]:
-    """Compare periodic box sizes (N_IP = 2..80) against 10k-atom 12h H200 OpenMM PFF baseline."""
+    """Compare periodic box sizes for 2 to 80 ion pairs (1.0 M LiPF6 in EC:DMC, 298 K)."""
     desc = compute_formulation_descriptors(
         salt="LiPF6", solvent_ratios={"EC": 0.5, "DMC": 0.5},
         ratio_type="w", c_val=1.0, c_units="mol/l", temperature_k=298.15,

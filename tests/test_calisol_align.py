@@ -35,7 +35,7 @@ def test_yeh_hummer_scaling_and_box_analysis():
     assert b_sweet["box_length_A"] > b_small["box_length_A"]
     assert b_sweet["uncorrected_pbc_drag_percent"] < b_small["uncorrected_pbc_drag_percent"]
     assert b_sweet["min_image_valid"] is True
-    assert b_sweet["speedup_vs_openmm_pff_12h"] > 1000
+    assert b_sweet["est_cpu_50step_s"] > b_small["est_cpu_50step_s"]
 
 
 def test_periodic_box_langevin_and_stage1_transport_posttraining():
