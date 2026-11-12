@@ -4,7 +4,7 @@ Status: v5, approved 2026-09-30. R0 in progress. No code until approved.
 
 Question: can an autoregressive E(3)-equivariant model roll out 10^4+ steps and still give correct RDF/VACF without blowing up?
 
-Changes in v5: the main GPU resource is now Expanse (V100, group allocation cla175), with Hoffman2 for profiling and overflow. Compute is no longer the bottleneck, so all options are tested on Li⁺/EC again (small model). Colab is a last-resort backup.
+Changes in v5: the main GPU resource is now a SLURM V100 cluster (group allocation), with a second UGE GPU cluster for profiling and overflow. Compute is no longer the bottleneck, so all options are tested on Li⁺/EC again (small model). Colab is a last-resort backup.
 
 Changes in v4: compute is limited to Colab Pro (100 compute units per month, no extra spending). All MD and all small-system training move to the Mac; Colab is used only for Li⁺/EC training.
 
@@ -27,7 +27,7 @@ Changes in v3:
 
 | Question | Decision |
 |---|---|
-| Hardware | Expanse V100 32 GB (Slurm, 48 h jobs, group allocation) for Li⁺/EC MD and all GPU training. Hoffman2 (UGE, 24 h campus jobs; group L40S node g19) for Stage 4 (bf16/tf32 need A100/L40S/H200) and overflow. The Mac for development, tests, and MD of the small systems. Colab Pro as last-resort backup. See "Compute". |
+| Hardware | A SLURM GPU cluster (V100 32 GB, 48 h jobs, group allocation) for Li⁺/EC MD and all GPU training. A UGE GPU cluster (24 h jobs; a group L40S node) for Stage 4 (bf16/tf32 need A100/L40S/H200) and overflow. The Mac for development, tests, and MD of the small systems. Colab Pro as last-resort backup. See "Compute". |
 | Order | Full pipeline on Argon first, then alanine dipeptide and aspirin, then Li⁺/EC. |
 | Default constraints | HBonds with 2 fs. No constraints with 0.5 fs is also tested. |
 | System 0b | Both alanine dipeptide and aspirin, both with OpenFF Sage 2.2.1 (changed from ff14SB during R0: Sage builds both from SMILES, with no PDB templates needed). |
@@ -116,7 +116,7 @@ WignerFlow/
     analysis.py         # RDF, CN, VACF, VDOS, MSD, residence time, energy, momentum
     plots.py
   configs/              # one YAML per experiment
-  jobs/                 # Slurm (Expanse) and UGE (Hoffman2) job templates
+  jobs/                 # SLURM and UGE job templates
   scripts/              # thin command-line entry points
   tests/
   results/<system>/<exp_id>/   # config.yaml, metrics.json, figs/
@@ -134,7 +134,7 @@ WignerFlow/
 | mdtraj | topology, bond lists | both |
 | mace-torch | MLIP baseline | both |
 | trajcast (from GitHub, Apache-2.0) | closest-work baseline | both |
-| cuequivariance-torch | Stage 4 only | Hoffman2 |
+| cuequivariance-torch | Stage 4 only | UGE cluster |
 
 Force-field XML files are built once on the Mac and committed. On the Mac, anything on MPS runs in float32; the float64 tests run on CPU because MPS has no float64. On the clusters, a conda env is built from the same `environment.yml`.
 
@@ -268,7 +268,7 @@ Strategies, added one at a time:
 
 ## Stage 4: profiling (no custom CUDA)
 
-- torch.profiler and Nsight Systems on Hoffman2: time per step, split into neighbor list, Wigner rotation, SO(2) linear, attention, and denoiser × K.
+- torch.profiler and Nsight Systems on the UGE cluster: time per step, split into neighbor list, Wigner rotation, SO(2) linear, attention, and denoiser × K.
 - Compare eager vs torch.compile vs cuEquivariance, and fp32 vs tf32 vs bf16. Check whether lower precision changes rollout stability.
 - Report where a custom kernel would help and a rough upper bound on the gain. Do not implement it.
 
@@ -278,23 +278,23 @@ Checked on 2026-09-29/30:
 
 | Resource | GPUs usable | Limits | Notes |
 |---|---|---|---|
-| Expanse (SDSC) | ~200 V100 32 GB (4 per node) | 48 h (`gpu`, `gpu-shared`), 7 days preemptible (`gpu-preempt`) | group allocation cla175: ~155,000 GPU SUs left, shared with the group. The A100 nodes are reserved and not usable. ~130 GPU jobs were queued. |
-| Hoffman2 (UCLA) | campus: 8 A100 40 GB, 4 A100 80 GB, 4 H200; idle group nodes: L40S, H100; own group: g19 with 2 L40S (14-day highp, shared with labmates) | 24 h campus, 14 days on g19 | home quota full: use /u/project/sautet or $SCRATCH. The campus GPU queue is busy. |
+| SLURM GPU cluster | V100 32 GB nodes (4 per node) | 48 h (`gpu`, `gpu-shared`), 7 days preemptible (`gpu-preempt`) | shared group allocation; queue time is the main limit. |
+| UGE GPU cluster | shared A100/H100/L40S-class GPUs; one group node with 2 L40S | 24 h shared, 14 days on the group node | use project or scratch storage; the shared GPU queue is busy. |
 | Mac M3 Pro | Apple GPU (OpenCL for OpenMM, MPS for torch) | — | 107 GB free disk |
 | Colab Pro | 100 units/month (~18 A100-h) | no background execution | backup only |
 
-Estimate: v3 needed ~250–350 A100-hours. V100 is ~2–3× slower for these models, so ~500–1,000 V100-hours, under 1% of the group allocation. The limit is queue time, not budget. Many small jobs can run in parallel on `gpu-shared` (1 GPU each).
+Estimate: v3 needed ~250–350 A100-hours. V100 is ~2–3× slower for these models, so ~500–1,000 V100-hours, a small part of the group allocation. The limit is queue time, not budget. Many small jobs can run in parallel on `gpu-shared` (1 GPU each).
 
 Where things run:
 - Mac: code, tests, Argon/ala2/aspirin MD, small smoke runs.
-- Expanse: Li⁺/EC MD, all training, all evaluation rollouts.
-- Hoffman2: Stage 4 profiling (A100/L40S/H200 for tf32, bf16, cuEquivariance), overflow.
+- SLURM cluster: Li⁺/EC MD, all training, all evaluation rollouts.
+- UGE cluster: Stage 4 profiling (A100/L40S/H200 for tf32, bf16, cuEquivariance), overflow.
 
-Workflow: I write code on the Mac, push to GitHub, pull on the cluster, and submit Slurm/UGE jobs over SSH. I copy results back with rsync into `results/`. Raw trajectories stay on the cluster (Expanse Lustre); small systems also stay on the Mac.
+Workflow: I write code on the Mac, push to GitHub, pull on the cluster, and submit Slurm/UGE jobs over SSH. I copy results back with rsync into `results/`. Raw trajectories stay on the cluster (cluster project storage); small systems also stay on the Mac.
 
 ## Checkpoints (stop and report at each)
 
-1. R0: repo skeleton, environments (Mac, Expanse), Argon ground truth data and analysis, OpenMM speed on the Mac and on a V100.
+1. R0: repo skeleton, environments (Mac, SLURM cluster), Argon ground truth data and analysis, OpenMM speed on the Mac and on a V100.
 2. R1: model and tests pass; one-step accuracy on Argon.
 3. R2: full pipeline and all options on Argon; measured per-run cost. Main go/no-go point.
 4. R3: ala2 and aspirin results, including momentum, angular momentum, and the constraint variant.
@@ -315,7 +315,7 @@ Each report covers what was done, numbers, plots, problems, and next steps. Miss
 | Too few Li⁺ statistics | bootstrap error bars, several starting conditions |
 | No exchange events inside a rollout | n=50 (1 ns rollouts); report honestly |
 | Overlap with TrajCast/FlashMD | position the work as a systematic study; TrajCast as a baseline |
-| Long cluster queues | many 1-GPU jobs on `gpu-shared`; Hoffman2 as overflow; `gpu-preempt` for resumable jobs |
+| Long cluster queues | many 1-GPU jobs on `gpu-shared`; the UGE cluster as overflow; `gpu-preempt` for resumable jobs |
 
 ## Implementation notes (deviations found while building)
 

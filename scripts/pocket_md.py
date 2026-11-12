@@ -1,8 +1,8 @@
 """PocketMD CLI and local zero-dependency web calculator.
 
 Fast CPU/edge pre-screening tool to decide whether a candidate small-molecule binding pose,
-electrolyte additive formulation, or WignerFlow neural checkpoint merits 50-500 GPU-hours
-of production Big MD / RB-FEP / AIMD.
+electrolyte additive formulation, or WignerFlow neural checkpoint is worth
+expensive production Big MD / RB-FEP / AIMD.
 
 Examples:
     python scripts/pocket_md.py presets
@@ -104,7 +104,6 @@ def run_batch(include_checkpoint=True):
 def cmd_batch(args):
     reports = run_batch(include_checkpoint=not args.skip_checkpoint)
     total_s = sum(r["wall_s"] for r in reports)
-    saved_gpu_h = sum(80 if r["verdict"] == "REJECT" else (30 if r["verdict"] == "HOLD" else 0) for r in reports)
 
     print("=" * 100)
     print(f" PocketMD v2 Batch Triage Summary  |  {len(reports)} candidates screened in {total_s:.2f} s on CPU")
@@ -125,9 +124,8 @@ def cmd_batch(args):
                     f"dODE={m['ode_curvature_delta_A']}A, sFlow={m['flow_epistemic_spread_A']}A")
         print(f" {r['mode']:<12s} | {r['name']:<25s} | {r['wall_s']:>7.2f} | {r['verdict']:<7s} | {diag}")
     print("-" * 100)
-    print(f" Estimated Big-MD / RB-FEP compute saved by filtering REJECT/HOLD candidates: ~{saved_gpu_h} GPU-hours")
     print("=" * 100)
-    _write_json(args.json_out, {"total_wall_s": round(total_s, 3), "saved_gpu_hours_est": saved_gpu_h, "reports": reports})
+    _write_json(args.json_out, {"total_wall_s": round(total_s, 3), "reports": reports})
 
 
 _WEB_UI_HTML = """<!DOCTYPE html>
@@ -155,7 +153,7 @@ _WEB_UI_HTML = """<!DOCTYPE html>
 <div class="wrap">
   <div class="card">
     <h2 style="margin:0 0 6px 0;">PocketMD · WignerFlow pocket calculator (live CPU server)</h2>
-    <div style="color:#94a3b8;font-size:14px;">Second-scale CPU trajectory triage: decide whether a docked pose or electrolyte additive is worth 50–500 GPU hours of production MD.</div>
+    <div style="color:#94a3b8;font-size:14px;">Quick CPU trajectory triage: decide whether a docked pose or electrolyte additive is worth expensive production MD.</div>
     <div class="row">
       <button onclick="run('binding','aspirin_cox_stable')">Drug pocket: stable aspirin pose</button>
       <button class="sec" onclick="run('binding','aspirin_induced_fit')">Drug pocket: induced-fit pose</button>

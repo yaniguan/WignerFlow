@@ -1,7 +1,7 @@
 #!/bin/bash
-# Full Expanse GPU node (4x V100): runs up to 4 shell commands at once, one per GPU.
-# Usage: sbatch -J <name> -t 12:00:00 jobs/expanse_node4_cmds.sbatch "cmd 1" "cmd 2" "cmd 3" "cmd 4"
-#SBATCH -A cla175
+# Full 4-GPU node on a SLURM cluster: runs up to 4 shell commands at once, one per GPU.
+# Usage: sbatch -J <name> -t 12:00:00 jobs/slurm_node4_cmds.sbatch "cmd 1" "cmd 2" "cmd 3" "cmd 4"
+# Pass your allocation on the command line: sbatch -A <account> ...
 #SBATCH -p gpu
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=4
