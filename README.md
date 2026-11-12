@@ -17,6 +17,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)
+[![Discussions Q&A](https://img.shields.io/badge/discussions-Q%26A-purple.svg)](https://github.com/yaniguan/WignerFlow/discussions/categories/q-a)
 
 </div>
 
@@ -36,6 +37,15 @@ python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt --steps 20 --out demo
 ```
 
 No OpenMM and no data files needed. The demo rolls out 256 argon atoms from the bundled starting frames and writes `demo_out/summary.json` plus RDF, VACF and temperature plots against the ground truth. 20 steps (1 ps) take about 20 s on a laptop CPU; drop `--steps` for the default (200 on CPU, 1000 on GPU).
+
+### PocketMD: Fast CPU Triage Calculator
+
+Need a 1-second CPU pre-screen ("Should I send this docked pose or electrolyte additive to 50-GPU-hour Big MD?")? Run [`scripts/pocket_md.py`](scripts/pocket_md.py) (full guide in [`docs/POCKET_MD.md`](docs/POCKET_MD.md)):
+
+```bash
+python scripts/pocket_md.py batch                  # screen drug poses + LiPF6 electrolyte additives + checkpoint
+python scripts/pocket_md.py serve --port 8765      # launch local zero-dependency browser calculator UI
+```
 
 ## Key features
 
