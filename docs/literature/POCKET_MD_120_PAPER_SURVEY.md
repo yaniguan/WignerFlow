@@ -1,12 +1,12 @@
 # 120-Paper Plain-English Survey: Fast CPU Screening for Drugs, Batteries & Neural MD
 
-Before designing `PocketMD` (`equitraj/pocket.py`), we surveyed **120 papers** (40 per domain) to find which short-simulation numbers actually predict real-world quality — and which ones are misleading traps.
+Before designing `PocketMD` (`equitraj/pocket.py`), we surveyed **120 papers** (40 per domain; the 20 most-used ones per domain are listed below) to find which short-simulation numbers actually predict real-world quality — and which ones are misleading traps.
 
 ---
 
 ## 1. Drug-Protein Pocket Stability (40 Papers — Key Lessons)
 
-**The Core Problem**: Docking programs score poses in milliseconds, but `30–60%` of top-scored poses clash slightly or drift out of the protein pocket as soon as atoms are allowed to wiggle at room temperature (`300 K`). Running full Free Energy Perturbation (`RB-FEP`) costs `50–200 GPU-hours` per molecule.
+**The Core Problem**: Docking programs score poses in milliseconds, but many top-scored poses clash slightly or drift out of the protein pocket as soon as atoms are allowed to move at room temperature (`300 K`). Full free energy perturbation (`FEP`) is much more expensive (many GPU-hours per molecule).
 
 **What Works in Short Simulations**:
 1. **Run 3+ short independent replicas (`OpenBPMD` — Lukauskis et al., *JCIM* 2022; Clark et al., *JCTC* 2016)**: Combine pose drift (`PoseScore`, RMSD of heavy drug atoms) with hydrogen-bond / contact survival (`PersScore`) into `CompScore = PoseScore - 5 * PersScore`. True binders settle quickly; bad decoys wobble or pop out.
@@ -22,14 +22,14 @@ Before designing `PocketMD` (`equitraj/pocket.py`), we surveyed **120 papers** (
 **The Core Problem**: Standard Nernst-Einstein conductivity ($\sigma_{\text{NE}}$) assumes every diffusing `Li+` and anion carries full independent charge. In real battery liquids, when `Li+` and `PF6-` stick together as a neutral pair (`CIP`), they diffuse together while carrying **zero net electric current**!
 
 **What Works in Short Simulations**:
-1. **Cluster Nernst-Einstein (`cNE` — France-Lanord & Grossman, *PRL* 2019)**: Group touching ions (`r < r_cut`) into clusters and sum each cluster's net charge $z_c$. Neutral `[Li+ PF6-]0` pairs have $z_c = 0$, immediately fixing the fake-conductivity mirage while converging `100x` faster than single-vector Green-Kubo dipole noise.
+1. **Cluster Nernst-Einstein (`cNE` — France-Lanord & Grossman, *PRL* 2019)**: Group touching ions (`r < r_cut`) into clusters and sum each cluster's net charge $z_c$. Neutral `[Li+ PF6-]0` pairs have $z_c = 0$, so neutral pairs no longer count as charge carriers. It also averages over particles, so it is less noisy than the collective (Green-Kubo) estimate from a short run.
 2. **Track the `Li+` first neighbor shell (`SSIP` / `CIP` / `AGG` — Yamada et al., *Nat. Energy* 2019; Borodin et al., *Acc. Chem. Res.* 2017)**:
    - **`SSIP`**: `Li+` surrounded only by solvent (fast bulk current).
    - **`CIP`**: `Li+` touching 1 anion (good for forming protective `LiF` battery interfaces when balanced).
    - **`AGG-net`**: Large connected ion clumps (high viscosity risk if too high).
-3. **Electronic Charge Screening (`ECC` — Kirby & Jungwirth, *JPCL* 2019)** and **Small-Box Size Correction (`Yeh & Hummer`, *JPCB* 2004)**: Scale charges by `~0.78–0.80` to mimic electron cloud polarization, and add $\Delta D_{\text{YH}} \propto 1/L$ to remove small-box periodic drag.
+3. **Electronic Charge Screening (`ECC` — Kirby & Jungwirth, *JPCL* 2019)** and **Small-Box Size Correction (`Yeh & Hummer`, *JPCB* 2004)**: Scale ion charges by about `0.75–0.8` to mimic electron cloud polarization, and add $\Delta D_{\text{YH}} \propto 1/L$ to remove small-box periodic drag.
 
-*Representative cited works (`E1–E40`)*: Xu (*Chem. Rev.* 2004; *Chem. Rev.* 2014), Yamada et al. (*Nat. Energy* 2019), Borodin et al. (*Acc. Chem. Res.* 2017), France-Lanord & Grossman (*PRL* 2019, cNE), Self, Fong & Persson (*ACS Energy Lett.* 2019), Fong et al. (*Macromolecules* 2021), Yeh & Hummer (*JPCB* 2004), Kirby & Jungwirth (*JPCL* 2019, ECC), Bedrov et al. (*Chem. Rev.* 2019), de Blasio et al. (*Sci. Data* 2024, CALiSol-23), Gong et al. (*Nat. Mach. Intell.* 2025, BAMBOO), Zheng et al. (*Chem. Sci.* 2025, ByteFF), Kim et al. (*PNAS* 2023), Dave et al. (*Nat. Commun.* 2022), Ma et al. (*Nat. Commun.* 2025), Rajput et al. (*Chem. Mater.* 2015), Suo et al. (*Nat. Commun.* 2013, WiSE), Ren et al. (*Joule* 2019, LHCE), Holoubek et al. (*Nat. Energy* 2021, Sub-zero Li metal), Yao et al. (*Angew. Chem.* 2023).
+*Representative cited works (`E1–E40`)*: Xu (*Chem. Rev.* 2004; *Chem. Rev.* 2014), Yamada et al. (*Nat. Energy* 2019), Borodin et al. (*Acc. Chem. Res.* 2017), France-Lanord & Grossman (*PRL* 2019, cNE), Self, Fong & Persson (*ACS Energy Lett.* 2019), Fong et al. (*Macromolecules* 2021), Yeh & Hummer (*JPCB* 2004), Kirby & Jungwirth (*JPCL* 2019, ECC), Bedrov et al. (*Chem. Rev.* 2019), de Blasio et al. (*Sci. Data* 2024, CALiSol-23), Gong et al. (*Nat. Mach. Intell.* 2025, BAMBOO), Zheng et al. (*Chem. Sci.* 2025, ByteFF), Kim et al. (*PNAS* 2023), Dave et al. (*Nat. Commun.* 2022), Kumar et al. (*Chem. Mater.* 2025, Electrolytomics), Rajput et al. (*JACS* 2015), Suo et al. (*Nat. Commun.* 2013, WiSE), Ren et al. (*Joule* 2019, LHCE), Holoubek et al. (*Nat. Energy* 2021, Sub-zero Li metal), Yao et al. (*Angew. Chem.* 2023).
 
 ---
 
