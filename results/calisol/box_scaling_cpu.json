@@ -1,0 +1,122 @@
+[
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 256,
+    "box_L_A": 14.66,
+    "edges": 15516,
+    "cpu_ms_per_50fs_step": 2223.14,
+    "cpu_steps_per_s": 0.45,
+    "cpu_ns_per_day": 1.943
+  },
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 600,
+    "box_L_A": 19.47,
+    "edges": 36972,
+    "cpu_ms_per_50fs_step": 4895.84,
+    "cpu_steps_per_s": 0.204,
+    "cpu_ns_per_day": 0.882
+  },
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 1008,
+    "box_L_A": 23.14,
+    "edges": 63078,
+    "cpu_ms_per_50fs_step": 11741.04,
+    "cpu_steps_per_s": 0.085,
+    "cpu_ns_per_day": 0.368
+  },
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 2016,
+    "box_L_A": 29.16,
+    "edges": 122814,
+    "cpu_ms_per_50fs_step": 20173.18,
+    "cpu_steps_per_s": 0.05,
+    "cpu_ns_per_day": 0.214
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 256,
+    "box_L_A": 14.66,
+    "edges": 8400,
+    "cpu_ms_per_50fs_step": 146.98,
+    "cpu_steps_per_s": 6.804,
+    "cpu_ns_per_day": 29.391
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 600,
+    "box_L_A": 19.47,
+    "edges": 20374,
+    "cpu_ms_per_50fs_step": 380.29,
+    "cpu_steps_per_s": 2.63,
+    "cpu_ns_per_day": 11.36
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 1008,
+    "box_L_A": 23.14,
+    "edges": 34954,
+    "cpu_ms_per_50fs_step": 619.89,
+    "cpu_steps_per_s": 1.613,
+    "cpu_ns_per_day": 6.969
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 2016,
+    "box_L_A": 29.16,
+    "edges": 67862,
+    "cpu_ms_per_50fs_step": 1341.55,
+    "cpu_steps_per_s": 0.745,
+    "cpu_ns_per_day": 3.22
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 5040,
+    "box_L_A": 39.57,
+    "edges": 171030,
+    "cpu_ms_per_50fs_step": 3196.56,
+    "cpu_steps_per_s": 0.313,
+    "cpu_ns_per_day": 1.351
+  },
+  {
+    "config": "WignerFlow-Fast (c=32, l=1, s=1 Distilled, rc=4.5A)",
+    "params": 147436,
+    "atoms": 10080,
+    "box_L_A": 49.86,
+    "edges": 352502,
+    "cpu_ms_per_50fs_step": 7363.96,
+    "cpu_steps_per_s": 0.136,
+    "cpu_ns_per_day": 0.587
+  },
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 5040,
+    "box_L_A": 39.57,
+    "edges": 309086,
+    "cpu_ms_per_50fs_step": 57429.16,
+    "cpu_steps_per_s": 0.017,
+    "cpu_ns_per_day": 0.075
+  },
+  {
+    "config": "WignerFlow-Full (c=64, l=2, s=2 Heun Flow)",
+    "params": 1945840,
+    "atoms": 10080,
+    "box_L_A": 49.86,
+    "edges": 634856,
+    "cpu_ms_per_50fs_step": 279548.31,
+    "cpu_steps_per_s": 0.004,
+    "cpu_ns_per_day": 0.015
+  }
+]

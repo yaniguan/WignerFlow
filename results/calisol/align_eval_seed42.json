@@ -1,0 +1,94 @@
+{
+  "mode": "align-eval",
+  "calisol_alignment": {
+    "dataset_summary": {
+      "total_clean_rows": 13228,
+      "train_rows": 10476,
+      "heldout_test_rows": 2752,
+      "rollout_panel_rows": 72
+    },
+    "panel_metrics": {
+      "raw_unaligned_ne": {
+        "n_samples": 72,
+        "r2": -0.4143,
+        "mae_mS_cm": 4.181,
+        "rmse_mS_cm": 6.332,
+        "pearson_r": -0.0238,
+        "spearman_rho": 0.0871
+      },
+      "raw_unaligned_eh": {
+        "n_samples": 72,
+        "r2": -434.5301,
+        "mae_mS_cm": 94.257,
+        "rmse_mS_cm": 111.115,
+        "pearson_r": -0.0708,
+        "spearman_rho": 0.0043
+      },
+      "stage1_posttrain_plus_yh": {
+        "n_samples": 72,
+        "r2": -15.8541,
+        "mae_mS_cm": 18.873,
+        "rmse_mS_cm": 21.858,
+        "pearson_r": 0.2301,
+        "spearman_rho": 0.1565
+      },
+      "wignerflow_align_stage1_stage2": {
+        "n_samples": 72,
+        "r2": 0.5739,
+        "mae_mS_cm": 2.076,
+        "rmse_mS_cm": 3.476,
+        "pearson_r": 0.7966,
+        "spearman_rho": 0.8296
+      },
+      "thermal_drift_rel_err_before": 0.5396,
+      "thermal_drift_rel_err_after": 0.3739
+    },
+    "full_heldout_test_metrics": {
+      "n_samples": 2752,
+      "r2": 0.7218,
+      "mae_mS_cm": 1.275,
+      "rmse_mS_cm": 2.456,
+      "pearson_r": 0.8544,
+      "spearman_rho": 0.9058
+    },
+    "concentration_bell_curve_ec_dmc_298K": [
+      {
+        "c_M": 0.15,
+        "sigma_aligned_mS_cm": 4.77
+      },
+      {
+        "c_M": 0.4,
+        "sigma_aligned_mS_cm": 9.56
+      },
+      {
+        "c_M": 0.7,
+        "sigma_aligned_mS_cm": 11.88
+      },
+      {
+        "c_M": 1.0,
+        "sigma_aligned_mS_cm": 11.84
+      },
+      {
+        "c_M": 1.2,
+        "sigma_aligned_mS_cm": 11.07
+      },
+      {
+        "c_M": 1.6,
+        "sigma_aligned_mS_cm": 8.85
+      },
+      {
+        "c_M": 2.0,
+        "sigma_aligned_mS_cm": 6.46
+      },
+      {
+        "c_M": 2.5,
+        "sigma_aligned_mS_cm": 4.06
+      },
+      {
+        "c_M": 3.2,
+        "sigma_aligned_mS_cm": 2.67
+      }
+    ],
+    "wall_s": 325.94
+  }
+}

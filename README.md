@@ -17,6 +17,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)
+[![Discussions Q&A](https://img.shields.io/badge/discussions-Q%26A-purple.svg)](https://github.com/yaniguan/WignerFlow/discussions/categories/q-a)
 
 </div>
 
