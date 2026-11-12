@@ -1,22 +1,46 @@
-# CALiSol-23 Periodic Box Scaling & WignerFlow-Align Transport Post-Training
+# CALiSol-23 box-size study and WignerFlow-Align (experimental)
 
-`equitraj/align.py` and `scripts/calisol_align.py` benchmark WignerFlow on the public `CALiSol-23` experimental Li-electrolyte dataset (`13,228` clean measurements across `13` salts and `38` solvents) and bridge coarse-stride trajectories to macroscopic experimental ionic conductivity.
+`equitraj/align.py` and `scripts/calisol_align.py` are tools for linking short
+WignerFlow-style rollouts of small periodic Li+ electrolyte boxes to measured ionic
+conductivity in the public `CALiSol-23` dataset.
 
-## Key Capabilities & Findings
+This is experimental tooling. WignerFlow's public generation results are for argon only.
+Nothing here shows that WignerFlow has been validated on Li+ electrolytes.
 
-1. **Periodic Box Scaling & Analytical Yeh–Hummer Correction (`yeh_hummer_correction_cm2_s`, `analyze_electrolyte_box`)**:
-   - Restores infinite-box self-diffusivity from compact periodic boxes via $D_\infty = D_{\text{PBC}}(L) + \frac{2.837297 k_B T}{6\pi \eta L}$.
-   - Compresses the `10,000`-atom, `10–20 ns` (`~12 h` on 1× H200) `OpenMM PFF` setup down to a **`1,531–3,072` atom (`L = 25.5–32.1 Å`, `<1.8%` residual error)** sweet-spot box (`3.18–6.39 s` on 1× H200 for `200 ps` Cluster-Nernst–Einstein rollout; `21–42 s` CPU burst).
-   - Measured CPU `O(N)` scaling from `256` to `10,080` atoms is stored in `results/calisol/box_scaling_cpu.json`.
+## Data
 
-2. **Two-Stage Transport Post-Training & Conductivity Alignment (`WignerFlow-Align`)**:
-   - **Stage 1 (`posttrain_equitraj_transport`)**: Differentiable `m`-step unrolling (`EquiTraj.predict_with_grad`) with kinetic temperature conservation, VACF persistence, log-MSD supervision, short-range steric barrier, and EMA shadow weights.
-   - **Stage 2 (`CALiSolTransportAligner`)**: 4-head physics-informed committee combining Electronic Continuum Charge Screening (`ECC`), VTF salt-caging viscosity rollover, Yeh–Hummer $1/L$ restoration, and Cluster-Nernst–Einstein dissociation.
-   - On zero-leakage grouped `CALiSol-23` splits (`10,476` train / `2,752` unseen formulation test rows), improves conductivity prediction from raw unaligned $R^2 = -0.6058$ ($\rho = -0.2081$) to **$R^2 = 0.6678$ ($\rho = 0.8222$)** on the 3D rollout panel and **$R^2 = 0.7199$ ($\text{MAE} = 1.277\text{ mS/cm}$, $\rho = 0.9053$)** on all `2,752` held-out rows (summary plot in `results/calisol/calisol_wignerflow_align_summary.png`).
+`CALiSol-23` (de Blasio, Elsborg, Vegge, Flores & Bhowmik, *Sci. Data* 11, 750, 2024;
+CC BY 4.0) has 13,825 measured conductivities from 27 papers, with 14 lithium salts and
+38 solvents. Download `CALiSol-23 Dataset.csv` from DTU Data
+(https://doi.org/10.11583/DTU.c.6929599) or https://github.com/Pele0599/CALiSol-23.
+The CSV is not stored in this repo. `load_calisol23` drops rows it cannot use, so the row
+count after loading is a little lower than 13,825.
 
-## CLI Usage
+## What the code does
+
+1. **Box-size study** (`analyze_electrolyte_box`, `--mode box-study`): for a given recipe and
+   number of ion pairs, estimates the box length, atom count, viscosity, and the Yeh-Hummer
+   finite-size correction `D_inf = D_box + 2.837297 kB T / (6 pi eta L)`. The CPU time field is
+   a rough estimate.
+2. **Measured CPU speed**: `results/calisol/box_scaling_cpu.json` holds a measured CPU sweep of
+   two model sizes from 256 to 10,080 atoms (ms per 50 fs step, steps/s, ns/day).
+3. **Stage 1 post-training** (`posttrain_equitraj_transport`): short unrolled rollouts with loss
+   terms for temperature, velocity autocorrelation, mean-squared displacement, and atom
+   overlap, plus EMA weights.
+4. **Stage 2 aligner** (`CALiSolTransportAligner`): a small model that maps recipe descriptors
+   and rollout observables to conductivity, using charge scaling, a viscosity term, the
+   Yeh-Hummer correction, and a cluster Nernst-Einstein ionicity. Train and test rows are split
+   by recipe group, so test recipes are not seen in training.
+
+## Results
+
+Conductivity accuracy on CALiSol-23 (R², MAE, Spearman) is **not yet reproduced in this
+repo**: no metrics file from a full `align-eval` run is committed. Run the command below to
+produce one, and commit the JSON before quoting any number.
+
+## Usage
 
 ```bash
 python scripts/calisol_align.py --mode box-study
-python scripts/calisol_align.py --mode align-eval --calisol-csv "CALiSol-23 Dataset.csv"
+python scripts/calisol_align.py --mode align-eval --calisol-csv "CALiSol-23 Dataset.csv" --json-out results/calisol/align_eval.json
 ```
