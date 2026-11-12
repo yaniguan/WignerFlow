@@ -25,5 +25,5 @@ Public generation results in this repo are for argon only.
 4. **Why can single-step training under-predict diffusion, and what does unrolled training change?**
    Training on one step at a time rewards the average next state, which can slightly shrink
    velocities. Over many steps this adds up and slows diffusion. Unrolled training runs several model
-   steps with gradients and adds loss terms for temperature, the velocity autocorrelation, and
+   steps with gradients (`EquiTraj.predict_with_grad`) and can add loss terms for temperature, the velocity autocorrelation, and
    mean-squared displacement, which is meant to reduce this damping.
