@@ -1,4 +1,11 @@
-# WignerFlow Literature-First Engineering Survey (40 Verified Papers)
+# Literature survey: Li+ solvation shells, MD17/MD22 rollout tests, and MD tools (40 papers)
+
+**Plain-English summary.** This note collects 40 papers we read before writing three tools:
+(1) a Li+ solvation-shell analyzer (who sits next to each Li+ ion: solvent, anion, or additive),
+(2) a large-time-step test on public MD17/MD22 molecules, and (3) a small command-line tool.
+Each entry gives the citation, what the paper does, and what we took from it.
+Formulas and target ranges written here are our working choices for the code, not results
+from WignerFlow. Citations were spot-checked against Crossref; please report any error you find.
 **Scope:** Pre-implementation theoretical, algorithmic, and empirical foundation for WignerFlow's next three modules:
 1. **Fine-Grained Battery Electrolyte Solvation & Exchange Kinetics Analyzer** (`SSIP`/`CIP`/`AGG`, partial RDFs, running $CN(r)$, additive enrichment, cage lifetimes $\tau_{\text{ex}}$, and `cNE` ion-pair transport)
 2. **Pure-MD Trajectory Rollout & Coarse-Stride Benchmark Suite** (`MD17`/`rMD17`/`MD22`, `Fu et al.` stability/$h(r)$/RDF/`VDOS`, and coarse-stride operator baselines)
@@ -154,7 +161,7 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 - **Concrete Design Takeaway for WignerFlow:** Distinguish small dimeric aggregates (`AGG-I`, cluster size $\le 4$ ions) from extended polymeric aggregates (`AGG-net`, cluster size $\ge 5$ ions) in WignerFlow: finite `AGG-I` pairs aid $\text{LiF}$ SEI formation and structural hopping, whereas `AGG-net` freezes low-temperature kinetics.
 
 #### 19. Machine Learning Force Fields for Molecular Liquids: Ethylene Carbonate/Ethyl Methyl Carbonate Binary Solvent
-- **Citation:** Ioan-Bogdan Magdău, David J. Arismendi-Arrieta, Helen E. Smith, Clare P. Grey, Kersti Hermansson, and Gábor Csányi, *npj Computational Materials* **9**, 146 (2023). DOI: `10.1038/s41524-023-01099-0`.
+- **Citation:** Ioan-Bogdan Magdău, David J. Arismendi-Arrieta, Helen E. Smith, Clare P. Grey, Kersti Hermansson, and Gábor Csányi, *npj Computational Materials* **9**, 146 (2023). DOI: `10.1038/s41524-023-01100-w`.
 - **Core Problem & Method:** Develops and rigorously validates machine-learned interatomic potentials (`GAP` / local many-body descriptors) for condensed-phase battery carbonate mixtures (`EC:EMC`), diagnosing why static force RMSE fails when intramolecular covalent forces ($>1\text{ eV/Å}$) dwarf intermolecular van der Waals packing forces ($\sim 0.02\text{ eV/Å}$).
 - **Key Metrics / Formulas:** Introduces **intra- vs. intermolecular force decomposition** ($\mathbf{F}_i = \mathbf{F}_i^{\text{intra}} + \mathbf{F}_i^{\text{inter}}$, torque/center-of-mass molecular force RMSE) and validates NPT liquid density $\rho$, intermolecular O–O / C–C RDFs, and molecular self-diffusivities $D_{\text{EC}}, D_{\text{EMC}}$.
 - **Concrete Design Takeaway for WignerFlow:** When rolling out molecular liquid electrolytes in WignerFlow, always validate **center-of-mass intermolecular RDFs** and NPT/NVT packing stability separately from stiff intramolecular bond vibrations; errors in weak intermolecular dispersion distort $CN_{\text{Li,solv}}(r_c)$ even when total force MAE looks small.
@@ -167,7 +174,9 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 ---
 
-### Summary Table: Quantitative Criteria for "Ideal Fast-Charging / Stable-SEI Electrolyte" in WignerFlow
+### Summary Table: Working Target Ranges Used in WignerFlow's Solvation Code
+
+> These ranges are our own rough heuristics, pieced together from the papers above. They are not values reported by any single paper, and we have not validated them against experiments.
 
 | Solvation / Kinetic Metric | Mathematical Definition | Ideal Fast-Charging + Stable-SEI Target Window | Failure Mode Outside Window |
 | :--- | :--- | :--- | :--- |
@@ -244,7 +253,7 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 - **Concrete Design Takeaway for WignerFlow:** Track **kinetic/Hamiltonian temperature drift** $\Delta T / T_0 = |\langle T_{\text{kin}}\rangle - T_0| / T_0$ alongside Fu et al.'s bond stability in WignerFlow rollouts: coarse-stride generative integrators can stay geometrically intact ($<0.5\text{ Å}$ bond error) while silently overheating or freezing velocities if Wigner phase-space volume is not preserved!
 
 #### 27. EGraFFBench: Evaluation of Equivariant Graph Neural Network Force Fields for Atomistic Simulations
-- **Citation:** Vaibhav Bihani, Sajid Mannan, Utkarsh Pratiush, Tao Du, Zhimin Chen, Santiago Miret, Matthieu Micoulaut, Morten M. Smedskjaer, Sayan Ranu, and N. M. Anoop Krishnan, *Digital Discovery* **3**(4), 759–768 (2024). DOI: `10.1039/D3DD00233K`.
+- **Citation:** Vaibhav Bihani, Sajid Mannan, Utkarsh Pratiush, Tao Du, Zhimin Chen, Santiago Miret, Matthieu Micoulaut, Morten M. Smedskjaer, Sayan Ranu, and N. M. Anoop Krishnan, *Digital Discovery* **3**(4), 759–768 (2024). DOI: `10.1039/D4DD00027G`.
 - **Core Problem & Method:** Benchmarks 6 equivariant GNN architectures (`NequIP`, `Allegro`, `MACE`, `BOTNet`, `Equiformer`, `TorchMD-Net`) under out-of-distribution (`OOD`) temperatures, strained glasses/liquids, and long-horizon NVE/NVT rollouts.
 - **Key Metrics / Formulas:** Introduces **Energy Violation / Conservation Drift**, **Structure Factor $S(q)$ & RDF error**, **`VACF`/`VDOS` fidelity**, and **OOD Rollout Survival Rate** across elevated temperature ramps ($300\text{ K} \to 3000\text{ K}$).
 - **Concrete Design Takeaway for WignerFlow:** Include an **OOD temperature generalization test** (train at $300\text{–}500\text{ K}$, evaluate rollout stability and $h(r)$ widening at $1.25\times\text{–}1.5\times T_{\text{train}}$) in WignerFlow's benchmark suite.
@@ -263,9 +272,9 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 #### 30. Timewarp: Transferable Acceleration of Molecular Dynamics by Learning Time-Coarsened Dynamics
 - **Citation:** Leon Klein, Andrew Y. K. Foong, Tor Erlend Fjelde, Bruno Mlodozeniec, Marc Brockschmidt, Sebastian Nowozin, Frank Noé, and Ryota Tomioka, *Advances in Neural Information Processing Systems (NeurIPS)* **36**, 52863–52883 (2023).
-- **Core Problem & Method:** Trains an $\text{SE}(3)$-equivariant augmenting normalizing flow $q_\theta(\mathbf{x}_{t+\tau}, \mathbf{v}_{t+\tau} \mid \mathbf{x}_t, \mathbf{v}_t)$ across $2\text{–}4$ residue peptides to propose huge coarse time jumps ($\tau = 50\text{ ps} = 10^5 \times 0.5\text{ fs}$), optionally corrected via Metropolis–Hastings acceptance $\min\!\left(1, \frac{\pi(\mathbf{z}') q_\theta(\mathbf{z}\mid\mathbf{z}')}{\pi(\mathbf{z}) q_\theta(\mathbf{z}'\mid\mathbf{z})}\right)$.
+- **Core Problem & Method:** Trains a conditional normalizing flow that proposes large time jumps for small peptides (2 and 4 residues), using auxiliary velocity-like variables. Proposals can be accepted or rejected with a Metropolis-Hastings test so that sampling stays exact.
 - **Key Metrics / Formulas:** Measures **Time-lagged Independent Component Analysis (`TICA`)** free-energy landscapes, Ramachandran Jensen–Shannon divergence (`JSD`), state transition matrices, and effective sample size per wall-clock second (`ESS/s`).
-- **Concrete Design Takeaway for WignerFlow:** Serves as a primary coarse-stride phase-space baseline (`x, v -> x', v'`): WignerFlow's symplectic/Wigner flow architecture avoids Timewarp's severe Metropolis acceptance collapse on larger systems by enforcing continuous-time physical transport structure directly in phase space.
+- **Concrete Design Takeaway for WignerFlow:** A key coarse-step baseline (`x -> x'` over a large time lag). We have not compared WignerFlow with Timewarp in this repo.
 
 #### 31. Implicit Transfer Operator Learning: Multiple Time-Resolution Models for Molecular Dynamics (`ITO`)
 - **Citation:** Mathias Schreiner, Ole Winther, and Simon Olsson, *Advances in Neural Information Processing Systems (NeurIPS)* **36**, 36449–36462 (2023).
@@ -275,7 +284,7 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 #### 32. EquiJump: Protein Dynamics Simulation via $\text{SO}(3)$-Equivariant Stochastic Interpolants
 - **Citation:** Allan dos Santos Costa, Ilan Mitnikov, Franco Pellegrini, Ameya Daigavane, Mario Geiger, Zhonglin Cao, Karsten Kreis, Tess Smidt, Emine Kucukbenli, and Joseph Jacobson, *arXiv:2410.09667* (2024).
-- **Core Problem & Method:** Formulates coarse-stride all-atom trajectory stepping ($\Delta t = 1\text{ ns}$ jumps on fast-folding proteins) via **two-sided $\text{SO}(3)$-equivariant stochastic interpolants** bridging consecutive trajectory frames $(\mathbf{X}_t, \mathbf{X}_{t+\tau})$ directly in 3D coordinates and backbone frames without Gaussian prior destruction.
+- **Core Problem & Method:** Formulates coarse-stride all-atom trajectory stepping (large time jumps on fast-folding proteins) via **two-sided $\text{SO}(3)$-equivariant stochastic interpolants** bridging consecutive trajectory frames $(\mathbf{X}_t, \mathbf{X}_{t+\tau})$ directly in 3D coordinates and backbone frames without Gaussian prior destruction.
 - **Key Metrics / Formulas:** Learns drift $\mathbf{b}_\theta(s, \mathbf{I}_s, \mathbf{X}_t)$ and score $\mathbf{s}_\theta(s, \mathbf{I}_s, \mathbf{X}_t)$ along $\mathbf{I}_s = (1-s)\mathbf{X}_t + s\mathbf{X}_{t+\tau} + \gamma(s)\mathbf{Z}$ ($s \in [0,1]$), recovering `TICA` free-energy basins and folding/unfolding flux rates in ~50–100 integration steps per $1\text{ ns}$ jump.
 - **Concrete Design Takeaway for WignerFlow:** Confirms that **frame-to-frame conditional flow/interpolant bridges** vastly outperform unconditional noise-to-structure diffusion for stable autoregressive rollouts because local displacement $\Delta\mathbf{r} = \mathbf{r}_{t+\Delta t} - \mathbf{r}_t$ has compact, low-variance support.
 
