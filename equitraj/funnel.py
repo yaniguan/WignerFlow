@@ -483,8 +483,6 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
         "wall_time_tier2_s": round(t2_wall, 3),
         "wall_time_tier3_s": round(t3_wall, 3),
         "wall_time_total_s": round(tot_wall, 3),
-        "openmm_pff_equivalent_gpu_hours": round(n_candidates * 12.0, 0),
-        "effective_funnel_speedup_vs_12h_pff": round((n_candidates * 12.0 * 3600.0) / max(tot_wall, 1e-4), 0),
         "space_summary": {
             "sigma_298K_median_mS_cm": round(float(np.median(all_sig298)), 2),
             "sigma_298K_p99_mS_cm": round(float(np.percentile(all_sig298, 99)), 2),
