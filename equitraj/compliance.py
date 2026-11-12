@@ -1,20 +1,20 @@
-"""10-Gate Physical Compliance & Algebraic Symmetry Auditor for Equivariant Neural MD.
+"""10-Gate Physics Check for Equivariant Molecular Dynamics.
 
-Implements the literature-grounded verification protocol (`G1`–`G10`) and interactive
-fault-injection testbed (`F1`–`F10`) distilled from our 40-paper synthesis:
-  - Tier I   (Exact Algebraic Symmetries):
-      G1: Proper SO(3) Roto-Equivariance & ±y-Pole Singularity Conditioning
-      G2: Full O(3) Improper Reflection / Chiral Enantiomer Parity
-      G3: T(3) Global Translation Invariance & Mass-Weighted Zero-COM Subspace
-      G4: S_N Atom-Permutation Equivariance (with Chemistry & Bond-Hop Graph)
-      G5: Periodic Lattice Covariant Wrapping & C^2 Cutoff Smoothness
-  - Tier II  (Phase-Space Conservation & Statistical Thermodynamics):
-      G6: Angular Momentum Impulse, Secular Drift & Non-Conservative Curl Defect
-      G7: Canonical CSVR Kinetic Gamma Distribution & Anti-Flying-Ice-Cube Equipartition
-  - Tier III (Structural, Dynamical & Epistemic Rollout Integrity):
-      G8: PoseBusters Steric Core-Exclusion, Covalent Bond Lock & Repulsion Prior
-      G9: Ensemble Observable Fidelity (Survival, RDF / Pair-Histogram & VDOS)
-      G10: Committee-Free Dual Epistemic Extrapolation (Heun-Euler Curvature & O(3) Spread)
+Checks 10 basic physics rules (G1-G10) that any 3D molecular simulator should obey,
+plus 10 simple fault switches (F1-F10) that intentionally break one rule at a time:
+  - Group 1 (3D Geometry & Symmetry):
+      G1: Rotate in 3D (SO(3)) and check the +/-y pole
+      G2: Mirror flip (O(3) parity for left/right-handed molecules)
+      G3: Move in space (T(3)) and keep the center of mass still
+      G4: Reorder atom numbers (S_N permutation)
+      G5: Wrap smoothly across periodic box walls (PBC)
+  - Group 2 (Energy & Heat Balance):
+      G6: No fake loop forces (conservative curl check) and steady kinetic energy
+      G7: Proper heat balance across atoms (no "flying ice cube" drift)
+  - Group 3 (Molecule Shape & Multi-Step Stability):
+      G8: Atoms do not overlap and bonds stay intact
+      G9: Trajectory finishes 100% without blowing up and keeps target temperature
+      G10: Smooth flow path (1-step Euler and 2-step Heun agree closely)
 """
 
 from __future__ import annotations
@@ -47,23 +47,23 @@ from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
 AUDIT_TARGETS = {
     "argon_flow_v1": {
         "id": "argon_flow_v1",
-        "title": "Liquid Argon EquiTraj Flow v1 (Trained Checkpoint, 256 Atoms, PBC)",
+        "title": "Liquid Argon Flow v1 (Trained Model, 256 Atoms in a Box)",
         "kind": "checkpoint",
     },
     "argon_flow_v0": {
         "id": "argon_flow_v0",
-        "title": "Liquid Argon EquiTraj Flow v0 (Baseline Checkpoint, 256 Atoms, PBC)",
+        "title": "Liquid Argon Flow v0 (Early Baseline Model, 256 Atoms)",
         "kind": "checkpoint",
     },
     "aspirin_hetero_o3": {
         "id": "aspirin_hetero_o3",
-        "title": "Aspirin Hetero-Atomic EquiTraj Flow (C/H/O + Charges + Bonds + Prior, O(3))",
+        "title": "Aspirin O(3) Model (C/H/O Atoms + Charges + Bonds + Repulsion Guard)",
         "kind": "synthetic_aspirin",
         "parity": True,
     },
     "aspirin_chiral_so3": {
         "id": "aspirin_chiral_so3",
-        "title": "Aspirin Chiral EquiTraj Flow (parity=False SO(3)-Only Control)",
+        "title": "Aspirin Rotation-Only Control (parity=False: Passes Rotation, Fails Mirror Flip)",
         "kind": "synthetic_aspirin",
         "parity": False,
     },
@@ -72,69 +72,69 @@ AUDIT_TARGETS = {
 FAULT_CATALOG = [
     {
         "id": "none",
-        "title": "Clean WignerFlow (No Fault Injected)",
+        "title": "Clean WignerFlow (All Physics Guards On)",
         "expected_tripped": [],
-        "description": "Unmodified equivariant model with mass-weighted zero-COM subspace, smooth cutoff envelope, and repulsion guard.",
+        "description": "Normal model: 3D rotation + mirror symmetry, center-of-mass lock, smooth cutoff, and atom-overlap guard.",
     },
     {
         "id": "F1_break_so3",
-        "title": "F1 · Break SO(3) (Anisotropic Axis Scaling)",
+        "title": "F1 · Stretch X/Y/Z Unevenly (Breaks 3D Rotation)",
         "expected_tripped": ["G1"],
-        "description": "Applies laboratory-axis anisotropic scaling diag(1.04, 0.96, 1.01) to vector readouts, breaking rotational equivariance.",
+        "description": "Scales x, y, z by (1.04, 0.96, 1.01), so rotating the molecule gives a different answer.",
     },
     {
         "id": "F2_pole_glitch",
-        "title": "F2 · ±ŷ Pole Azimuthal Singularity Glitch",
+        "title": "F2 · +/-y Pole Angle Glitch (Breaks Pole Rotation)",
         "expected_tripped": ["G1"],
-        "description": "Perturbs azimuthal Wigner-D phase when an interatomic edge aligns within 0.01° of the ±ŷ spherical-harmonic pole.",
+        "description": "Adds an angle jump when a bond points straight along the +y or -y axis (like North/South Pole longitude).",
     },
     {
         "id": "F3_chiral_parity_leak",
-        "title": "F3 · Chiral 1e↔1o Cross-Product Parity Leak",
+        "title": "F3 · Right-Hand Cross Product Leak (Breaks Mirror Flip Only)",
         "expected_tripped": ["G2"],
-        "description": "Injects an axial cross-product r_i1 × r_i2 into polar 1o displacements: SO(3) passes (det R=+1) while O(3) reflection fails (det Q=-1)!",
+        "description": "Adds r x v (right-hand rule): 3D rotation still passes, but a mirror reflection flips the wrong way!",
     },
     {
         "id": "F4_unweighted_com_leak",
-        "title": "F4 · Unweighted Point-Cloud COM Momentum Leak",
+        "title": "F4 · Ignore Atom Masses in Center of Mass (Breaks Momentum)",
         "expected_tripped": ["G3"],
-        "description": "Replaces mass-weighted COM removal with unweighted 1/N centering, leaking net linear momentum across hetero-atomic masses.",
+        "description": "Treats light H (mass 1) and heavy O (mass 16) equally when centering, so total momentum drifts.",
     },
     {
         "id": "F5_fixed_box_pbc_glitch",
-        "title": "F5 · Fixed-Box Rotation & Hard Cutoff Glitch",
+        "title": "F5 · Unrotated Box & Sharp Cutoff Jump (Breaks Box Wrapping)",
         "expected_tripped": ["G5"],
-        "description": "Rotates coordinates inside an unrotated periodic box and replaces the C^2 polynomial cutoff with a discontinuous step.",
+        "description": "Rotates atoms without rotating the periodic box, and uses a sudden step at the cutoff distance.",
     },
     {
         "id": "F6_nonconservative_curl",
-        "title": "F6 · Non-Conservative Curl Vortex (Bigi ICML 2025)",
+        "title": "F6 · Add Whirlpool Force (Breaks Loop Energy Conservation)",
         "expected_tripped": ["G6"],
-        "description": "Adds an SO(3)-covariant non-conservative rotational curl force field that injects spurious closed-loop work and torque.",
+        "description": "Adds a spinning force that creates free work around a closed loop instead of coming from a real potential.",
     },
     {
         "id": "F7_flying_ice_cube",
-        "title": "F7 · Flying Ice Cube (Internal Damping + Global Rescale)",
+        "title": "F7 · Trigger 'Flying Ice Cube' (Freezes Vibrations into Drift)",
         "expected_tripped": ["G7"],
-        "description": "Damps internal relative vibrations while rescaling global kinetic energy with COM drift (Harvey-Tan-Cheatham catastrophe).",
+        "description": "Damps internal bond vibrations and dumps kinetic energy into whole-molecule drift.",
     },
     {
         "id": "F8_steric_clash_no_prior",
-        "title": "F8 · Steric Core Overlap (Disable Repulsion Prior)",
+        "title": "F8 · Turn Off Overlap Guard & Push Two Atoms Together",
         "expected_tripped": ["G8"],
-        "description": "Disables RepulsionPrior and injects a 0.52×(r_vdW,i + r_vdW,j) interatomic clash violating PoseBusters steric exclusion.",
+        "description": "Disables RepulsionPrior and places two non-bonded atoms too close (52% of normal van der Waals distance).",
     },
     {
         "id": "F9_deterministic_overstride",
-        "title": "F9 · Deterministic Over-Stride Mode Collapse",
+        "title": "F9 · Remove Random Thermal Kicks (Freezes Temperature)",
         "expected_tripped": ["G9"],
-        "description": "Collapses stochastic conditional flow to zero-noise mean regression with damped velocity coasting, freezing ensemble observables.",
+        "description": "Turns off flow randomness and damps velocities so the system cools down to the wrong temperature.",
     },
     {
         "id": "F10_ood_bond_stretch",
-        "title": "F10 · Out-of-Distribution Strain Extrapolation (OOD)",
+        "title": "F10 · Stretch Bonds Way Too Far (High Step Error)",
         "expected_tripped": ["G10"],
-        "description": "Applies extreme out-of-distribution local distortion, spiking Heun-Euler ODE curvature δ_ODE and flow spread σ_flow.",
+        "description": "Pulls bonds far outside normal lengths so 1-step Euler and 2-step Heun disagree sharply.",
     },
 ]
 
@@ -752,103 +752,103 @@ def run_compliance_audit(
     gates = [
         {
             "id": "G1",
-            "tier": "Tier I · Algebraic Symmetry",
-            "name": "SO(3) Roto-Equivariance & ±ŷ Pole",
+            "tier": "Group 1 · 3D Geometry",
+            "name": "3D Rotation (SO(3) & +/-y Pole)",
             "status": g1_status,
             "value": float(f"{g1_metric:.3e}"),
             "threshold": f"<= {g1_pass:.1e}",
-            "detail": f"rot_err={err_so3:.2e}, pole_err={err_pole:.2e} (Euler={euler_deg})",
-            "citation": "Geiger & Smidt (e3nn 2022); Liao et al. (EquiformerV2 2024)",
+            "detail": f"rotation_diff={err_so3:.2e}, pole_diff={err_pole:.2e} (angles={euler_deg})",
+            "citation": "Rotate input atoms -> predicted moves rotate the exact same way",
         },
         {
             "id": "G2",
-            "tier": "Tier I · Algebraic Symmetry",
-            "name": "O(3) Mirror Reflection & Chiral Parity",
+            "tier": "Group 1 · 3D Geometry",
+            "name": "Mirror Flip (O(3) Left/Right Parity)",
             "status": g2_status,
             "value": float(f"{err_o3:.3e}"),
             "threshold": f"<= {g2_pass:.1e}",
-            "detail": f"mirror_xy & inversion(-I3) residual={err_o3:.2e}",
-            "citation": "Pozdnyakov & Ceriotti (PRL 2020); Batzner et al. (NequIP 2022)",
+            "detail": f"mirror_flip_diff={err_o3:.2e}",
+            "citation": "Reflect molecule in a mirror -> predicted moves reflect cleanly",
         },
         {
             "id": "G3",
-            "tier": "Tier I · Algebraic Symmetry",
-            "name": "T(3) Shift & Mass-Weighted Zero-COM",
+            "tier": "Group 1 · 3D Geometry",
+            "name": "Space Shift & Center-of-Mass Lock",
             "status": g3_status,
             "value": float(f"{g3_metric:.3e}"),
             "threshold": f"<= {g3_pass:.1e}",
-            "detail": f"T(3)_shift={err_t3_a:.2e} Å, v_COM={com_v_step:.2e} Å/fs, dx_COM={com_dx_step:.2e} Å",
-            "citation": "Köhler et al. (ICML 2020); Klein, Krämer & Noé (NeurIPS 2023)",
+            "detail": f"shift_diff={err_t3_a:.2e} A, v_COM={com_v_step:.2e} A/fs, dx_COM={com_dx_step:.2e} A",
+            "citation": "Shifting all atoms does nothing; total momentum sum(m*v) stays zero",
         },
         {
             "id": "G4",
-            "tier": "Tier I · Algebraic Symmetry",
-            "name": "S_N Atom-Permutation Equivariance",
+            "tier": "Group 1 · 3D Geometry",
+            "name": "Atom Re-ordering (Permutation)",
             "status": g4_status,
             "value": float(f"{err_sn:.3e}"),
             "threshold": f"<= {g4_pass:.1e}",
-            "detail": f"random S_{n_alg} bijection residual={err_sn:.2e}",
-            "citation": "Thomas et al. (TFN 2018); Batatia et al. (MACE 2022)",
+            "detail": f"shuffle_diff={err_sn:.2e} across {n_alg} atoms",
+            "citation": "Swapping atom row numbers in the table gives the same motion per atom",
         },
         {
             "id": "G5",
-            "tier": "Tier I · Algebraic Symmetry",
-            "name": "PBC Lattice Wrap & C^2 Cutoff Continuity",
+            "tier": "Group 1 · 3D Geometry",
+            "name": "Repeating Box Wrap & Smooth Cutoff",
             "status": g5_status,
             "value": float(f"{max(err_wrap, cutoff_jump):.3e}"),
-            "threshold": "L/rc>=2.05, wrap<=5e-5",
-            "detail": f"L_min/r_cut={nyquist_ratio:.2f}, Z^3_wrap={err_wrap:.2e}, cutoff_jump={cutoff_jump:.2e}",
-            "citation": "Gasteiger et al. (GemNet 2021); Musaelian et al. (Allegro 2023)",
+            "threshold": "box/rc>=2.05, wrap<=5e-5",
+            "detail": f"box/cutoff={nyquist_ratio:.2f}, box_wrap_diff={err_wrap:.2e}, cutoff_step={cutoff_jump:.2e}",
+            "citation": "Atoms crossing box walls or the cutoff radius cause zero sudden jumps",
         },
         {
             "id": "G6",
-            "tier": "Tier II · Conservation Laws",
-            "name": "Non-Conservative Curl & Secular Drift",
+            "tier": "Group 2 · Energy & Heat",
+            "name": "No Loop Energy Leak (Curl Check)",
             "status": g6_status,
             "value": round(curl_defect, 5),
-            "threshold": "curl<0.02, |dlnK/step|<0.03",
-            "detail": f"loop_curl_defect={curl_defect:.4f} kBT, |dlnK/step|={drift_per_step:.4f}",
-            "citation": "Bigi, Langer & Ceriotti (ICML 2025); Greydanus et al. (HNN 2019)",
+            "threshold": "loop<0.02, drift<0.03",
+            "detail": f"closed_loop_work={curl_defect:.4f} kBT, energy_drift_per_step={drift_per_step:.4f}",
+            "citation": "Moving around a tiny closed loop does not invent or lose energy",
         },
         {
             "id": "G7",
-            "tier": "Tier II · Conservation Laws",
-            "name": "Canonical Gamma KS & Anti-Flying-Ice-Cube",
+            "tier": "Group 2 · Energy & Heat",
+            "name": "Proper Heat Balance (No Flying Ice Cube)",
             "status": g7_status,
             "value": float(f"{f_com_max:.3e}"),
-            "threshold": "K_COM/K_tot<1e-3, eq<0.25",
-            "detail": f"K_COM/K_tot={f_com_max:.2e}, Gamma_KS={ks_stat:.3f}, species_T={elem_temps}",
-            "citation": "Harvey, Tan & Cheatham (1998); Bussi, Donadio & Parrinello (CSVR 2007)",
+            "threshold": "K_COM/K_tot<1e-3",
+            "detail": f"COM_energy_share={f_com_max:.2e}, Boltzmann_fit={ks_stat:.3f}, T_by_element={elem_temps}",
+            "citation": "Heat stays in internal vibrations instead of whole-molecule drift",
         },
         {
             "id": "G8",
-            "tier": "Tier III · Rollout Integrity",
-            "name": "PoseBusters Steric Wall & Bond Topology",
+            "tier": "Group 3 · Molecule Health",
+            "name": "No Atom Overlap & Intact Bonds",
             "status": g8_status,
             "value": round(min_vdw, 3),
-            "threshold": "min_vdW>=0.72, dBond<=0.35Å",
-            "detail": f"min_vdw_ratio={min_vdw:.3f}, max_bond_dev={max_bond_dev:.3f} Å",
-            "citation": "Buttenschoen et al. (PoseBusters 2024); Stocker et al. (2022)",
+            "threshold": "vdW_ratio>=0.72, dBond<=0.35A",
+            "detail": f"closest_vdw_ratio={min_vdw:.3f} (1.0=touching), max_bond_stretch={max_bond_dev:.3f} A",
+            "citation": "Atoms never crash into each other and covalent bonds stay intact",
         },
         {
             "id": "G9",
-            "tier": "Tier III · Rollout Integrity",
-            "name": "Ensemble Structural & Thermal Fidelity",
+            "tier": "Group 3 · Molecule Health",
+            "name": "100% Survival & Target Temperature",
             "status": g9_status,
             "value": round(t_rel_err, 4),
             "threshold": "Surv=100%, |dT/T|<=0.30",
-            "detail": f"survival={survival_frac*100:.0f}%, T_mean={t_all_mean:.1f}K (ref {ctx['t_ref_K']:.1f}K), RDF_L1={None if rdf_l1 is None else round(rdf_l1, 3)}",
-            "citation": "Fu et al. (TMLR 2023); Thiemann et al. (TrajCast 2025)",
+            "detail": f"survived={survival_frac*100:.0f}%, mean_T={t_all_mean:.1f}K (target {ctx['t_ref_K']:.1f}K), RDF_err={None if rdf_l1 is None else round(rdf_l1, 3)}",
+            "citation": "Multi-step trajectory finishes cleanly at the right temperature",
         },
         {
             "id": "G10",
-            "tier": "Tier III · Rollout Integrity",
-            "name": "Dual Epistemic UQ & Flow Straightness",
+            "tier": "Group 3 · Molecule Health",
+            "name": "Smooth Flow Path (Euler vs Heun)",
             "status": g10_status,
             "value": round(ode_rel_delta, 4),
-            "threshold": "d_ODE<=0.16, s_flow<=0.22Å",
-            "detail": f"Heun_Euler_rel={ode_rel_delta:.4f}, O(3)_spread={flow_spread_a:.4f} Å, straightness={straightness:.4f}",
-            "citation": "Vita & Schwalbe-Koda (MLST 2023); Song et al. (EquiFM 2023)",
+            "threshold": "step_diff<=0.16, spread<=0.22A",
+            "detail": f"Heun_vs_Euler={ode_rel_delta:.4f}, sample_spread={flow_spread_a:.4f} A, path_straightness={straightness:.4f}",
+            "citation": "1-step Euler and 2-step Heun agree closely when the model is confident",
         },
     ]
 

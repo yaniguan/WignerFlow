@@ -43,11 +43,11 @@ def build_overview_payload() -> dict:
 
 
 STUDIO_HTML = r"""<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WignerFlow Studio · 等变 MD 物理合规性与全功能评测工作台</title>
+<title>WignerFlow Studio - Physics Check & Molecule Simulator</title>
 <style>
   :root {
     --bg: #0b1120;
@@ -189,22 +189,22 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <div class="brand">
     <div class="brand-logo">WF</div>
     <div>
-      <h1>WignerFlow Studio · 等变 MD 物理合规性与全功能评测工作台</h1>
+      <h1>WignerFlow Studio · Physics Rules & Fast Molecule Simulator</h1>
       <div class="sub" id="runtimeInfo">Connecting to live PyTorch CPU engine...</div>
     </div>
   </div>
   <div class="top-actions">
     <span class="pill GO" id="globalVerdict">GO · 10/10 GATES PASS</span>
-    <button class="btn sec" onclick="exportSessionJson()">⬇ Export Audit Receipt (.json)</button>
+    <button class="btn sec" onclick="exportSessionJson()">Download Report (.json)</button>
   </div>
 </div>
 
 <div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('compliance', this)">⚖️ 1. 等变与物理合规审计 (G1–G10 + 故障注入)</button>
-  <button class="tab-btn" onclick="switchTab('rollout', this)">🚀 2. 粗步长与自定义分子 Rollout (3D)</button>
-  <button class="tab-btn" onclick="switchTab('binding', this)">💊 3. 药物分子口袋结合筛查 (OpenBPMD + τ-RAMD)</button>
-  <button class="tab-btn" onclick="switchTab('electrolyte', this)">🔋 4. 锂电电解液与 1000k 溶剂化壳层</button>
-  <button class="tab-btn" onclick="switchTab('benchmarks', this)">📊 5. 全领域 Benchmark 评测总览</button>
+  <button class="tab-btn active" onclick="switchTab('compliance', this)">1. Physics Rules Check (G1-G10)</button>
+  <button class="tab-btn" onclick="switchTab('rollout', this)">2. Molecule Simulator (3D & Custom .xyz)</button>
+  <button class="tab-btn" onclick="switchTab('binding', this)">3. Drug Pocket Check</button>
+  <button class="tab-btn" onclick="switchTab('electrolyte', this)">4. Battery Electrolytes & CALiSol-23</button>
+  <button class="tab-btn" onclick="switchTab('benchmarks', this)">5. All Benchmark Numbers</button>
 </div>
 
 <div class="container">
@@ -214,44 +214,44 @@ STUDIO_HTML = r"""<!DOCTYPE html>
       <!-- Left: Controls + F1..F10 Chaos Drawer -->
       <div>
         <div class="card">
-          <h3><span>审计模型与对称变换配置</span></h3>
-          <label>被测神经网络 / 物理体系 (Target Model)</label>
+          <h3><span>Test Setup</span></h3>
+          <label>Model to Check</label>
           <select id="compTarget">
-            <option value="argon_flow_v1">Liquid Argon EquiTraj Flow v1 (Trained .pt, 256 Atoms)</option>
-            <option value="aspirin_hetero_o3">Aspirin Hetero-Atomic O(3) Flow (C/H/O + Charges + Bonds)</option>
-            <option value="aspirin_chiral_so3">Aspirin Chiral parity=False Control (SO(3)-Only, Breaks G2!)</option>
-            <option value="argon_flow_v0">Liquid Argon EquiTraj Flow v0 (Baseline .pt)</option>
+            <option value="argon_flow_v1">Liquid Argon Flow v1 (Trained Model, 256 Atoms)</option>
+            <option value="aspirin_hetero_o3">Aspirin O(3) Model (C/H/O + Charges + Bonds)</option>
+            <option value="aspirin_chiral_so3">Aspirin Rotation-Only Control (parity=False, Fails G2 Mirror Flip!)</option>
+            <option value="argon_flow_v0">Liquid Argon Flow v0 (Early Baseline)</option>
           </select>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <div>
-              <label>数值精度 (Precision)</label>
+              <label>Math Precision</label>
               <select id="compPrec">
-                <option value="float32">float32 (Live Rollout)</option>
-                <option value="float64">float64 (Exact Algebraic)</option>
+                <option value="float32">float32 (Normal Speed)</option>
+                <option value="float64">float64 (High Precision)</option>
               </select>
             </div>
             <div>
-              <label>Rollout 步数</label>
+              <label>Rollout Steps</label>
               <input type="number" id="compSteps" value="14" min="8" max="40">
             </div>
           </div>
 
-          <label>SO(3) 欧拉角旋转测试 (α=<span id="lblA">37</span>°, β=<span id="lblB">64</span>°, γ=<span id="lblG">118</span>°)</label>
+          <label>3D Rotation Angles (alpha=<span id="lblA">37</span>°, beta=<span id="lblB">64</span>°, gamma=<span id="lblG">118</span>°)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
             <input type="range" id="angA" min="0" max="360" value="37" oninput="document.getElementById('lblA').textContent=this.value">
             <input type="range" id="angB" min="0" max="360" value="64" oninput="document.getElementById('lblB').textContent=this.value">
             <input type="range" id="angG" min="0" max="360" value="118" oninput="document.getElementById('lblG').textContent=this.value">
           </div>
           <div class="row-inline" style="margin-top:6px;">
-            <button class="btn sec" style="flex:1;" onclick="randomizeEuler()">🎲 随机 Haar SO(3) 旋转</button>
+            <button class="btn sec" style="flex:1;" onclick="randomizeEuler()">Pick Random 3D Rotation</button>
           </div>
-          <button class="btn full" id="btnRunComp" onclick="runCompliance()">▶ 运行 PyTorch 10 项物理合规审计</button>
+          <button class="btn full" id="btnRunComp" onclick="runCompliance()">Run 10-Rule Physics Check</button>
         </div>
 
         <div class="card">
-          <h3><span>Chaos 故障注入抽屉 (F1–F10 可证伪测试)</span></h3>
-          <div style="color:var(--muted);font-size:12px;margin-bottom:8px;">点击任一物理破坏开关并运行，实时验证相应合规门控能否毫秒级精准捕获违背项：</div>
+          <h3><span>Break-a-Rule Test Switches (F1-F10)</span></h3>
+          <div style="color:var(--muted);font-size:12px;margin-bottom:8px;">Click any bug below to intentionally break one physics rule and watch the matching gate turn red:</div>
           <div class="fault-list" id="faultList"></div>
         </div>
       </div>
@@ -260,28 +260,28 @@ STUDIO_HTML = r"""<!DOCTYPE html>
       <div>
         <div class="card">
           <h3>
-            <span>3D 对称孪生矢量叠加与轨迹视口 · <span id="comp3dTitle" style="color:var(--cyan);">Drag to Orbit / Scroll to Zoom</span></span>
+            <span>3D Rotation Arrow Check · <span id="comp3dTitle" style="color:var(--cyan);">Drag to Rotate / Scroll to Zoom</span></span>
             <span class="row-inline">
               <button class="btn sec" onclick="togglePlay('comp')" id="btnPlayComp">⏸ Play</button>
               <label style="margin:0;display:inline-flex;align-items:center;gap:4px;">
-                <input type="checkbox" id="chkTwinVec" checked onchange="drawComp3D()"> 显示 f(R·X)·R 孪生矢量
+                <input type="checkbox" id="chkTwinVec" checked onchange="drawComp3D()"> Show Rotated vs Unrotated Arrows
               </label>
             </span>
           </h3>
           <canvas id="canvasComp3D" class="viewport" width="680" height="340"></canvas>
           <div class="row-inline" style="margin-top:8px;justify-content:space-between;">
-            <span style="color:var(--muted);font-size:12px;">Cyan arrow: <b>f(X)</b> · Magenta arrow: <b>R⁻¹ f(R·X)</b> · Gold crosshair: <b>Mass COM</b></span>
+            <span style="color:var(--muted);font-size:12px;">Cyan arrow: <b>Normal move</b> · Red dashed: <b>Rotated &amp; turned back (should match!)</b> · Gold +: <b>Center of mass</b></span>
             <input type="range" id="compFrameSlider" min="0" max="13" value="0" style="width:180px;" oninput="setCompFrame(this.value)">
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
           <div class="card">
-            <h3><span>Tier I 代数对称残差雷达 (-log₁₀ ε)</span></h3>
+            <h3><span>Symmetry Digits of Accuracy (-log10 error)</span></h3>
             <canvas id="canvasRadar" class="chart" width="320" height="190"></canvas>
           </div>
           <div class="card">
-            <h3><span>温度守恒 T(t) 与 PoseBusters ρ_vdW(t)</span></h3>
+            <h3><span>Temperature T(t) &amp; Closest Atom Ratio</span></h3>
             <canvas id="canvasCompTelemetry" class="chart" width="320" height="190"></canvas>
           </div>
         </div>
@@ -291,7 +291,7 @@ STUDIO_HTML = r"""<!DOCTYPE html>
       <div>
         <div class="card">
           <h3>
-            <span>10-Gate 物理合规成绩单 (G1–G10)</span>
+            <span>10 Physics Rules Scorecard (G1-G10)</span>
             <span id="compTiming" style="color:var(--muted);font-size:12px;">--</span>
           </h3>
           <div id="gatesContainer"></div>
@@ -304,13 +304,13 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <div id="ws-rollout" class="workspace">
     <div class="grid-2">
       <div class="card">
-        <h3><span>纯 CPU 快速分子轨迹生成配置</span></h3>
-        <label>内置体系预设 (System Preset)</label>
+        <h3><span>Fast CPU Molecule Simulator</span></h3>
+        <label>Built-in Molecule</label>
         <select id="rollPreset" onchange="if(this.value!=='custom'){document.getElementById('useCustomXyz').checked=false;}">
-          <option value="aspirin">Aspirin (OpenFF-2.2.1 Vacuum, 21 Atoms)</option>
-          <option value="ala2">Alanine Dipeptide (AMBER Vacuum, 22 Atoms)</option>
-          <option value="ethanol">Ethanol CH3CH2OH (9-Atom Pocket Preset)</option>
-          <option value="li_ec_pf6">LiPF6 in EC Periodic Cell (ECC q=0.8)</option>
+          <option value="aspirin">Aspirin (21 Atoms)</option>
+          <option value="ala2">Alanine Dipeptide (22 Atoms)</option>
+          <option value="ethanol">Ethanol CH3CH2OH (9 Atoms)</option>
+          <option value="li_ec_pf6">LiPF6 in EC Battery Box</option>
         </select>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
           <div><label>Frames</label><input type="number" id="rollFrames" value="60" min="15" max="200"></div>
@@ -318,24 +318,24 @@ STUDIO_HTML = r"""<!DOCTYPE html>
           <div><label>Temp (K)</label><input type="number" id="rollTemp" value="300" min="50" max="800"></div>
         </div>
         <label style="margin-top:10px;">
-          <input type="checkbox" id="useCustomXyz"> 使用下方自定义 `.xyz` 分子结构 (自动推断共价键/键角与排斥掩码)
+          <input type="checkbox" id="useCustomXyz"> Use custom `.xyz` coordinates below (bonds are detected automatically)
         </label>
         <textarea id="customXyzInput" rows="10"></textarea>
-        <button class="btn full" onclick="runRolloutLab()">▶ 运行 CPU BAOAB 轨迹 Rollout</button>
-        <button class="btn sec full" onclick="downloadRolloutXyz()">⬇ 下载多帧轨迹 (.xyz)</button>
+        <button class="btn full" onclick="runRolloutLab()">Run Simulation on CPU</button>
+        <button class="btn sec full" onclick="downloadRolloutXyz()">Download Trajectory (.xyz)</button>
       </div>
 
       <div>
         <div class="kpi-grid" id="rollKpis"></div>
         <div class="card">
           <h3>
-            <span id="rollTitle">3D 实时分子轨迹视口</span>
+            <span id="rollTitle">3D Molecule Motion</span>
             <button class="btn sec" onclick="togglePlay('roll')" id="btnPlayRoll">⏸ Play</button>
           </h3>
           <canvas id="canvasRoll3D" class="viewport" width="840" height="350"></canvas>
         </div>
         <div class="card">
-          <h3><span>热力学温度演化 T(t) [K]</span></h3>
+          <h3><span>Temperature Over Time T(t) [K]</span></h3>
           <canvas id="canvasRollChart" class="chart" width="840" height="175"></canvas>
         </div>
       </div>
@@ -346,30 +346,30 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <div id="ws-binding" class="workspace">
     <div class="grid-2">
       <div class="card">
-        <h3><span>蛋白-配体结合构象快速分诊 (OpenBPMD + τ-RAMD)</span></h3>
-        <p style="color:var(--muted);margin-top:0;">在投入 50–200 GPU 小时 RB-FEP 前，用 ~0.5 秒多副本弛豫与 50-fs 脉冲解离探针筛除假阳性对接构象：</p>
-        <label>选择候选对接构象 (Candidate Pose)</label>
+        <h3><span>Fast Drug-in-Pocket Stability Check</span></h3>
+        <p style="color:var(--muted);margin-top:0;">Before spending 50+ GPU hours on a heavy binding calculation, wiggle the drug inside the protein pocket for ~0.5 seconds on CPU to see if it stays put or pops out:</p>
+        <label>Candidate Drug Pose</label>
         <select id="bindPreset">
-          <option value="aspirin_cox_stable">COX-1 + Aspirin · Top-1 Native Anchor Pose (Expected: GO)</option>
-          <option value="aspirin_induced_fit">COX-1 + Aspirin · Tilted Induced-Fit Pose (Expected: HOLD)</option>
-          <option value="aspirin_decoy_clash">COX-1 + Aspirin · 180° Flipped Clash Decoy (Expected: REJECT)</option>
+          <option value="aspirin_cox_stable">COX-1 + Aspirin · Good Crystal Pose (Expected: GO)</option>
+          <option value="aspirin_induced_fit">COX-1 + Aspirin · Slightly Tilted Pose (Expected: HOLD)</option>
+          <option value="aspirin_decoy_clash">COX-1 + Aspirin · 180° Flipped Bad Pose (Expected: REJECT)</option>
         </select>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div><label>Replicas</label><input type="number" id="bindRep" value="3" min="1" max="6"></div>
-          <div><label>Frames / Replica</label><input type="number" id="bindFrames" value="70" min="30" max="140"></div>
+          <div><label>Parallel Runs</label><input type="number" id="bindRep" value="3" min="1" max="6"></div>
+          <div><label>Frames / Run</label><input type="number" id="bindFrames" value="70" min="30" max="140"></div>
         </div>
-        <button class="btn full" onclick="runBindingLab()">▶ 运行口袋结合稳定性与 τ-RAMD 分诊</button>
+        <button class="btn full" onclick="runBindingLab()">Check Pocket Stability</button>
         <div id="bindSummaryBox" style="margin-top:12px;"></div>
       </div>
 
       <div>
         <div class="kpi-grid" id="bindKpis"></div>
         <div class="card">
-          <h3><span>3D 催化口袋与配体动态视口 (Emerald=Ligand, Slate=Pocket)</span></h3>
+          <h3><span>3D Protein Pocket &amp; Drug (Green = Drug, Gray = Protein Pocket)</span></h3>
           <canvas id="canvasBind3D" class="viewport" width="840" height="320"></canvas>
         </div>
         <div class="card">
-          <h3><span>多副本配体 RMSD(t) [Å] 与氢键保持数</span></h3>
+          <h3><span>How Far the Drug Moves (RMSD in Å) &amp; Hydrogen Bonds</span></h3>
           <canvas id="canvasBindChart" class="chart" width="840" height="180"></canvas>
         </div>
       </div>
@@ -380,18 +380,18 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <div id="ws-electrolyte" class="workspace">
     <div class="grid-2">
       <div class="card">
-        <h3><span>锂电电解液配方筛查 (Cluster-NE + Haven 离子性 + CAGS)</span></h3>
-        <p style="color:var(--muted);margin-top:0;">识别中性接触离子对 `[Li⁺·PF₆⁻]⁰` 造成的 Nernst-Einstein 电导率虚高假象，评估新添加剂进壳能力：</p>
-        <label>电解液/添加剂配方预设</label>
+        <h3><span>Lithium Battery Liquid Check</span></h3>
+        <p style="color:var(--muted);margin-top:0;">When Li+ and PF6- stick together as a neutral pair, they move without carrying electric current! Cluster conductivity (`sigma_cNE`) filters out neutral pairs so we measure real current:</p>
+        <label>Battery Liquid Recipe</label>
         <select id="elecPreset">
-          <option value="li_ec_fec_additive">1.0M LiPF6 in EC/DMC + 10% FEC (Fast Transport + SEI -> GO)</option>
-          <option value="li_ec_base">1.0M LiPF6 in EC Baseline Carbonate</option>
-          <option value="li_ec_vc_additive">1.0M LiPF6 in EC + High-wt% VC (Viscous -> HOLD)</option>
-          <option value="li_high_salt_agg">Low-Donor / Strong-Pairing Neutral CIP/AGG Mirage (-> REJECT)</option>
+          <option value="li_ec_fec_additive">1.0M LiPF6 in EC/DMC + 10% FEC (Fast Ions -> GO)</option>
+          <option value="li_ec_base">1.0M LiPF6 in EC Baseline</option>
+          <option value="li_ec_vc_additive">1.0M LiPF6 in EC + High VC (Slow &amp; Thick -> HOLD)</option>
+          <option value="li_high_salt_agg">Stuck Neutral Ion Pairs (Fake Naive Conductivity -> REJECT)</option>
         </select>
-        <label>采样帧数 (Frames)</label>
+        <label>Simulation Frames</label>
         <input type="number" id="elecFrames" value="90" min="40" max="180">
-        <button class="btn full" onclick="runElectrolyteLab()">▶ 运行周期性溶剂化盒与 Cluster-NE 评测</button>
+        <button class="btn full" onclick="runElectrolyteLab()">Run Battery Box Simulation</button>
         <div id="elecSummaryBox" style="margin-top:12px;"></div>
       </div>
 
@@ -399,17 +399,23 @@ STUDIO_HTML = r"""<!DOCTYPE html>
         <div class="kpi-grid" id="elecKpis"></div>
         <div style="display:grid;grid-template-columns:1.15fr 1fr;gap:14px;">
           <div class="card">
-            <h3><span>3D 周期性电解液盒 (Purple=Li⁺, Amber=PF₆⁻, Cyan=Additive)</span></h3>
+            <h3><span>3D Battery Box (Purple=Li+, Gold=PF6-, Cyan=Additive)</span></h3>
             <canvas id="canvasElec3D" class="viewport" width="460" height="270"></canvas>
           </div>
           <div class="card">
-            <h3><span>Li⁺-O 径向分布 g(r) 与均方位移 MSD(t)</span></h3>
+            <h3><span>Li+ Neighbor Shell Peak g(r)</span></h3>
             <canvas id="canvasElecChart" class="chart" width="400" height="270" style="height:270px;"></canvas>
           </div>
         </div>
 
         <div class="card">
-          <h3><span>1,000k 未知化学空间漏斗 · Top 候选溶剂化壳层精细物种分析 (SSIP / CIP / AGG-I / AGG-net)</span></h3>
+          <h3><span>CALiSol-23 Real Lab Conductivity vs. WignerFlow MD Trajectory Conductivity (Unseen Recipes)</span></h3>
+          <p style="color:var(--muted);margin-top:0;">Raw unaligned MD (`sigma_raw_ne`, R² = -0.61) fails because a small box drags ions down while neutral pairs get over-counted. Post-training + physics fixes (`WignerFlow-Align`, R² = 0.72 across 2,752 unseen recipes) recovers real lab conductivity:</p>
+          <table class="bench" id="calisolParityTable"></table>
+        </div>
+
+        <div class="card">
+          <h3><span>1,000,000-Recipe Screen · Top Candidates &amp; Li+ Shell Breakdown (Free Ions vs Stuck Pairs)</span></h3>
           <table class="bench" id="solvationTable"></table>
         </div>
       </div>
@@ -419,17 +425,17 @@ STUDIO_HTML = r"""<!DOCTYPE html>
   <!-- ======================= WORKSPACE 5: UNIFIED BENCHMARKS ======================= -->
   <div id="ws-benchmarks" class="workspace">
     <div class="card">
-      <h3><span>Pure-MD 公开量子轨迹粗步长基准 · MD17-CCSD(T), MD17 & 60-Atom MD22 AT-AT DNA Base Pair (500 K)</span></h3>
+      <h3><span>Big Time-Step Test (10 fs &amp; 20 fs Jumps) · Quantum Molecules &amp; 60-Atom DNA Pair at 500 K</span></h3>
       <table class="bench" id="md17Table"></table>
     </div>
     <div class="grid-2">
       <div class="card">
-        <h3><span>CALiSol-23 实验锂电电导率对齐 (46 组公开实验配方后训练前后对比)</span></h3>
+        <h3><span>CALiSol-23 Battery Conductivity Summary (72 3D Rollouts &amp; 2,752 Unseen Lab Measurements)</span></h3>
         <div class="kpi-grid" id="calisolKpis"></div>
         <table class="bench" id="calisolBoxTable"></table>
       </div>
       <div class="card">
-        <h3><span>公开 MD 数据集一键接入目录 (`scripts/import_md.py`)</span></h3>
+        <h3><span>Public MD Datasets You Can Import in One Command (`scripts/import_md.py`)</span></h3>
         <table class="bench" id="datasetTable"></table>
       </div>
     </div>
@@ -738,7 +744,7 @@ async function runCompliance() {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
   const data = await r.json();
-  btn.textContent = '▶ 运行 PyTorch 10 项物理合规审计';
+  btn.textContent = 'Run 10-Rule Physics Check';
   STATE.compData = data;
   STATE.frameIdx.comp = 0;
   const sl = document.getElementById('compFrameSlider');
@@ -953,15 +959,33 @@ function populateBenchmarks(ov) {
 
   const cal = b.calisol23_alignment;
   document.getElementById('calisolKpis').innerHTML = [
-    ['Formulations', cal.n_formulations],
-    ['Spearman ρ (Before→After)', `${cal.unaligned_spearman_rho} → ${cal.aligned_spearman_rho}`],
-    ['Conductivity MAE', `${cal.unaligned_mae_mS_cm} → ${cal.aligned_mae_mS_cm} mS/cm`],
-    ['Aligned R²', cal.aligned_r2]
+    ['Unseen Lab Tests', `${cal.n_formulations} 3D / ${cal.n_heldout_total} Total`],
+    ['Rank Order (Before -> After)', `${cal.unaligned_spearman_rho} -> ${cal.aligned_spearman_rho}`],
+    ['Avg Error MAE (Before -> After)', `${cal.unaligned_mae_mS_cm} -> ${cal.aligned_mae_mS_cm} mS/cm`],
+    ['R² Fit (Raw -> Aligned)', `${cal.unaligned_r2} -> ${cal.aligned_r2}`]
   ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
 
   document.getElementById('calisolBoxTable').innerHTML = `
-    <thead><tr><th>Periodic Box Atoms</th><th>Box L (Å)</th><th>WignerFlow CPU Triage</th><th>Speedup vs 12h H200 OpenMM</th></tr></thead>
-    <tbody>${cal.box_scaling.map(x => `<tr><td>${x.atoms}</td><td>${x.box_A}</td><td><b>${x.cpu_wall_s} s</b></td><td><span class="pill PASS">${x.speedup_vs_h200_12h}</span></td></tr>`).join('')}</tbody>`;
+    <thead><tr><th>Box Atoms</th><th>Box Size L (Å)</th><th>CPU 50-Step Time</th><th>H200 200-ps Time</th><th>Speedup vs 12h H200 OpenMM</th></tr></thead>
+    <tbody>${cal.box_scaling.map(x => `<tr><td>${x.atoms}</td><td>${x.box_A}</td><td>${x.cpu_wall_s} s</td><td><b>${x.h200_s} s</b></td><td><span class="pill PASS">${x.speedup_vs_h200_12h}</span></td></tr>`).join('')}</tbody>`;
+
+  if (cal.parity_samples && document.getElementById('calisolParityTable')) {
+    document.getElementById('calisolParityTable').innerHTML = `
+      <thead><tr><th>Salt + Solvents</th><th>Conc (M)</th><th>Temp (K)</th><th>CALiSol-23 Lab (mS/cm)</th><th>Raw WignerFlow MD (mS/cm)</th><th>WignerFlow-Align MD (mS/cm)</th><th>Aligned Error</th></tr></thead>
+      <tbody>${cal.parity_samples.map(p => {
+        const err = (p.sigma_aligned - p.sigma_exp).toFixed(2);
+        const sign = Number(err) >= 0 ? '+' : '';
+        return `<tr>
+          <td><b>${p.salt}</b> in ${p.solvents}</td>
+          <td>${p.c_M.toFixed(2)}</td>
+          <td>${p.T_K.toFixed(1)}</td>
+          <td><b>${p.sigma_exp.toFixed(2)}</b></td>
+          <td style="color:#fda4af;">${p.sigma_raw_ne.toFixed(2)}</td>
+          <td style="color:#6ee7b7;font-weight:700;">${p.sigma_aligned.toFixed(2)}</td>
+          <td><code>${sign}${err}</code></td>
+        </tr>`;
+      }).join('')}</tbody>`;
+  }
 
   document.getElementById('solvationTable').innerHTML = `
     <thead><tr><th>Rank</th><th>Formulation</th><th>σ_298K</th><th>σ_253K</th><th>Speciation (SSIP / CIP / AGG-I / AGG-net)</th><th>τ_ex (ps)</th><th>Readiness</th><th>Regime</th></tr></thead>
