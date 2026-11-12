@@ -246,8 +246,9 @@ class _PocketHandler(BaseHTTPRequestHandler):
 
 
 def cmd_serve(args):
-    srv = ThreadingHTTPServer((args.host, args.port), _PocketHandler)
-    print(f"PocketMD Calculator running at http://{args.host}:{args.port}  (Ctrl+C to stop)")
+    from equitraj.studio import create_studio_server
+    srv = create_studio_server(args.host, args.port)
+    print(f"WignerFlow Studio running at http://{args.host}:{args.port}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
