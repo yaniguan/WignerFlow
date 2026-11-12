@@ -253,7 +253,8 @@ def compute_bipartite_ion_speciation(
         n_unvisited_a = int(np.sum(~visited_a))
         if n_unvisited_a > 0:
             max_comp_ions = max(max_comp_ions, 1)
-            # Anions diffuse ~1.25x faster than solvated Li+ in standard carbonate/ester media
+            # Model assumption (not fitted to data): free anions get a relative mobility
+            # weight of 1.25 versus solvated Li+.
             cne_num_sigma += n_unvisited_a * 1.25
         ne_denom += n_cat * 1.0 + n_an * 1.25
         p_inf_acc += max_comp_ions / float(n_cat + n_an)
