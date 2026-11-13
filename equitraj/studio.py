@@ -1,9 +1,4 @@
-"""WignerFlow Studio: Interactive Web Evaluation Workbench & Equivariant Physics Compliance Lab.
-
-Provides a zero-external-dependency HTTP/JSON server (`ThreadingHTTPServer`) paired with a rich
-5-workspace browser application for interactively testing all WignerFlow capabilities and
-verifying fundamental equivariant MD physical laws (`G1`–`G10` + `F1`–`F10` fault injection).
-"""
+"""WignerFlow Studio: Minimalist web interface and HTTP API for equivariant MD evaluation."""
 
 from __future__ import annotations
 
@@ -47,476 +42,991 @@ STUDIO_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WignerFlow Studio - Physics Check & Molecule Simulator</title>
+<title>WignerFlow Studio</title>
 <style>
   :root {
-    --bg: #0b1120;
-    --panel: #111827;
-    --card: #172033;
-    --border: #283548;
-    --fg: #f1f5f9;
-    --muted: #94a3b8;
-    --primary: #3b82f6;
-    --cyan: #06b6d4;
-    --emerald: #10b981;
-    --amber: #f59e0b;
-    --rose: #f43f5e;
-    --purple: #a855f7;
+    --bg: #FAF9F6;
+    --surface: #FFFFFF;
+    --well: #F3F2EE;
+    --well-hover: #EAE8E2;
+    --border: rgba(20, 20, 19, 0.08);
+    --border-strong: rgba(20, 20, 19, 0.16);
+    --ink: #141413;
+    --ink-2: #5E5D59;
+    --ink-3: #8C8B85;
+    --pass: #15803D;
+    --pass-bg: #EEFBF3;
+    --hold: #B45309;
+    --hold-bg: #FEF7EC;
+    --fail: #B91C1C;
+    --fail-bg: #FEF2F2;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --shadow: 0 1px 2px rgba(20, 20, 19, 0.03), 0 4px 16px rgba(20, 20, 19, 0.02);
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 13px;
-    line-height: 1.45;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
   }
-  .topbar {
+  code, .mono {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
+    font-size: 12.5px;
+  }
+
+  /* Header */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: rgba(250, 249, 246, 0.86);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 1160px;
+    margin: 0 auto;
+    height: 64px;
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.015em;
+  }
+  .brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--ink);
+    color: #fff;
+    display: grid;
+    place-items: center;
+  }
+  .brand-sub { color: var(--ink-3); font-weight: 400; margin-left: 2px; }
+
+  .seg-nav {
+    display: inline-flex;
+    background: var(--well);
+    padding: 3px;
+    border-radius: 999px;
+    gap: 2px;
+  }
+  .seg-btn {
+    border: 0;
+    background: transparent;
+    color: var(--ink-2);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 15px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .seg-btn:hover { color: var(--ink); }
+  .seg-btn.active {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .engine-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--pass);
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .dot.HOLD, .dot.WARN { background: var(--hold); }
+  .dot.REJECT, .dot.FAIL { background: var(--fail); }
+
+  /* Layout */
+  .page {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 36px 32px 80px;
+  }
+  .view { display: none; }
+  .view.active { display: block; animation: fadeIn 0.18s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+
+  .hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .hero h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.028em;
+    line-height: 1.18;
+  }
+  .hero p {
+    margin: 6px 0 0;
+    color: var(--ink-2);
+    font-size: 14.5px;
+    max-width: 600px;
+  }
+
+  /* Controls & Buttons */
+  .toolbar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 15px 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 150px; }
+  .field.compact { flex: 0 0 auto; min-width: 108px; }
+  .field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  input[type="checkbox"] {
+    accent-color: var(--ink);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+  select, input[type="number"], textarea {
+    width: 100%;
+    height: 36px;
+    background-color: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: 0 11px;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%235E5D59' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    cursor: pointer;
+  }
+  select:focus, input[type="number"]:focus, textarea:focus {
+    border-color: var(--ink);
+    background-color: var(--surface);
+  }
+  textarea {
+    height: auto;
+    padding: 10px 12px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .btn {
+    height: 36px;
+    padding: 0 18px;
+    border-radius: 999px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    white-space: nowrap;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  .btn:hover { opacity: 0.86; }
+  .btn.ghost {
+    background: var(--surface);
+    color: var(--ink);
+    border-color: var(--border-strong);
+  }
+  .btn.ghost:hover { background: var(--well); opacity: 1; }
+  .btn.sm { height: 30px; padding: 0 12px; font-size: 12px; }
+
+  /* Cards & Grids */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    box-shadow: var(--shadow);
+  }
+  .card-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 20px;
-    background: #0f172a;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .card-meta { font-size: 12.5px; color: var(--ink-3); }
+
+  .split-physics {
+    display: grid;
+    grid-template-columns: 1.12fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  .split-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 960px) {
+    .split-physics, .split-2 { grid-template-columns: 1fr; }
+    .nav-inner { height: auto; padding: 12px 20px; flex-wrap: wrap; }
+    .page { padding: 24px 20px 60px; }
+  }
+
+  /* 3D Stage */
+  .stage-wrap {
+    position: relative;
+    background: var(--well);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  canvas.stage {
+    width: 100%;
+    height: 360px;
+    display: block;
+    cursor: grab;
+  }
+  canvas.stage:active { cursor: grabbing; }
+  .stage-overlay {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .stage-pill {
+    pointer-events: auto;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: var(--ink-2);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Status Badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--pass-bg);
+    color: var(--pass);
+  }
+  .badge.HOLD, .badge.WARN { background: var(--hold-bg); color: var(--hold); }
+  .badge.REJECT, .badge.FAIL { background: var(--fail-bg); color: var(--fail); }
+
+  /* 10-Gate Minimalist Audit List */
+  .gate-list {
+    border-top: 1px solid var(--border);
+  }
+  .gate-item {
     border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    flex-wrap: wrap;
+    padding: 11px 4px;
+    cursor: pointer;
+    transition: background 0.12s;
   }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand-logo {
-    width: 34px; height: 34px; border-radius: 9px;
-    background: linear-gradient(135deg, #2563eb, #06b6d4);
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 16px; color: #fff;
+  .gate-item:hover { background: rgba(20, 20, 19, 0.018); }
+  .gate-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-  .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
-  .brand .sub { color: var(--muted); font-size: 12px; }
-  .top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 5px 11px; border-radius: 999px; font-weight: 700; font-size: 12px;
-    border: 1px solid var(--border); background: var(--card);
+  .gate-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
   }
-  .pill.GO, .pill.PASS { background: rgba(16,185,129,0.16); color: #6ee7b7; border-color: rgba(16,185,129,0.45); }
-  .pill.HOLD, .pill.WARN { background: rgba(245,158,11,0.16); color: #fcd34d; border-color: rgba(245,158,11,0.45); }
-  .pill.REJECT, .pill.FAIL { background: rgba(244,63,94,0.18); color: #fda4af; border-color: rgba(244,63,94,0.5); }
-  .tabs {
-    display: flex; gap: 6px; padding: 10px 20px; background: #0d1526;
-    border-bottom: 1px solid var(--border); overflow-x: auto;
+  .gate-code {
+    color: var(--ink-3);
+    font-size: 12px;
+    width: 26px;
+    flex-shrink: 0;
   }
-  .tab-btn {
-    background: transparent; color: var(--muted); border: 1px solid transparent;
-    padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px;
-    white-space: nowrap; transition: all 0.15s;
+  .gate-name {
+    font-weight: 500;
+    font-size: 13.5px;
+    color: var(--ink);
   }
-  .tab-btn:hover { color: var(--fg); background: rgba(255,255,255,0.04); }
-  .tab-btn.active {
-    color: #fff; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.55);
+  .gate-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
   }
-  .container { max-width: 1560px; margin: 0 auto; padding: 16px 20px 36px; }
-  .workspace { display: none; }
-  .workspace.active { display: block; }
-  .grid-3 { display: grid; grid-template-columns: 330px minmax(420px, 1fr) 470px; gap: 14px; align-items: start; }
-  .grid-2 { display: grid; grid-template-columns: 360px 1fr; gap: 14px; align-items: start; }
-  @media (max-width: 1260px) {
-    .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .gate-val { color: var(--ink-2); }
+  .gate-state {
+    font-size: 12px;
+    font-weight: 500;
+    width: 38px;
+    text-align: right;
+    color: var(--pass);
   }
-  .card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 12px; padding: 14px; margin-bottom: 14px;
+  .gate-state.FAIL { color: var(--fail); }
+  .gate-state.WARN { color: var(--hold); }
+  .gate-drawer {
+    display: none;
+    padding: 8px 0 2px 36px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    line-height: 1.5;
   }
-  .card h3 { margin: 0 0 8px 0; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; font-weight: 600; }
-  select, input[type="number"], input[type="text"], textarea {
-    width: 100%; background: #0b1120; color: var(--fg); border: 1px solid var(--border);
-    border-radius: 7px; padding: 7px 9px; font-size: 12px; font-family: inherit;
+  .gate-item.open .gate-drawer { display: block; }
+
+  /* Metrics Strip */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
   }
-  textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; }
-  input[type="range"] { width: 100%; accent-color: var(--primary); }
-  .btn {
-    background: var(--primary); color: #fff; border: 0; border-radius: 8px;
-    padding: 8px 13px; cursor: pointer; font-weight: 600; font-size: 12px;
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  @media (max-width: 760px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
   }
-  .btn:hover { filter: brightness(1.08); }
-  .btn.sec { background: #263349; color: #e2e8f0; border: 1px solid #364763; }
-  .btn.full { width: 100%; margin-top: 10px; padding: 10px; font-size: 13px; }
-  .fault-list { display: flex; flex-direction: column; gap: 5px; max-height: 330px; overflow-y: auto; padding-right: 3px; }
-  .fault-item {
-    padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border);
-    background: #0e1627; cursor: pointer; transition: all 0.12s;
+  .stat-label { font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
+  .stat-value { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .stat-note { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+
+  /* Minimalist Charts */
+  canvas.plot {
+    width: 100%;
+    height: 180px;
+    display: block;
   }
-  .fault-item:hover { border-color: #475569; }
-  .fault-item.active { border-color: var(--rose); background: rgba(244,63,94,0.13); }
-  .fault-item.clean.active { border-color: var(--emerald); background: rgba(16,185,129,0.13); }
-  .fault-title { font-weight: 700; font-size: 12px; }
-  .fault-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  canvas.viewport {
-    width: 100%; height: 340px; background: radial-gradient(circle at 50% 42%, #17233a 0%, #090e1a 100%);
-    border-radius: 10px; border: 1px solid var(--border); cursor: grab; display: block;
+
+  /* Clean Editorial Tables */
+  .table-wrap { overflow-x: auto; }
+  table.clean {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
   }
-  canvas.chart {
-    width: 100%; height: 185px; background: #0b1120;
-    border-radius: 9px; border: 1px solid var(--border); display: block;
+  table.clean th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--ink-3);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
   }
-  .gate-row {
-    padding: 9px 10px; border-radius: 9px; border: 1px solid var(--border);
-    background: #0e1627; margin-bottom: 7px;
+  table.clean td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink);
+    white-space: nowrap;
   }
-  .gate-row.FAIL { border-color: rgba(244,63,94,0.65); background: rgba(127,29,29,0.18); }
-  .gate-row.WARN { border-color: rgba(245,158,11,0.55); background: rgba(120,53,15,0.16); }
-  .gate-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .gate-id { font-family: ui-monospace, monospace; font-weight: 800; color: #93c5fd; }
-  .gate-meta { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: ui-monospace, monospace; }
-  .gate-cite { font-size: 12px; color: #64748b; margin-top: 2px; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .kpi { background: #0e1627; border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; }
-  .kpi .k { font-size: 12px; color: var(--muted); }
-  .kpi .v { font-size: 16px; font-weight: 800; margin-top: 2px; font-family: ui-monospace, monospace; }
-  table.bench { width: 100%; border-collapse: collapse; font-size: 12px; }
-  table.bench th, table.bench td { padding: 8px 9px; border-bottom: 1px solid var(--border); text-align: left; }
-  table.bench th { color: var(--muted); font-weight: 600; background: #0e1627; }
-  .bar-stack { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #0b1120; min-width: 140px; }
-  .row-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  table.clean tr:last-child td { border-bottom: 0; }
+  table.clean .num { text-align: right; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  table.clean th.num { font-family: inherit; font-size: 12px; }
+  .muted { color: var(--ink-2); }
+  .subtle { color: var(--ink-3); }
+
+  /* Segmented Bar for Solvation */
+  .spec-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--well);
+    gap: 2px;
+  }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand">
-    <div class="brand-logo">WF</div>
-    <div>
-      <h1>WignerFlow Studio · Physics Rules & Fast Molecule Simulator</h1>
-      <div class="sub" id="runtimeInfo">Connecting to live PyTorch CPU engine...</div>
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 11.5L5.5 4.5L8 9.5L10.5 4.5L13.5 11.5" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <span>WignerFlow <span class="brand-sub">Studio</span></span>
+    </div>
+
+    <nav class="seg-nav">
+      <button class="seg-btn active" onclick="openView('physics', this)">Physics</button>
+      <button class="seg-btn" onclick="openView('simulate', this)">Simulate</button>
+      <button class="seg-btn" onclick="openView('binding', this)">Drug Triage</button>
+      <button class="seg-btn" onclick="openView('electrolyte', this)">Electrolytes</button>
+      <button class="seg-btn" onclick="openView('benchmarks', this)">Benchmarks</button>
+    </nav>
+
+    <div class="nav-right">
+      <span class="engine-status" id="runtimeBadge"><span class="dot"></span>Connecting...</span>
+      <button class="btn ghost sm" onclick="exportSessionJson()">Export JSON</button>
     </div>
   </div>
-  <div class="top-actions">
-    <span class="pill GO" id="globalVerdict">GO · 10/10 GATES PASS</span>
-    <button class="btn sec" onclick="exportSessionJson()">Download Report (.json)</button>
-  </div>
-</div>
+</header>
 
-<div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('compliance', this)">1. Physics Rules Check (G1-G10)</button>
-  <button class="tab-btn" onclick="switchTab('rollout', this)">2. Molecule Simulator (3D & Custom .xyz)</button>
-  <button class="tab-btn" onclick="switchTab('binding', this)">3. Drug Pocket Check</button>
-  <button class="tab-btn" onclick="switchTab('electrolyte', this)">4. Battery Electrolytes & CALiSol-23</button>
-  <button class="tab-btn" onclick="switchTab('benchmarks', this)">5. All Benchmark Numbers</button>
-</div>
+<main class="page">
 
-<div class="container">
-  <!-- ======================= WORKSPACE 1: EQUIVARIANT & PHYSICS COMPLIANCE ======================= -->
-  <div id="ws-compliance" class="workspace active">
-    <div class="grid-3">
-      <!-- Left: Controls + F1..F10 Chaos Drawer -->
+  <!-- ======================= 1. PHYSICS ======================= -->
+  <section id="view-physics" class="view active">
+    <div class="hero">
       <div>
-        <div class="card">
-          <h3><span>Test Setup</span></h3>
-          <label>Model to Check</label>
-          <select id="compTarget">
-            <option value="argon_flow_v1">Liquid Argon Flow v1 (Trained Model, 256 Atoms)</option>
-            <option value="aspirin_hetero_o3">Aspirin O(3) Model (C/H/O + Charges + Bonds)</option>
-            <option value="aspirin_chiral_so3">Aspirin Rotation-Only Control (parity=False, Fails G2 Mirror Flip!)</option>
-            <option value="argon_flow_v0">Liquid Argon Flow v0 (Early Baseline)</option>
-          </select>
+        <div class="eyebrow">Equivariance &amp; Conservation</div>
+        <h1>Physical Compliance</h1>
+        <p>Ten live PyTorch tests verifying 3D rotation, mirror parity, momentum conservation, steric clearance, and rollout stability.</p>
+      </div>
+      <div id="physicsHeroBadge" class="badge"><span class="dot"></span>10 / 10 Passed</div>
+    </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+    <div class="toolbar">
+      <div class="field" style="min-width:230px;">
+        <label>Model</label>
+        <select id="compTarget" onchange="runCompliance()">
+          <option value="aspirin_hetero_o3" selected>Aspirin O(3) Flow (C, H, O + charges + bonds)</option>
+          <option value="argon_flow_v1">Liquid Argon Flow v1 (256 atoms, trained)</option>
+          <option value="aspirin_chiral_so3">Aspirin SO(3)-Only Control (breaks mirror parity)</option>
+          <option value="argon_flow_v0">Liquid Argon Flow v0 (early baseline)</option>
+        </select>
+      </div>
+
+      <div class="field compact">
+        <label>Precision</label>
+        <select id="compPrec" onchange="runCompliance()">
+          <option value="float64" selected>FP64</option>
+          <option value="float32">FP32</option>
+        </select>
+      </div>
+
+      <div class="field" style="min-width:240px;">
+        <label>Fault Injection (Falsifiability Test)</label>
+        <select id="compFault" onchange="runCompliance()"></select>
+      </div>
+
+      <div class="field compact">
+        <label>Rotation Test</label>
+        <button class="btn ghost" onclick="randomizeEuler()" id="eulerBtn" title="Test a new random 3D rotation">37°, 64°, 118°</button>
+      </div>
+
+      <button class="btn" id="btnRunComp" onclick="runCompliance()">Run Check</button>
+    </div>
+
+    <div class="split-physics">
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div class="card" style="padding:18px;">
+          <div class="card-head" style="margin-bottom:12px;">
             <div>
-              <label>Math Precision</label>
-              <select id="compPrec">
-                <option value="float32">float32 (Normal Speed)</option>
-                <option value="float64">float64 (High Precision)</option>
-              </select>
+              <h3 class="card-title">Equivariance Vector Overlay</h3>
+              <div class="card-meta">Compares direct prediction f(X) against rotated twin R⁻¹f(RX)</div>
             </div>
-            <div>
-              <label>Rollout Steps</label>
-              <input type="number" id="compSteps" value="14" min="8" max="40">
+            <label style="font-size:12.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="chkTwinVec" checked onchange="drawComp3D()"> Twin arrows
+            </label>
+          </div>
+
+          <div class="stage-wrap">
+            <canvas id="canvasComp3D" class="stage" data-w="620" data-h="360"></canvas>
+            <div class="stage-overlay">
+              <div class="stage-pill">
+                <span><b style="color:#141413;">—</b> Direct f(X)</span>
+                <span><b style="color:#D97706;">- -</b> Rotated R⁻¹f(RX)</span>
+              </div>
+              <button class="stage-pill" style="cursor:pointer;" onclick="resetCam('comp', drawComp3D)">Reset view</button>
             </div>
           </div>
-
-          <label>3D Rotation Angles (alpha=<span id="lblA">37</span>°, beta=<span id="lblB">64</span>°, gamma=<span id="lblG">118</span>°)</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
-            <input type="range" id="angA" min="0" max="360" value="37" oninput="document.getElementById('lblA').textContent=this.value">
-            <input type="range" id="angB" min="0" max="360" value="64" oninput="document.getElementById('lblB').textContent=this.value">
-            <input type="range" id="angG" min="0" max="360" value="118" oninput="document.getElementById('lblG').textContent=this.value">
-          </div>
-          <div class="row-inline" style="margin-top:6px;">
-            <button class="btn sec" style="flex:1;" onclick="randomizeEuler()">Pick Random 3D Rotation</button>
-          </div>
-          <button class="btn full" id="btnRunComp" onclick="runCompliance()">Run 10-Rule Physics Check</button>
         </div>
 
         <div class="card">
-          <h3><span>Break-a-Rule Test Switches (F1-F10)</span></h3>
-          <div style="color:var(--muted);font-size:12px;margin-bottom:8px;">Click any bug below to intentionally break one physics rule and watch the matching gate turn red:</div>
-          <div class="fault-list" id="faultList"></div>
+          <div class="card-head">
+            <h3 class="card-title">Algebraic Precision (-log₁₀ error)</h3>
+            <span class="card-meta">Digits of exact symmetry</span>
+          </div>
+          <canvas id="canvasDigits" class="plot" data-w="560" data-h="154" style="height:154px;"></canvas>
         </div>
       </div>
 
-      <!-- Center: 3D Twin Symmetry & Rollout Viewport + Radar + Telemetry -->
-      <div>
-        <div class="card">
-          <h3>
-            <span>3D Rotation Arrow Check · <span id="comp3dTitle" style="color:var(--cyan);">Drag to Rotate / Scroll to Zoom</span></span>
-            <span class="row-inline">
-              <button class="btn sec" onclick="togglePlay('comp')" id="btnPlayComp">⏸ Play</button>
-              <label style="margin:0;display:inline-flex;align-items:center;gap:4px;">
-                <input type="checkbox" id="chkTwinVec" checked onchange="drawComp3D()"> Show Rotated vs Unrotated Arrows
-              </label>
-            </span>
-          </h3>
-          <canvas id="canvasComp3D" class="viewport" width="680" height="340"></canvas>
-          <div class="row-inline" style="margin-top:8px;justify-content:space-between;">
-            <span style="color:var(--muted);font-size:12px;">Cyan arrow: <b>Normal move</b> · Red dashed: <b>Rotated &amp; turned back (should match!)</b> · Gold +: <b>Center of mass</b></span>
-            <input type="range" id="compFrameSlider" min="0" max="13" value="0" style="width:180px;" oninput="setCompFrame(this.value)">
+      <div class="card">
+        <div class="card-head">
+          <h3 class="card-title">Ten-Gate Audit</h3>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="card-meta" id="compTiming">—</span>
+            <button class="btn ghost sm" onclick="toggleAllGates()" id="btnExpandAll">Details</button>
           </div>
         </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-          <div class="card">
-            <h3><span>Symmetry Digits of Accuracy (-log10 error)</span></h3>
-            <canvas id="canvasRadar" class="chart" width="320" height="190"></canvas>
-          </div>
-          <div class="card">
-            <h3><span>Temperature T(t) &amp; Closest Atom Ratio</span></h3>
-            <canvas id="canvasCompTelemetry" class="chart" width="320" height="190"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: 10-Gate Compliance Scorecard -->
-      <div>
-        <div class="card">
-          <h3>
-            <span>10 Physics Rules Scorecard (G1-G10)</span>
-            <span id="compTiming" style="color:var(--muted);font-size:12px;">--</span>
-          </h3>
-          <div id="gatesContainer"></div>
-        </div>
+        <div class="gate-list" id="gatesContainer"></div>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ======================= WORKSPACE 2: STANDALONE & CUSTOM XYZ ROLLOUT ======================= -->
-  <div id="ws-rollout" class="workspace">
-    <div class="grid-2">
-      <div class="card">
-        <h3><span>Fast CPU Molecule Simulator</span></h3>
-        <label>Built-in Molecule</label>
-        <select id="rollPreset" onchange="if(this.value!=='custom'){document.getElementById('useCustomXyz').checked=false;}">
-          <option value="aspirin">Aspirin (21 Atoms)</option>
-          <option value="ala2">Alanine Dipeptide (22 Atoms)</option>
-          <option value="ethanol">Ethanol CH3CH2OH (9 Atoms)</option>
-          <option value="li_ec_pf6">LiPF6 in EC Battery Box</option>
+  <!-- ======================= 2. SIMULATE ======================= -->
+  <section id="view-simulate" class="view">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Interactive Trajectory</div>
+        <h1>Molecular Rollout</h1>
+        <p>Generate and inspect 3D Langevin trajectories on CPU from built-in systems or custom XYZ coordinates.</p>
+      </div>
+      <button class="btn ghost" onclick="downloadRolloutXyz()">Download .xyz</button>
+    </div>
+
+    <div class="toolbar">
+      <div class="field" style="min-width:210px;">
+        <label>System</label>
+        <select id="rollPreset" onchange="onRollPresetChange()">
+          <option value="aspirin">Aspirin (21 atoms)</option>
+          <option value="ala2">Alanine Dipeptide (22 atoms)</option>
+          <option value="ethanol">Ethanol (9 atoms)</option>
+          <option value="li_ec_pf6">LiPF6 in EC (periodic cell)</option>
+          <option value="custom">Custom XYZ coordinates...</option>
         </select>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-          <div><label>Frames</label><input type="number" id="rollFrames" value="60" min="15" max="200"></div>
-          <div><label>dt (fs)</label><input type="number" id="rollDt" value="1.5" step="0.25" min="0.25" max="4.0"></div>
-          <div><label>Temp (K)</label><input type="number" id="rollTemp" value="300" min="50" max="800"></div>
+      </div>
+      <div class="field compact">
+        <label>Frames</label>
+        <input type="number" id="rollFrames" value="60" min="15" max="200">
+      </div>
+      <div class="field compact">
+        <label>Step (fs)</label>
+        <input type="number" id="rollDt" value="1.5" step="0.25" min="0.25" max="4.0">
+      </div>
+      <div class="field compact">
+        <label>Temperature (K)</label>
+        <input type="number" id="rollTemp" value="300" min="50" max="800">
+      </div>
+      <button class="btn" onclick="runRolloutLab()">Simulate</button>
+    </div>
+
+    <div id="xyzDrawer" class="card" style="display:none;margin-bottom:24px;">
+      <div class="card-head">
+        <h3 class="card-title">Custom XYZ Structure</h3>
+        <span class="card-meta">Covalent bonds and angles are inferred automatically</span>
+      </div>
+      <textarea id="customXyzInput" rows="7"></textarea>
+    </div>
+
+    <div class="stats-row" id="rollStats"></div>
+
+    <div class="split-physics">
+      <div class="card" style="padding:18px;">
+        <div class="card-head" style="margin-bottom:12px;">
+          <h3 class="card-title" id="rollTitle">Aspirin</h3>
+          <span class="card-meta">Drag to orbit · Scroll to zoom</span>
         </div>
-        <label style="margin-top:10px;">
-          <input type="checkbox" id="useCustomXyz"> Use custom `.xyz` coordinates below (bonds are detected automatically)
-        </label>
-        <textarea id="customXyzInput" rows="10"></textarea>
-        <button class="btn full" onclick="runRolloutLab()">Run Simulation on CPU</button>
-        <button class="btn sec full" onclick="downloadRolloutXyz()">Download Trajectory (.xyz)</button>
+        <div class="stage-wrap">
+          <canvas id="canvasRoll3D" class="stage" width="640" height="360"></canvas>
+          <div class="stage-overlay">
+            <button class="stage-pill" style="cursor:pointer;" id="btnPlayRoll" onclick="togglePlay('roll')">Pause</button>
+            <button class="stage-pill" style="cursor:pointer;" onclick="resetCam('roll', drawRoll3D)">Reset view</button>
+          </div>
+        </div>
       </div>
 
-      <div>
-        <div class="kpi-grid" id="rollKpis"></div>
-        <div class="card">
-          <h3>
-            <span id="rollTitle">3D Molecule Motion</span>
-            <button class="btn sec" onclick="togglePlay('roll')" id="btnPlayRoll">⏸ Play</button>
-          </h3>
-          <canvas id="canvasRoll3D" class="viewport" width="840" height="350"></canvas>
+      <div class="card">
+        <div class="card-head">
+          <h3 class="card-title">Thermal Stability T(t)</h3>
+          <span class="card-meta">Instantaneous kinetic temperature (K)</span>
         </div>
-        <div class="card">
-          <h3><span>Temperature Over Time T(t) [K]</span></h3>
-          <canvas id="canvasRollChart" class="chart" width="840" height="175"></canvas>
-        </div>
+        <canvas id="canvasRollChart" class="plot" width="480" height="330" style="height:330px;"></canvas>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ======================= WORKSPACE 3: DRUG BINDING TRIAGE ======================= -->
-  <div id="ws-binding" class="workspace">
-    <div class="grid-2">
-      <div class="card">
-        <h3><span>Fast Drug-in-Pocket Stability Check</span></h3>
-        <p style="color:var(--muted);margin-top:0;">Before a heavy binding calculation, wiggle the drug inside the protein pocket in a short CPU run to see if it stays put or pops out:</p>
-        <label>Candidate Drug Pose</label>
-        <select id="bindPreset">
-          <option value="aspirin_cox_stable">COX-1 + Aspirin · Good Crystal Pose (Expected: GO)</option>
-          <option value="aspirin_induced_fit">COX-1 + Aspirin · Slightly Tilted Pose (Expected: HOLD)</option>
-          <option value="aspirin_decoy_clash">COX-1 + Aspirin · 180° Flipped Bad Pose (Expected: REJECT)</option>
+  <!-- ======================= 3. DRUG TRIAGE ======================= -->
+  <section id="view-binding" class="view">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Structure-Based Screening</div>
+        <h1>Pocket Stability Triage</h1>
+        <p>Filter docked ligand poses with a short CPU rollout before running expensive free-energy simulations.</p>
+      </div>
+      <div id="bindBadge" class="badge"><span class="dot"></span>Ready</div>
+    </div>
+
+    <div class="toolbar">
+      <div class="field" style="min-width:280px;">
+        <label>Candidate Pose</label>
+        <select id="bindPreset" onchange="runBindingLab()">
+          <option value="aspirin_cox_stable">COX-1 + Aspirin — Native crystal pose</option>
+          <option value="aspirin_induced_fit">COX-1 + Aspirin — Tilted induced-fit pose</option>
+          <option value="aspirin_decoy_clash">COX-1 + Aspirin — Flipped clash decoy</option>
         </select>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div><label>Parallel Runs</label><input type="number" id="bindRep" value="3" min="1" max="6"></div>
-          <div><label>Frames / Run</label><input type="number" id="bindFrames" value="70" min="30" max="140"></div>
+      </div>
+      <div class="field compact">
+        <label>Replicas</label>
+        <input type="number" id="bindRep" value="3" min="1" max="6">
+      </div>
+      <div class="field compact">
+        <label>Frames</label>
+        <input type="number" id="bindFrames" value="70" min="30" max="140">
+      </div>
+      <button class="btn" onclick="runBindingLab()">Evaluate Pose</button>
+    </div>
+
+    <div class="stats-row" id="bindStats"></div>
+
+    <div class="split-physics">
+      <div class="card" style="padding:18px;">
+        <div class="card-head" style="margin-bottom:12px;">
+          <h3 class="card-title">Binding Pocket &amp; Ligand</h3>
+          <span class="card-meta" id="bindSummaryText">—</span>
         </div>
-        <button class="btn full" onclick="runBindingLab()">Check Pocket Stability</button>
-        <div id="bindSummaryBox" style="margin-top:12px;"></div>
+        <div class="stage-wrap">
+          <canvas id="canvasBind3D" class="stage" width="640" height="340"></canvas>
+          <div class="stage-overlay">
+            <div class="stage-pill">
+              <span><b style="color:#15803D;">●</b> Ligand</span>
+              <span><b style="color:#94A3B8;">●</b> Pocket</span>
+            </div>
+            <button class="stage-pill" style="cursor:pointer;" onclick="resetCam('bind', drawBind3D)">Reset view</button>
+          </div>
+        </div>
       </div>
 
-      <div>
-        <div class="kpi-grid" id="bindKpis"></div>
-        <div class="card">
-          <h3><span>3D Protein Pocket &amp; Drug (Green = Drug, Gray = Protein Pocket)</span></h3>
-          <canvas id="canvasBind3D" class="viewport" width="840" height="320"></canvas>
+      <div class="card">
+        <div class="card-head">
+          <h3 class="card-title">Ligand Drift Across Replicas</h3>
+          <span class="card-meta">RMSD (Å) over rollout</span>
         </div>
-        <div class="card">
-          <h3><span>How Far the Drug Moves (RMSD in Å) &amp; Hydrogen Bonds</span></h3>
-          <canvas id="canvasBindChart" class="chart" width="840" height="180"></canvas>
-        </div>
+        <canvas id="canvasBindChart" class="plot" width="480" height="310" style="height:310px;"></canvas>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ======================= WORKSPACE 4: ELECTROLYTE & 1000k SOLVATION ======================= -->
-  <div id="ws-electrolyte" class="workspace">
-    <div class="grid-2">
-      <div class="card">
-        <h3><span>Lithium Battery Liquid Check</span></h3>
-        <p style="color:var(--muted);margin-top:0;">When Li+ and PF6- stick together as a neutral pair, they move without carrying electric current! Cluster conductivity (`sigma_cNE`) filters out neutral pairs so we measure real current:</p>
-        <label>Battery Liquid Recipe</label>
-        <select id="elecPreset">
-          <option value="li_ec_fec_additive">1.0M LiPF6 in EC/DMC + 10% FEC (Fast Ions -> GO)</option>
-          <option value="li_ec_base">1.0M LiPF6 in EC Baseline</option>
-          <option value="li_ec_vc_additive">1.0M LiPF6 in EC + High VC (Slow &amp; Thick -> HOLD)</option>
-          <option value="li_high_salt_agg">Stuck Neutral Ion Pairs (Fake Naive Conductivity -> REJECT)</option>
+  <!-- ======================= 4. ELECTROLYTES ======================= -->
+  <section id="view-electrolyte" class="view">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Battery Transport &amp; Solvation</div>
+        <h1>Electrolyte Screening &amp; CALiSol-23</h1>
+        <p>Separate current-carrying free ions from neutral ion pairs, and compare WignerFlow trajectories against experimental lab conductivity.</p>
+      </div>
+      <div id="elecBadge" class="badge"><span class="dot"></span>Ready</div>
+    </div>
+
+    <div class="toolbar">
+      <div class="field" style="min-width:290px;">
+        <label>Formulation</label>
+        <select id="elecPreset" onchange="runElectrolyteLab()">
+          <option value="li_ec_fec_additive">1.0 M LiPF6 in EC/DMC + 10% FEC</option>
+          <option value="li_ec_base">1.0 M LiPF6 in EC baseline</option>
+          <option value="li_ec_vc_additive">1.0 M LiPF6 in EC + high VC</option>
+          <option value="li_high_salt_agg">High-pairing neutral cluster regime</option>
         </select>
-        <label>Simulation Frames</label>
+      </div>
+      <div class="field compact">
+        <label>Frames</label>
         <input type="number" id="elecFrames" value="90" min="40" max="180">
-        <button class="btn full" onclick="runElectrolyteLab()">Run Battery Box Simulation</button>
-        <div id="elecSummaryBox" style="margin-top:12px;"></div>
+      </div>
+      <button class="btn" onclick="runElectrolyteLab()">Simulate Cell</button>
+    </div>
+
+    <div class="stats-row" id="elecStats"></div>
+
+    <div class="split-2" style="margin-bottom:24px;">
+      <div class="card" style="padding:18px;">
+        <div class="card-head" style="margin-bottom:12px;">
+          <h3 class="card-title">Periodic Solvation Cell</h3>
+          <span class="card-meta">Li+ (violet) · PF6- (ochre) · Solvent (stone)</span>
+        </div>
+        <div class="stage-wrap">
+          <canvas id="canvasElec3D" class="stage" width="520" height="290" style="height:290px;"></canvas>
+        </div>
       </div>
 
-      <div>
-        <div class="kpi-grid" id="elecKpis"></div>
-        <div style="display:grid;grid-template-columns:1.15fr 1fr;gap:14px;">
-          <div class="card">
-            <h3><span>3D Battery Box (Purple=Li+, Gold=PF6-, Cyan=Additive)</span></h3>
-            <canvas id="canvasElec3D" class="viewport" width="460" height="270"></canvas>
-          </div>
-          <div class="card">
-            <h3><span>Li+ Neighbor Shell Peak g(r)</span></h3>
-            <canvas id="canvasElecChart" class="chart" width="400" height="270" style="height:270px;"></canvas>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title">Concentration Curve: LiPF6 in EC:DMC (298 K)</h3>
+            <div class="card-meta" id="calisolCurveMeta">Saved WignerFlow-Align evaluation from results/calisol/</div>
           </div>
         </div>
-
-        <div class="card">
-          <h3><span>CALiSol-23 Lab Conductivity vs. Model (Experimental)</span></h3>
-          <p style="color:var(--muted);margin-top:0;">Numbers come from <code>results/calisol/align_eval_seed42.json</code>. Raw rollouts of small toy boxes do not predict conductivity; most of the accuracy comes from the Stage 2 aligner, which on the full test set uses recipe descriptors only. See <code>docs/CALISOL_ALIGNMENT.md</code>.</p>
-          <div class="kpi-grid" id="calisolKpisElec"></div>
-        </div>
-
-        <div class="card">
-          <h3><span>1,000,000-Recipe Screen · Top Recipes &amp; Li+ Shell Breakdown (toy model output, not lab-tested)</span></h3>
-          <table class="bench" id="solvationTable"></table>
-        </div>
+        <canvas id="canvasParity" class="plot" data-w="500" data-h="245" style="height:245px;"></canvas>
+        <div id="parityHover" class="card-meta" style="margin-top:10px;">Hover a point to inspect concentration vs. aligned conductivity.</div>
       </div>
     </div>
-  </div>
 
-  <!-- ======================= WORKSPACE 5: UNIFIED BENCHMARKS ======================= -->
-  <div id="ws-benchmarks" class="workspace">
     <div class="card">
-      <h3><span>Big Time-Step Test (10 fs &amp; 20 fs) on MD17 / MD22 at 500 K · pair-model coarse-step baseline, not the WignerFlow network</span></h3>
-      <table class="bench" id="md17Table"></table>
-    </div>
-    <div class="grid-2">
-      <div class="card">
-        <h3><span>CALiSol-23 Conductivity Summary and Measured CPU Speed (Experimental)</span></h3>
-        <div class="kpi-grid" id="calisolKpis"></div>
-        <table class="bench" id="calisolBoxTable"></table>
+      <div class="card-head">
+        <div>
+          <h3 class="card-title">CALiSol-23 Post-Training Alignment Summary</h3>
+          <div class="card-meta">Unseen salt–solvent combinations loaded from results/calisol/align_eval_seed42.json</div>
+        </div>
       </div>
-      <div class="card">
-        <h3><span>Public MD Datasets You Can Import in One Command (`scripts/import_md.py`)</span></h3>
-        <table class="bench" id="datasetTable"></table>
+      <div class="table-wrap">
+        <table class="clean" id="calisolParityTable"></table>
       </div>
     </div>
-  </div>
-</div>
+  </section>
+
+  <!-- ======================= 5. BENCHMARKS ======================= -->
+  <section id="view-benchmarks" class="view">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Saved Evaluation Results</div>
+        <h1>Benchmark Summary</h1>
+        <p>All numbers below are loaded at start-up from committed result files in <code>results/</code>.</p>
+      </div>
+    </div>
+
+    <div class="stats-row" id="benchStats"></div>
+
+    <div class="card" style="margin-bottom:24px;">
+      <div class="card-head">
+        <h3 class="card-title">Large-Step Pair-Model Baseline (MD17 &amp; MD22 at 500 K)</h3>
+        <span class="card-meta">Pair-model baseline · results/pure_md_md17/md17_md22_benchmark.json</span>
+      </div>
+      <div class="table-wrap">
+        <table class="clean" id="md17Table"></table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px;">
+      <div class="card-head">
+        <h3 class="card-title">Measured CPU Periodic-Box Scaling</h3>
+        <span class="card-meta">50 fs step timing on CPU · results/calisol/box_scaling_cpu.json</span>
+      </div>
+      <div class="table-wrap">
+        <table class="clean" id="boxScalingTable"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">Top 15 Candidates from 1,000,000-Recipe Screen</h3>
+        <span class="card-meta">Toy-model screening output (not lab-tested) · Free SSIP · Paired CIP · Aggregate AGG</span>
+      </div>
+      <div class="table-wrap">
+        <table class="clean" id="solvationTable"></table>
+      </div>
+    </div>
+  </section>
+
+</main>
 
 <script>
-const ELEM_COLOR = {
-  H: '#e2e8f0', C: '#38bdf8', N: '#818cf8', O: '#fb7185', F: '#34d399',
-  Li: '#c084fc', P: '#fbbf24', S: '#facc15', Ar: '#22d3ee'
+const ATOM_STYLE = {
+  H:  { fill: '#FFFFFF', rim: '#CBD5E1', r: 0.34 },
+  C:  { fill: '#27272A', rim: '#18181B', r: 0.56 },
+  N:  { fill: '#2563EB', rim: '#1D4ED8', r: 0.54 },
+  O:  { fill: '#DC2626', rim: '#B91C1C', r: 0.53 },
+  F:  { fill: '#0D9488', rim: '#0F766E', r: 0.50 },
+  Li: { fill: '#7C3AED', rim: '#6D28D9', r: 0.62 },
+  P:  { fill: '#D97706', rim: '#B45309', r: 0.66 },
+  S:  { fill: '#CA8A04', rim: '#A16207', r: 0.62 },
+  Ar: { fill: '#0284C7', rim: '#0369A1', r: 0.70 }
 };
-const ELEM_RADIUS = { H: 0.34, C: 0.56, N: 0.54, O: 0.53, F: 0.50, Li: 0.62, P: 0.68, Ar: 0.72 };
 
-let STATE = {
+const STATE = {
   overview: null,
-  selectedFault: 'none',
+  euler: [37, 64, 118],
+  openGate: null,
+  expandAll: false,
   compData: null,
   rollData: null,
   bindData: null,
   elecData: null,
+  parityPts: [],
   frameIdx: { comp: 0, roll: 0, bind: 0, elec: 0 },
-  playing: { comp: true, roll: true, bind: true, elec: true },
+  playing: { roll: true, bind: true, elec: true },
   cam: {
-    comp: { rotX: 0.42, rotY: -0.55, zoom: 1.0 },
-    roll: { rotX: 0.35, rotY: 0.60, zoom: 1.0 },
-    bind: { rotX: 0.32, rotY: -0.45, zoom: 1.0 },
-    elec: { rotX: 0.38, rotY: 0.52, zoom: 1.0 }
+    comp: { rotX: 0.38, rotY: -0.52, zoom: 1.0 },
+    roll: { rotX: 0.34, rotY: 0.58, zoom: 1.0 },
+    bind: { rotX: 0.30, rotY: -0.44, zoom: 1.0 },
+    elec: { rotX: 0.36, rotY: 0.50, zoom: 1.0 }
   }
 };
 
-function switchTab(name, btn) {
-  document.querySelectorAll('.workspace').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById('ws-' + name).classList.add('active');
-  if (btn) btn.classList.add('active');
-  if (name === 'rollout' && !STATE.rollData) runRolloutLab();
-  if (name === 'binding' && !STATE.bindData) runBindingLab();
-  if (name === 'electrolyte' && !STATE.elecData) runElectrolyteLab();
+function prepCanvas(cv) {
+  const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || Number(cv.dataset.w) || Number(cv.getAttribute('width')) || 560;
+  const h = cv.clientHeight || Number(cv.dataset.h) || Number(cv.getAttribute('height')) || 320;
+  const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+  if (cv.width !== pw || cv.height !== ph) {
+    cv.width = pw;
+    cv.height = ph;
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
 }
 
-function setupOrbit(canvasId, key, redrawFn) {
+function drawArrow(ctx, x0, y0, x1, y1, color, dashed) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy);
+  if (len < 1.5) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = dashed ? 1.8 : 2.1;
+  ctx.lineCap = 'round';
+  if (dashed) ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const ang = Math.atan2(dy, dx);
+  const head = Math.min(6.5, Math.max(4, len * 0.28));
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - head * Math.cos(ang - 0.45), y1 - head * Math.sin(ang - 0.45));
+  ctx.lineTo(x1 - head * Math.cos(ang + 0.45), y1 - head * Math.sin(ang + 0.45));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function openView(name, btn) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.seg-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'physics' && STATE.compData) {
+    drawComp3D();
+    drawDigitsBar(STATE.compData.gates);
+  }
+  if (name === 'simulate') {
+    if (!STATE.rollData) runRolloutLab();
+    else {
+      drawRoll3D();
+      drawMinimalSeries('canvasRollChart', STATE.rollData.series.time_ps, [
+        { label: 'Temperature (K)', data: STATE.rollData.series.temperature_K, color: '#141413' }
+      ]);
+    }
+  }
+  if (name === 'binding') {
+    if (!STATE.bindData) runBindingLab();
+    else {
+      drawBind3D();
+      drawMinimalSeries('canvasBindChart', STATE.bindData.series.time_ps, [
+        { label: 'Ligand RMSD (Å)', data: STATE.bindData.series.ligand_rmsd_A, color: '#141413' },
+        { label: 'COM Shift (Å)', data: STATE.bindData.series.com_displacement_A, color: '#8C8B85', dashed: true }
+      ]);
+    }
+  }
+  if (name === 'electrolyte') {
+    if (!STATE.elecData) runElectrolyteLab();
+    else drawElec3D();
+    drawParityPlot();
+  }
+}
+
+function resetCam(key, fn) {
+  STATE.cam[key] = { rotX: 0.36, rotY: -0.48, zoom: 1.0 };
+  fn();
+}
+
+function attachOrbit(canvasId, key, redraw) {
   const cv = document.getElementById(canvasId);
-  let dragging = false, lx = 0, ly = 0;
-  cv.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; });
-  window.addEventListener('mouseup', () => { dragging = false; });
+  let drag = false, lx = 0, ly = 0;
+  cv.addEventListener('mousedown', e => { drag = true; lx = e.clientX; ly = e.clientY; });
+  window.addEventListener('mouseup', () => { drag = false; });
   window.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    STATE.cam[key].rotY += (e.clientX - lx) * 0.01;
-    STATE.cam[key].rotX += (e.clientY - ly) * 0.01;
+    if (!drag) return;
+    STATE.cam[key].rotY += (e.clientX - lx) * 0.009;
+    STATE.cam[key].rotX += (e.clientY - ly) * 0.009;
     lx = e.clientX; ly = e.clientY;
-    redrawFn();
+    redraw();
   });
   cv.addEventListener('wheel', e => {
     e.preventDefault();
-    STATE.cam[key].zoom = Math.max(0.45, Math.min(2.8, STATE.cam[key].zoom * (e.deltaY < 0 ? 1.08 : 0.92)));
-    redrawFn();
+    STATE.cam[key].zoom = Math.max(0.5, Math.min(2.6, STATE.cam[key].zoom * (e.deltaY < 0 ? 1.07 : 0.93)));
+    redraw();
   }, { passive: false });
 }
 
-function project3D(pt, center, scale, cam, w, h) {
-  let x = pt[0] - center[0], y = pt[1] - center[1], z = pt[2] - center[2];
+function project(pt, center, scale, cam, w, h) {
+  const x = pt[0] - center[0], y = pt[1] - center[1], z = pt[2] - center[2];
   const cy = Math.cos(cam.rotY), sy = Math.sin(cam.rotY);
-  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
   const cx = Math.cos(cam.rotX), sx = Math.sin(cam.rotX);
-  let y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
-  const persp = 420 / (420 + z2 * 8 + 1e-5);
-  const s = scale * cam.zoom * persp;
+  const y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  const p = 440 / (440 + z2 * 8 + 1e-5);
+  const s = scale * cam.zoom * p;
   return { sx: w * 0.5 + x1 * s, sy: h * 0.5 - y2 * s, z: z2, s };
 }
 
-function renderMoleculeCanvas(canvasId, coords, elements, opts = {}) {
+function drawScene(canvasId, coords, elements, opts = {}) {
   const cv = document.getElementById(canvasId);
   if (!cv || !coords || !coords.length) return;
-  const ctx = cv.getContext('2d');
-  const w = cv.width, h = cv.height;
-  ctx.clearRect(0, 0, w, h);
+  const { ctx, w, h } = prepCanvas(cv);
 
   let cx = 0, cy = 0, cz = 0;
   coords.forEach(p => { cx += p[0]; cy += p[1]; cz += p[2]; });
   const center = opts.boxA ? [opts.boxA * 0.5, opts.boxA * 0.5, opts.boxA * 0.5] : [cx / coords.length, cy / coords.length, cz / coords.length];
-  let maxR = opts.boxA ? opts.boxA * 0.65 : 2.5;
+  let maxR = opts.boxA ? opts.boxA * 0.66 : 2.4;
   coords.forEach(p => {
     const d = Math.hypot(p[0] - center[0], p[1] - center[1], p[2] - center[2]);
     if (d > maxR) maxR = d;
@@ -524,121 +1034,103 @@ function renderMoleculeCanvas(canvasId, coords, elements, opts = {}) {
   const scale = (Math.min(w, h) * 0.37) / maxR;
   const cam = STATE.cam[opts.camKey || 'comp'];
 
-  // Draw periodic box wireframe if present
   if (opts.boxA) {
     const L = opts.boxA;
-    const corners = [
-      [0,0,0],[L,0,0],[L,L,0],[0,L,0],
-      [0,0,L],[L,0,L],[L,L,L],[0,L,L]
-    ].map(c => project3D(c, center, scale, cam, w, h));
-    const edges = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-    ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+    const cs = [[0,0,0],[L,0,0],[L,L,0],[0,L,0],[0,0,L],[L,0,L],[L,L,L],[0,L,L]].map(c => project(c, center, scale, cam, w, h));
+    ctx.strokeStyle = 'rgba(20, 20, 19, 0.14)';
     ctx.lineWidth = 1;
-    edges.forEach(([i,j]) => {
-      ctx.beginPath(); ctx.moveTo(corners[i].sx, corners[i].sy); ctx.lineTo(corners[j].sx, corners[j].sy); ctx.stroke();
+    [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]].forEach(([i, j]) => {
+      ctx.beginPath(); ctx.moveTo(cs[i].sx, cs[i].sy); ctx.lineTo(cs[j].sx, cs[j].sy); ctx.stroke();
     });
   }
 
-  const proj = coords.map((p, idx) => ({ ...project3D(p, center, scale, cam, w, h), idx, p }));
+  const pts = coords.map((p, idx) => ({ ...project(p, center, scale, cam, w, h), idx }));
 
-  // Draw covalent bonds
   if (opts.bonds && opts.bonds.length) {
-    ctx.strokeStyle = 'rgba(203,213,225,0.48)';
-    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = '#A8A29E';
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
     opts.bonds.forEach(([i, j]) => {
-      if (i < proj.length && j < proj.length) {
+      if (i < pts.length && j < pts.length) {
         const d3 = Math.hypot(coords[i][0]-coords[j][0], coords[i][1]-coords[j][1], coords[i][2]-coords[j][2]);
         if (!opts.boxA || d3 < opts.boxA * 0.45) {
-          ctx.beginPath(); ctx.moveTo(proj[i].sx, proj[i].sy); ctx.lineTo(proj[j].sx, proj[j].sy); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(pts[i].sx, pts[i].sy); ctx.lineTo(pts[j].sx, pts[j].sy); ctx.stroke();
         }
       }
     });
   }
 
-  // Sort back-to-front
-  const sorted = [...proj].sort((a, b) => b.z - a.z);
-  sorted.forEach(item => {
-    const idx = item.idx;
-    const el = (elements && elements[idx]) || 'C';
-    let col = ELEM_COLOR[el] || '#60a5fa';
-    if (opts.roles && opts.roles[idx]) {
-      const rl = opts.roles[idx];
-      if (rl === 'ligand') col = '#34d399';
-      else if (rl === 'pocket') col = '#64748b';
-      else if (rl === 'cation') col = '#c084fc';
-      else if (rl === 'anion') col = '#fbbf24';
-      else if (rl === 'additive') col = '#22d3ee';
-      else if (rl === 'solvent') col = '#475569';
+  [...pts].sort((a, b) => b.z - a.z).forEach(item => {
+    const i = item.idx;
+    const el = (elements && elements[i]) || 'C';
+    let st = ATOM_STYLE[el] || ATOM_STYLE.C;
+    if (opts.roles && opts.roles[i]) {
+      const rl = opts.roles[i];
+      if (rl === 'ligand') st = { fill: '#15803D', rim: '#166534', r: 0.56 };
+      else if (rl === 'pocket') st = { fill: '#CBD5E1', rim: '#94A3B8', r: 0.46 };
+      else if (rl === 'cation') st = { fill: '#7C3AED', rim: '#5B21B6', r: 0.64 };
+      else if (rl === 'anion') st = { fill: '#D97706', rim: '#92400E', r: 0.62 };
+      else if (rl === 'additive') st = { fill: '#0D9488', rim: '#115E59', r: 0.54 };
+      else if (rl === 'solvent') st = { fill: '#D6D3D1', rim: '#A8A29E', r: 0.42 };
     }
-    const rad = Math.max(3.2, (ELEM_RADIUS[el] || 0.52) * item.s * 0.42);
-    const grad = ctx.createRadialGradient(item.sx - rad * 0.3, item.sy - rad * 0.3, rad * 0.1, item.sx, item.sy, rad);
-    grad.addColorStop(0, '#ffffff');
-    grad.addColorStop(0.32, col);
-    grad.addColorStop(1, '#090d16');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(item.sx, item.sy, rad, 0, Math.PI * 2); ctx.fill();
+    const rad = Math.max(3.6, st.r * item.s * 0.42);
+    const g = ctx.createRadialGradient(item.sx - rad * 0.28, item.sy - rad * 0.28, rad * 0.08, item.sx, item.sy, rad);
+    g.addColorStop(0, '#FFFFFF');
+    g.addColorStop(0.28, st.fill);
+    g.addColorStop(1, st.rim);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(item.sx, item.sy, rad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20,20,19,0.12)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
   });
 
-  // Twin equivariance vectors overlay: f(X) vs R^-1 f(R X)
   if (opts.twinRef && opts.twinRot) {
-    const nVec = Math.min(proj.length, opts.twinRef.length);
-    for (let i = 0; i < nVec; i++) {
-      const base = coords[i];
-      const vRef = opts.twinRef[i];
-      const vRot = opts.twinRot[i];
-      const mag = Math.hypot(vRef[0], vRef[1], vRef[2]) + 1e-9;
-      const vScale = Math.min(35.0, 1.35 / mag);
-      const p0 = proj[i];
-      const pRef = project3D([base[0]+vRef[0]*vScale, base[1]+vRef[1]*vScale, base[2]+vRef[2]*vScale], center, scale, cam, w, h);
-      const pRot = project3D([base[0]+vRot[0]*vScale, base[1]+vRot[1]*vScale, base[2]+vRot[2]*vScale], center, scale, cam, w, h);
-
-      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2.2;
-      ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy); ctx.lineTo(pRef.sx, pRef.sy); ctx.stroke();
-
-      ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 1.6;
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy); ctx.lineTo(pRot.sx, pRot.sy); ctx.stroke();
-      ctx.setLineDash([]);
+    const n = Math.min(pts.length, opts.twinRef.length);
+    for (let i = 0; i < n; i++) {
+      const b = coords[i], vr = opts.twinRef[i], vt = opts.twinRot[i];
+      const mag = Math.max(Math.hypot(vr[0], vr[1], vr[2]), Math.hypot(vt[0], vt[1], vt[2]), 1e-9);
+      const sc = Math.min(650.0, 1.15 / mag);
+      const p0 = pts[i];
+      const p1 = project([b[0]+vr[0]*sc, b[1]+vr[1]*sc, b[2]+vr[2]*sc], center, scale, cam, w, h);
+      const p2 = project([b[0]+vt[0]*sc, b[1]+vt[1]*sc, b[2]+vt[2]*sc], center, scale, cam, w, h);
+      drawArrow(ctx, p0.sx, p0.sy, p1.sx, p1.sy, '#141413', false);
+      drawArrow(ctx, p0.sx, p0.sy, p2.sx, p2.sy, '#D97706', true);
     }
   }
-
-  // Golden COM crosshair
-  const comP = project3D([cx / coords.length, cy / coords.length, cz / coords.length], center, scale, cam, w, h);
-  ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(comP.sx - 7, comP.sy); ctx.lineTo(comP.sx + 7, comP.sy);
-  ctx.moveTo(comP.sx, comP.sy - 7); ctx.lineTo(comP.sx, comP.sy + 7);
-  ctx.stroke();
 }
 
-function drawLineChart(canvasId, xArr, seriesList, yLabel) {
+function drawMinimalSeries(canvasId, xArr, series) {
   const cv = document.getElementById(canvasId);
   if (!cv || !xArr || !xArr.length) return;
-  const ctx = cv.getContext('2d');
-  const w = cv.width, h = cv.height;
-  ctx.clearRect(0, 0, w, h);
-  const pad = { l: 46, r: 14, t: 18, b: 26 };
+  const { ctx, w, h } = prepCanvas(cv);
+  const pad = { l: 46, r: 16, t: 26, b: 28 };
   let ymin = Infinity, ymax = -Infinity;
-  seriesList.forEach(s => (s.data || []).forEach(v => {
-    if (v !== null && isFinite(v)) { if (v < ymin) ymin = v; if (v > ymax) ymax = v; }
+  series.forEach(s => (s.data || []).forEach(v => {
+    if (v !== null && isFinite(v)) { ymin = Math.min(ymin, v); ymax = Math.max(ymax, v); }
   }));
   if (!isFinite(ymin)) { ymin = 0; ymax = 1; }
   if (Math.abs(ymax - ymin) < 1e-6) { ymax += 1; ymin -= 1; }
-  const span = ymax - ymin; ymin -= 0.08 * span; ymax += 0.12 * span;
+  const span = ymax - ymin; ymin -= 0.12 * span; ymax += 0.14 * span;
 
-  ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
-  for (let g = 0; g <= 3; g++) {
-    const yy = pad.t + (h - pad.t - pad.b) * (g / 3);
+  ctx.strokeStyle = 'rgba(20, 20, 19, 0.07)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const yy = pad.t + (h - pad.t - pad.b) * (i / 3);
     ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
-    const val = ymax - (ymax - ymin) * (g / 3);
-    ctx.fillStyle = '#94a3b8'; ctx.font = '11px monospace';
+    const val = ymax - (ymax - ymin) * (i / 3);
+    ctx.fillStyle = '#8C8B85';
+    ctx.font = '12px ui-monospace, monospace';
     ctx.fillText(val.toFixed(Math.abs(val) < 10 ? 2 : 0), 4, yy + 4);
   }
 
-  seriesList.forEach((s, sIdx) => {
+  series.forEach((s, idx) => {
     const arr = s.data || [];
     if (!arr.length) return;
-    ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+    ctx.strokeStyle = s.color || '#141413';
+    ctx.lineWidth = 2;
     if (s.dashed) ctx.setLineDash([4, 3]); else ctx.setLineDash([]);
     ctx.beginPath();
     arr.forEach((v, i) => {
@@ -648,191 +1140,168 @@ function drawLineChart(canvasId, xArr, seriesList, yLabel) {
     });
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = s.color; ctx.font = '11px sans-serif';
-    ctx.fillText(s.label, pad.l + sIdx * 125, 13);
+    ctx.fillStyle = s.color || '#141413';
+    ctx.font = '500 12px -apple-system, sans-serif';
+    ctx.fillText(s.label, pad.l + idx * 150, 14);
   });
 }
 
-function drawSymmetryRadar(gates) {
-  const cv = document.getElementById('canvasRadar');
-  const ctx = cv.getContext('2d');
-  const w = cv.width, h = cv.height;
-  ctx.clearRect(0, 0, w, h);
-  const cx = w * 0.5, cy = h * 0.54, R = Math.min(w, h) * 0.36;
+function drawDigitsBar(gates) {
+  const cv = document.getElementById('canvasDigits');
+  const { ctx, w } = prepCanvas(cv);
   const g5 = gates.slice(0, 5);
-  const labels = ['G1 SO(3)', 'G2 O(3)', 'G3 T(3)+COM', 'G4 S_N', 'G5 PBC'];
+  const labels = ['G1 Rotation', 'G2 Mirror', 'G3 Momentum', 'G4 Reorder', 'G5 Box Wrap'];
+  const rowH = 27, top = 10, barLeft = 114, barMax = Math.max(80, w - barLeft - 58);
 
-  // Concentric rings (-log10 error: 0..16, higher = more exact!)
-  ctx.strokeStyle = '#243247'; ctx.lineWidth = 1;
-  [0.33, 0.66, 1.0].forEach(f => {
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
-      const x = cx + Math.cos(ang) * R * f, y = cy + Math.sin(ang) * R * f;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath(); ctx.stroke();
-  });
-
-  ctx.beginPath();
   g5.forEach((g, i) => {
+    const y = top + i * rowH;
     const err = Math.max(1e-16, Number(g.value) || 1e-16);
-    const digits = Math.max(0.5, Math.min(16, -Math.log10(err)));
-    const frac = digits / 16.0;
-    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
-    const x = cx + Math.cos(ang) * R * frac, y = cy + Math.sin(ang) * R * frac;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.closePath();
-  const anyFail = g5.some(g => g.status === 'FAIL');
-  ctx.fillStyle = anyFail ? 'rgba(244,63,94,0.28)' : 'rgba(16,185,129,0.26)';
-  ctx.strokeStyle = anyFail ? '#f43f5e' : '#10b981';
-  ctx.lineWidth = 2;
-  ctx.fill(); ctx.stroke();
+    const digits = Math.max(0.3, Math.min(16, -Math.log10(err)));
+    ctx.fillStyle = '#5E5D59';
+    ctx.font = '12.5px -apple-system, sans-serif';
+    ctx.fillText(labels[i], 4, y + 14);
 
-  g5.forEach((g, i) => {
-    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
-    const lx = cx + Math.cos(ang) * (R + 22), ly = cy + Math.sin(ang) * (R + 14);
-    ctx.fillStyle = g.status === 'FAIL' ? '#fda4af' : '#cbd5e1';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(labels[i], lx, ly);
-  });
-  ctx.textAlign = 'left';
-}
+    ctx.fillStyle = '#F3F2EE';
+    ctx.beginPath();
+    ctx.roundRect(barLeft, y + 4, barMax, 11, 5.5);
+    ctx.fill();
 
-function renderFaultCatalog(faults) {
-  const box = document.getElementById('faultList');
-  box.innerHTML = '';
-  faults.forEach(f => {
-    const div = document.createElement('div');
-    div.className = 'fault-item' + (f.id === 'none' ? ' clean' : '') + (STATE.selectedFault === f.id ? ' active' : '');
-    div.innerHTML = `<div class="fault-title">${f.title}</div><div class="fault-desc">${f.description}</div>`;
-    div.onclick = () => {
-      STATE.selectedFault = f.id;
-      renderFaultCatalog(faults);
-      runCompliance();
-    };
-    box.appendChild(div);
+    ctx.fillStyle = g.status === 'FAIL' ? '#B91C1C' : '#141413';
+    ctx.beginPath();
+    ctx.roundRect(barLeft, y + 4, barMax * (digits / 16), 11, 5.5);
+    ctx.fill();
+
+    ctx.fillStyle = '#8C8B85';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(digits.toFixed(1) + 'd', barLeft + barMax + 10, y + 14);
   });
 }
 
 function randomizeEuler() {
-  ['angA', 'angB', 'angG'].forEach((id, idx) => {
-    const v = Math.floor(Math.random() * 360);
-    document.getElementById(id).value = v;
-    document.getElementById(['lblA', 'lblB', 'lblG'][idx]).textContent = v;
-  });
+  STATE.euler = [0, 1, 2].map(() => Math.floor(Math.random() * 360));
+  document.getElementById('eulerBtn').textContent = STATE.euler.map(v => v + '°').join(', ');
   runCompliance();
 }
 
 async function runCompliance() {
   const btn = document.getElementById('btnRunComp');
-  btn.textContent = '⏳ Auditing G1–G10 in PyTorch...';
-  const body = {
-    target_id: document.getElementById('compTarget').value,
-    fault: STATE.selectedFault,
-    precision: document.getElementById('compPrec').value,
-    euler_deg: [
-      Number(document.getElementById('angA').value),
-      Number(document.getElementById('angB').value),
-      Number(document.getElementById('angG').value)
-    ],
-    rollout_steps: Number(document.getElementById('compSteps').value)
-  };
+  btn.textContent = 'Checking...';
+  const fault = document.getElementById('compFault').value || 'none';
   const r = await fetch('/api/compliance', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target_id: document.getElementById('compTarget').value,
+      fault,
+      precision: document.getElementById('compPrec').value,
+      euler_deg: STATE.euler,
+      rollout_steps: 14
+    })
   });
-  const data = await r.json();
-  btn.textContent = 'Run 10-Rule Physics Check';
-  STATE.compData = data;
-  STATE.frameIdx.comp = 0;
-  const sl = document.getElementById('compFrameSlider');
-  sl.max = Math.max(0, (data.viewer_frames || []).length - 1);
-  sl.value = 0;
+  const d = await r.json();
+  btn.textContent = 'Run Check';
+  STATE.compData = d;
 
-  const badge = document.getElementById('globalVerdict');
-  badge.className = 'pill ' + data.verdict;
-  badge.textContent = `${data.verdict} · ${data.pass_count}/${data.total_gates} GATES PASS (${data.fault})`;
-  document.getElementById('compTiming').textContent = `${data.wall_s}s on CPU · ${data.precision}`;
+  const hb = document.getElementById('physicsHeroBadge');
+  hb.className = 'badge ' + d.verdict;
+  hb.innerHTML = `<span class="dot ${d.verdict}"></span>${d.pass_count} / ${d.total_gates} Passed`;
+  const precLabel = d.precision === 'float64' ? 'FP64' : 'FP32';
+  document.getElementById('compTiming').textContent = `${d.wall_s}s · ${precLabel}`;
 
-  const gc = document.getElementById('gatesContainer');
-  gc.innerHTML = data.gates.map(g => `
-    <div class="gate-row ${g.status}">
-      <div class="gate-head">
-        <span><span class="gate-id">${g.id}</span> · <b>${g.name}</b></span>
-        <span class="pill ${g.status}">${g.status}</span>
-      </div>
-      <div class="gate-meta">measured = <b>${g.value}</b> &nbsp;|&nbsp; criterion: ${g.threshold}<br>${g.detail}</div>
-      <div class="gate-cite">📚 ${g.citation}</div>
-    </div>
-  `).join('');
-
-  drawSymmetryRadar(data.gates);
-  drawLineChart('canvasCompTelemetry', data.rollout_series.time_ps, [
-    { label: 'Temp (K)', data: data.rollout_series.temperature_K, color: '#38bdf8' },
-    { label: '100 × min_vdW', data: data.rollout_series.min_vdw_ratio.map(v => v * 100), color: '#34d399', dashed: true }
-  ]);
+  const firstFail = d.gates.find(g => g.status === 'FAIL');
+  STATE.openGate = firstFail ? firstFail.id : null;
+  renderGateRows();
+  drawDigitsBar(d.gates);
   drawComp3D();
 }
 
-function setCompFrame(v) {
-  STATE.frameIdx.comp = Number(v);
-  STATE.playing.comp = false;
-  document.getElementById('btnPlayComp').textContent = '▶ Play';
-  drawComp3D();
+function renderGateRows() {
+  const d = STATE.compData;
+  if (!d) return;
+  document.getElementById('gatesContainer').innerHTML = d.gates.map(g => {
+    const isOpen = (STATE.expandAll || STATE.openGate === g.id) ? ' open' : '';
+    const stText = g.status === 'PASS' ? 'Pass' : (g.status === 'WARN' ? 'Hold' : 'Fail');
+    return `<div class="gate-item${isOpen}" onclick="toggleGate('${g.id}')">
+      <div class="gate-line">
+        <div class="gate-left">
+          <span class="dot ${g.status}"></span>
+          <span class="gate-code mono">${g.id}</span>
+          <span class="gate-name">${g.name}</span>
+        </div>
+        <div class="gate-right">
+          <span class="gate-val mono">${g.value}</span>
+          <span class="gate-state ${g.status}">${stText}</span>
+        </div>
+      </div>
+      <div class="gate-drawer">
+        ${g.citation}. <span class="mono subtle">Criterion: ${g.threshold} · ${g.detail}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleGate(id) {
+  if (STATE.expandAll) {
+    STATE.expandAll = false;
+    document.getElementById('btnExpandAll').textContent = 'Details';
+  }
+  STATE.openGate = STATE.openGate === id ? null : id;
+  renderGateRows();
+}
+
+function toggleAllGates() {
+  STATE.expandAll = !STATE.expandAll;
+  document.getElementById('btnExpandAll').textContent = STATE.expandAll ? 'Collapse' : 'Details';
+  renderGateRows();
 }
 
 function drawComp3D() {
   const d = STATE.compData;
   if (!d) return;
   const showTwin = document.getElementById('chkTwinVec').checked;
-  if (showTwin && STATE.frameIdx.comp === 0) {
-    renderMoleculeCanvas('canvasComp3D', d.twin_3d.pos_A, d.twin_3d.elements, {
-      bonds: d.twin_3d.bonds,
-      boxA: d.twin_3d.box_A,
-      twinRef: d.twin_3d.dx_ref_A,
-      twinRot: d.twin_3d.dx_rot_unrot_A,
-      camKey: 'comp'
-    });
-  } else {
-    const frames = d.viewer_frames || [];
-    const f = frames[STATE.frameIdx.comp % Math.max(1, frames.length)];
-    renderMoleculeCanvas('canvasComp3D', f, d.viewer_elements, {
-      bonds: d.twin_3d.bonds,
-      boxA: d.viewer_box_A,
-      camKey: 'comp'
-    });
-  }
+  drawScene('canvasComp3D', d.twin_3d.pos_A, d.twin_3d.elements, {
+    bonds: d.twin_3d.bonds,
+    boxA: d.twin_3d.box_A,
+    twinRef: showTwin ? d.twin_3d.dx_ref_A : null,
+    twinRot: showTwin ? d.twin_3d.dx_rot_unrot_A : null,
+    camKey: 'comp'
+  });
+}
+
+function onRollPresetChange() {
+  const v = document.getElementById('rollPreset').value;
+  document.getElementById('xyzDrawer').style.display = v === 'custom' ? 'block' : 'none';
+  if (v !== 'custom') runRolloutLab();
 }
 
 async function runRolloutLab() {
-  const useXyz = document.getElementById('useCustomXyz').checked;
-  const body = {
-    preset: document.getElementById('rollPreset').value,
-    custom_xyz: useXyz ? document.getElementById('customXyzInput').value : null,
-    n_frames: Number(document.getElementById('rollFrames').value),
-    dt_fs: Number(document.getElementById('rollDt').value),
-    temperature_k: Number(document.getElementById('rollTemp').value)
-  };
+  const presetVal = document.getElementById('rollPreset').value;
+  const isCustom = presetVal === 'custom';
   const r = await fetch('/api/rollout', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      preset: isCustom ? 'ethanol' : presetVal,
+      custom_xyz: isCustom ? document.getElementById('customXyzInput').value : null,
+      n_frames: Number(document.getElementById('rollFrames').value),
+      dt_fs: Number(document.getElementById('rollDt').value),
+      temperature_k: Number(document.getElementById('rollTemp').value)
+    })
   });
-  const data = await r.json();
-  STATE.rollData = data;
+  const d = await r.json();
+  STATE.rollData = d;
   STATE.frameIdx.roll = 0;
-  document.getElementById('rollTitle').innerHTML = `${data.title} &nbsp;<span class="pill ${data.verdict}">${data.verdict}</span>`;
-  const m = data.metrics;
-  document.getElementById('rollKpis').innerHTML = [
-    ['CPU Wall Time', `${data.wall_s} s`],
-    ['Throughput', `${data.ns_per_day_cpu} ns/day`],
-    ['T_mean / T_target', `${m.T_mean_K} / ${m.T_target_K} K`],
-    ['Bond RMS Drift', `${m.bond_rms_drift_A} Å`],
-    ['PoseBusters vdW', `${m.min_vdw_ratio}`],
-    ['COM Leakage', `${m.com_kinetic_leakage}`]
-  ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  drawLineChart('canvasRollChart', data.series.time_ps, [
-    { label: 'Kinetic Temperature T(t) [K]', data: data.series.temperature_K, color: '#f59e0b' }
+  document.getElementById('rollTitle').textContent = d.title;
+  const m = d.metrics;
+  document.getElementById('rollStats').innerHTML = [
+    ['Throughput', `${d.ns_per_day_cpu} ns/day`, `${d.wall_s}s on CPU`],
+    ['Mean Temperature', `${m.T_mean_K} K`, `Target ${m.T_target_K} K`],
+    ['Bond Drift', `${m.bond_rms_drift_A} Å`, `${m.n_bonds} covalent bonds`],
+    ['Steric Clearance', `${m.min_vdw_ratio}`, m.vdw_clashes === 0 ? 'Zero atom clashes' : `${m.vdw_clashes} clashes`]
+  ].map(([l, v, n]) => `<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}</div><div class="stat-note">${n}</div></div>`).join('');
+
+  drawMinimalSeries('canvasRollChart', d.series.time_ps, [
+    { label: 'Temperature (K)', data: d.series.temperature_K, color: '#141413' }
   ]);
   drawRoll3D();
 }
@@ -841,52 +1310,50 @@ function drawRoll3D() {
   const d = STATE.rollData;
   if (!d || !d.viewer_frames.length) return;
   const fr = d.viewer_frames[STATE.frameIdx.roll % d.viewer_frames.length];
-  renderMoleculeCanvas('canvasRoll3D', fr, d.viewer_elements, {
+  drawScene('canvasRoll3D', fr, d.viewer_elements, {
     bonds: d.viewer_bonds, boxA: d.viewer_box_A, camKey: 'roll'
   });
 }
 
 function downloadRolloutXyz() {
   if (!STATE.rollData || !STATE.rollData.xyz_download) return;
-  const blob = new Blob([STATE.rollData.xyz_download], { type: 'text/plain' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'wignerflow_studio_rollout.xyz';
+  a.href = URL.createObjectURL(new Blob([STATE.rollData.xyz_download], { type: 'text/plain' }));
+  a.download = 'wignerflow_rollout.xyz';
   a.click();
 }
 
 async function runBindingLab() {
-  const body = {
-    mode: 'binding',
-    preset: document.getElementById('bindPreset').value,
-    replicas: Number(document.getElementById('bindRep').value),
-    frames: Number(document.getElementById('bindFrames').value)
-  };
   const r = await fetch('/api/triage', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'binding',
+      preset: document.getElementById('bindPreset').value,
+      replicas: Number(document.getElementById('bindRep').value),
+      frames: Number(document.getElementById('bindFrames').value)
+    })
   });
-  const res = await r.json();
-  const rep = res.report;
+  const rep = (await r.json()).report;
   STATE.bindData = rep;
   STATE.frameIdx.bind = 0;
   const m = rep.metrics;
-  document.getElementById('bindSummaryBox').innerHTML = `
-    <div class="gate-row ${rep.verdict === 'GO' ? 'PASS' : (rep.verdict === 'HOLD' ? 'WARN' : 'FAIL')}">
-      <div class="gate-head"><b>${rep.title}</b> <span class="pill ${rep.verdict}">${rep.verdict}</span></div>
-      <div class="gate-meta">${rep.summary}</div>
-    </div>`;
-  document.getElementById('bindKpis').innerHTML = [
-    ['OpenBPMD CompScore', m.comp_score],
-    ['PoseScore RMSD', `${m.pose_score_A} Å`],
-    ['Contact Persistence', m.pers_score],
-    ['PoseBusters vdW', m.posebusters_min_vdw_ratio],
-    ['50-fs τ-RAMD', `${m.tau_ramd_median_ps} ps`],
-    ['CPU Time', `${rep.wall_s} s`]
-  ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  drawLineChart('canvasBindChart', rep.series.time_ps, [
-    { label: 'Ligand RMSD (Å)', data: rep.series.ligand_rmsd_A, color: '#34d399' },
-    { label: 'COM Shift (Å)', data: rep.series.com_displacement_A, color: '#f43f5e', dashed: true },
-    { label: 'H-Bonds', data: rep.series.hbond_count, color: '#38bdf8' }
+
+  const bb = document.getElementById('bindBadge');
+  bb.className = 'badge ' + rep.verdict;
+  bb.innerHTML = `<span class="dot ${rep.verdict}"></span>${rep.verdict}`;
+  document.getElementById('bindSummaryText').textContent = rep.summary;
+
+  document.getElementById('bindStats').innerHTML = [
+    ['Stability Score', m.comp_score, 'OpenBPMD CompScore'],
+    ['Ligand Drift', `${m.pose_score_A} Å`, 'Heavy-atom RMSD'],
+    ['Unbinding Time', `${m.tau_ramd_median_ps} ps`, '50 fs random-push probe'],
+    ['CPU Latency', `${rep.wall_s} s`, `Min vdW ratio ${m.posebusters_min_vdw_ratio}`]
+  ].map(([l, v, n]) => `<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}</div><div class="stat-note">${n}</div></div>`).join('');
+
+  drawMinimalSeries('canvasBindChart', rep.series.time_ps, [
+    { label: 'Ligand RMSD (Å)', data: rep.series.ligand_rmsd_A, color: '#141413' },
+    { label: 'COM Shift (Å)', data: rep.series.com_displacement_A, color: '#8C8B85', dashed: true }
   ]);
   drawBind3D();
 }
@@ -895,39 +1362,35 @@ function drawBind3D() {
   const d = STATE.bindData;
   if (!d || !d.viewer_frames.length) return;
   const fr = d.viewer_frames[STATE.frameIdx.bind % d.viewer_frames.length];
-  renderMoleculeCanvas('canvasBind3D', fr, null, { roles: d.viewer_roles, camKey: 'bind' });
+  drawScene('canvasBind3D', fr, null, { roles: d.viewer_roles, camKey: 'bind' });
 }
 
 async function runElectrolyteLab() {
-  const body = {
-    mode: 'electrolyte',
-    preset: document.getElementById('elecPreset').value,
-    frames: Number(document.getElementById('elecFrames').value)
-  };
   const r = await fetch('/api/triage', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'electrolyte',
+      preset: document.getElementById('elecPreset').value,
+      frames: Number(document.getElementById('elecFrames').value)
+    })
   });
-  const res = await r.json();
-  const rep = res.report;
+  const rep = (await r.json()).report;
   STATE.elecData = rep;
   STATE.frameIdx.elec = 0;
   const m = rep.metrics;
-  document.getElementById('elecSummaryBox').innerHTML = `
-    <div class="gate-row ${rep.verdict === 'GO' ? 'PASS' : (rep.verdict === 'HOLD' ? 'WARN' : 'FAIL')}">
-      <div class="gate-head"><b>${rep.title}</b> <span class="pill ${rep.verdict}">${rep.verdict}</span></div>
-      <div class="gate-meta">${rep.summary}</div>
-    </div>`;
-  document.getElementById('elecKpis').innerHTML = [
-    ['Cluster σ_cNE', `${m.sigma_cNE_mS_cm} mS/cm`],
-    ['Naive σ_NE', `${m.sigma_NE_mS_cm} mS/cm`],
-    ['Haven Ionicity', m.ionicity_haven_inv],
-    ['Cluster t+_cNE', m.transference_cNE],
-    ['SSIP / CIP / AGG', `${(m.ssip_fraction*100).toFixed(0)}/${(m.cip_fraction*100).toFixed(0)}/${(m.agg_fraction*100).toFixed(0)}%`],
-    ['Additive CAGS', m.cags_additive_score === null ? 'Base' : m.cags_additive_score]
-  ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  drawLineChart('canvasElecChart', rep.series.rdf_r_A, [
-    { label: 'RDF g_Li-O(r)', data: rep.series.rdf_g_li_o, color: '#c084fc' }
-  ]);
+
+  const eb = document.getElementById('elecBadge');
+  eb.className = 'badge ' + rep.verdict;
+  eb.innerHTML = `<span class="dot ${rep.verdict}"></span>${rep.verdict}`;
+
+  document.getElementById('elecStats').innerHTML = [
+    ['Cluster Conductivity', `${m.sigma_cNE_mS_cm} mS/cm`, 'Excludes neutral pairs'],
+    ['Naive Conductivity', `${m.sigma_NE_mS_cm} mS/cm`, 'Counts all diffusing ions'],
+    ['Free-Ion Fraction', `${(m.ssip_fraction * 100).toFixed(0)}%`, `${(m.cip_fraction * 100).toFixed(0)}% paired · ${(m.agg_fraction * 100).toFixed(0)}% agg`],
+    ['Li+ Transference', m.transference_cNE, `Haven ionicity ${m.ionicity_haven_inv}`]
+  ].map(([l, v, n]) => `<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}</div><div class="stat-note">${n}</div></div>`).join('');
+
   drawElec3D();
 }
 
@@ -935,105 +1398,227 @@ function drawElec3D() {
   const d = STATE.elecData;
   if (!d || !d.viewer_frames.length) return;
   const fr = d.viewer_frames[STATE.frameIdx.elec % d.viewer_frames.length];
-  renderMoleculeCanvas('canvasElec3D', fr, null, { roles: d.viewer_roles, boxA: d.box_A, camKey: 'elec' });
+  drawScene('canvasElec3D', fr, null, { roles: d.viewer_roles, boxA: d.box_A, camKey: 'elec' });
+}
+
+function drawParityPlot() {
+  if (!STATE.overview) return;
+  const bell = STATE.overview.benchmarks.calisol23_alignment.bell_curve_ec_dmc_298K || [];
+  const cv = document.getElementById('canvasParity');
+  if (!cv || !bell.length) return;
+  const { ctx, w, h } = prepCanvas(cv);
+  const pad = { l: 42, r: 18, t: 18, b: 28 };
+  const maxX = 3.4, maxY = 14.0;
+  const tx = c => pad.l + (w - pad.l - pad.r) * (c / maxX);
+  const ty = s => h - pad.b - (h - pad.t - pad.b) * (s / maxY);
+
+  ctx.strokeStyle = 'rgba(20,20,19,0.07)';
+  [0, 4, 8, 12].forEach(s => {
+    ctx.beginPath(); ctx.moveTo(pad.l, ty(s)); ctx.lineTo(w - pad.r, ty(s)); ctx.stroke();
+    ctx.fillStyle = '#8C8B85';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(s, 8, ty(s) + 4);
+  });
+  [0, 1, 2, 3].forEach(c => {
+    ctx.fillStyle = '#8C8B85';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillText(c + 'M', tx(c) - 8, h - 8);
+  });
+
+  ctx.strokeStyle = '#141413';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  bell.forEach((p, i) => {
+    const x = tx(p.c_M), y = ty(p.sigma_aligned);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  STATE.parityPts = [];
+  bell.forEach(p => {
+    const x = tx(p.c_M), y = ty(p.sigma_aligned);
+    ctx.fillStyle = '#141413';
+    ctx.beginPath(); ctx.arc(x, y, 4.2, 0, Math.PI * 2); ctx.fill();
+    STATE.parityPts.push({ x, y, p });
+  });
 }
 
 function togglePlay(key) {
   STATE.playing[key] = !STATE.playing[key];
-  const mapBtn = { comp: 'btnPlayComp', roll: 'btnPlayRoll' };
-  if (mapBtn[key]) document.getElementById(mapBtn[key]).textContent = STATE.playing[key] ? '⏸ Play' : '▶ Play';
+  if (key === 'roll') document.getElementById('btnPlayRoll').textContent = STATE.playing.roll ? 'Pause' : 'Play';
 }
 
-function populateBenchmarks(ov) {
+function populateTables(ov) {
   const b = ov.benchmarks;
-  document.getElementById('md17Table').innerHTML = `
-    <thead><tr><th>Molecule (Quantum Split)</th><th>Atoms</th><th>Plain Verlet 10 fs</th><th>Coarse step 10 fs</th><th>Coarse step 20 fs</th><th>MAE h(r)</th><th>VDOS Cos</th><th>COM Drift (Å/fs)</th><th>CPU Speed</th></tr></thead>
-    <tbody>${b.pure_md_md17_md22.map(r => `
+  const cal = b.calisol23_alignment || {};
+  const mdRows = b.pure_md_md17_md22 || [];
+  const boxRows = cal.box_scaling || [];
+  const fast256 = boxRows.find(r => r.atoms === 256 && String(r.config).includes('Fast')) || boxRows[0];
+  const nStable = mdRows.filter(r => String(r.wf_20fs).startsWith('stable')).length;
+
+  document.getElementById('benchStats').innerHTML = [
+    ['20 fs Step Stability', mdRows.length ? `${nStable} / ${mdRows.length}` : '—', 'MD17/MD22 pair-model baseline'],
+    ['CALiSol-23 Unseen R²', cal.available ? cal.aligned_r2.toFixed(3) : '—', cal.available ? `${cal.n_heldout_total.toLocaleString()} held-out rows` : 'No result file'],
+    ['CALiSol-23 Spearman ρ', cal.available ? cal.aligned_spearman_rho.toFixed(3) : '—', cal.available ? `MAE ${cal.aligned_mae_mS_cm.toFixed(2)} mS/cm` : 'No result file'],
+    ['256-Atom Cell (CPU)', fast256 ? `${fast256.ns_day.toFixed(1)} ns/day` : '—', fast256 ? `${fast256.cpu_ms_per_step.toFixed(0)} ms per 50 fs step` : 'No result file']
+  ].map(([l, v, n]) => `<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value">${v}</div><div class="stat-note">${n}</div></div>`).join('');
+
+  document.getElementById('calisolParityTable').innerHTML = cal.available ? `
+    <thead>
       <tr>
-        <td><b>${r.system}</b></td><td>${r.atoms}</td>
-        <td><span class="pill FAIL">${r.vv_10fs}</span></td>
-        <td><span class="pill PASS">${r.wf_10fs}</span></td>
-        <td><span class="pill PASS">${r.wf_20fs}</span></td>
-        <td>${r.mae_hr}</td><td>${r.vdos_cos}</td><td><code>${r.com_drift}</code></td><td>${r.ns_day} ns/day</td>
-      </tr>`).join('')}</tbody>`;
+        <th>Evaluation Stage</th>
+        <th class="num">Unseen Rows</th>
+        <th class="num">R²</th>
+        <th class="num">Spearman ρ</th>
+        <th class="num">MAE (mS/cm)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Raw Unaligned MD</b> <span class="muted">(Nernst–Einstein)</span></td>
+        <td class="num">${cal.n_formulations}</td>
+        <td class="num muted">${cal.unaligned_r2.toFixed(3)}</td>
+        <td class="num muted">${cal.unaligned_spearman_rho.toFixed(3)}</td>
+        <td class="num muted">${cal.unaligned_mae_mS_cm.toFixed(2)}</td>
+      </tr>
+      <tr>
+        <td><b>WignerFlow-Align</b> <span class="muted">(3D periodic-box panel)</span></td>
+        <td class="num">${cal.n_formulations}</td>
+        <td class="num" style="color:var(--pass);font-weight:600;">${cal.panel_aligned_r2.toFixed(3)}</td>
+        <td class="num">${cal.panel_aligned_spearman_rho.toFixed(3)}</td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td><b>WignerFlow-Align</b> <span class="muted">(full held-out test set)</span></td>
+        <td class="num">${cal.n_heldout_total.toLocaleString()}</td>
+        <td class="num" style="color:var(--pass);font-weight:600;">${cal.aligned_r2.toFixed(3)}</td>
+        <td class="num" style="color:var(--pass);font-weight:600;">${cal.aligned_spearman_rho.toFixed(3)}</td>
+        <td class="num" style="color:var(--pass);font-weight:600;">${cal.aligned_mae_mS_cm.toFixed(2)}</td>
+      </tr>
+    </tbody>` : '';
 
-  const cal = b.calisol23_alignment;
-  const calKpis = cal.available ? [
-    ['Test rows', `${cal.n_formulations} rollout panel / ${cal.n_heldout_total} all`],
-    ['R² raw rollout (panel)', `${cal.unaligned_r2}`],
-    ['R² aligner (panel)', `${cal.panel_aligned_r2}`],
-    ['R² aligner, descriptors only (all)', `${cal.aligned_r2}`],
-    ['MAE aligner (all)', `${cal.aligned_mae_mS_cm} mS/cm`],
-    ['Spearman aligner (all)', `${cal.aligned_spearman_rho}`]
-  ] : [['Status', 'No saved align-eval run in results/calisol']];
-  const kpiHtml = calKpis.map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  document.getElementById('calisolKpis').innerHTML = kpiHtml;
-  if (document.getElementById('calisolKpisElec')) document.getElementById('calisolKpisElec').innerHTML = kpiHtml;
+  document.getElementById('md17Table').innerHTML = `
+    <thead>
+      <tr>
+        <th>System</th>
+        <th class="num">Atoms</th>
+        <th>Classical Verlet (10 fs)</th>
+        <th>Pair Baseline (20 fs)</th>
+        <th class="num">Pair Error</th>
+        <th class="num">COM Drift (Å/fs)</th>
+        <th class="num">CPU Speed</th>
+      </tr>
+    </thead>
+    <tbody>${mdRows.map(r => `
+      <tr>
+        <td><b>${r.system}</b></td>
+        <td class="num">${r.atoms}</td>
+        <td class="muted">${r.vv_10fs}</td>
+        <td style="color:var(--pass);font-weight:500;">${r.wf_20fs}</td>
+        <td class="num">${r.mae_hr}</td>
+        <td class="num">${r.com_drift}</td>
+        <td class="num">${r.ns_day} ns/day</td>
+      </tr>`).join('')}
+    </tbody>`;
 
-  document.getElementById('calisolBoxTable').innerHTML = `
-    <thead><tr><th>Model</th><th>Atoms</th><th>Box L (Å)</th><th>CPU ms per 50 fs step</th><th>CPU ns/day</th></tr></thead>
-    <tbody>${cal.box_scaling.map(x => `<tr><td>${x.config}</td><td>${x.atoms}</td><td>${x.box_A}</td><td>${x.cpu_ms_per_step}</td><td>${x.ns_day}</td></tr>`).join('')}</tbody>`;
+  document.getElementById('boxScalingTable').innerHTML = `
+    <thead>
+      <tr>
+        <th>Configuration</th>
+        <th class="num">Atoms</th>
+        <th class="num">Box L (Å)</th>
+        <th class="num">CPU ms / 50 fs Step</th>
+        <th class="num">CPU Throughput</th>
+      </tr>
+    </thead>
+    <tbody>${boxRows.map(r => `
+      <tr>
+        <td><b>${r.config}</b></td>
+        <td class="num">${r.atoms.toLocaleString()}</td>
+        <td class="num">${r.box_A.toFixed(2)}</td>
+        <td class="num">${r.cpu_ms_per_step.toFixed(1)} ms</td>
+        <td class="num">${r.ns_day.toFixed(3)} ns/day</td>
+      </tr>`).join('')}
+    </tbody>`;
 
   document.getElementById('solvationTable').innerHTML = `
-    <thead><tr><th>Rank</th><th>Formulation</th><th>σ_298K</th><th>σ_253K</th><th>Speciation (SSIP / CIP / AGG-I / AGG-net)</th><th>τ_ex (ps)</th><th>Readiness</th><th>Regime</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Formulation</th>
+        <th class="num">σ (25 °C)</th>
+        <th class="num">σ (-20 °C)</th>
+        <th style="min-width:180px;">Li+ Shell Balance</th>
+        <th class="num">Readiness</th>
+      </tr>
+    </thead>
     <tbody>${b.top15_solvation_champions.map(s => `
       <tr>
-        <td><b>${s.rank}</b></td><td>${s.formula}</td><td>${s.sigma_298} mS/cm</td><td>${s.sigma_253} mS/cm</td>
+        <td class="muted">${s.rank}</td>
+        <td><b>${s.formula}</b></td>
+        <td class="num">${s.sigma_298.toFixed(2)} mS/cm</td>
+        <td class="num">${s.sigma_253.toFixed(2)} mS/cm</td>
         <td>
-          <div class="bar-stack" title="SSIP ${s.ssip}% | CIP ${s.cip}% | AGG-I ${s.agg_i}% | AGG-net ${s.agg_net}%">
-            <div style="width:${s.ssip}%;background:#38bdf8;"></div>
-            <div style="width:${s.cip}%;background:#10b981;"></div>
-            <div style="width:${s.agg_i}%;background:#f59e0b;"></div>
-            <div style="width:${s.agg_net}%;background:#f43f5e;"></div>
+          <div class="spec-bar">
+            <div style="width:${s.ssip}%;background:#141413;"></div>
+            <div style="width:${s.cip}%;background:#8C8B85;"></div>
+            <div style="width:${s.agg_i + s.agg_net}%;background:#D6D3D1;"></div>
           </div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${s.ssip}% SSIP · ${s.cip}% CIP · ${s.agg_net}% AGG-net</div>
+          <div class="subtle" style="font-size:12px;margin-top:4px;">${s.ssip}% free · ${s.cip}% paired · ${(s.agg_i + s.agg_net).toFixed(1)}% agg</div>
         </td>
-        <td>${s.tau_ex_ps}</td><td><b>${s.readiness}/100</b></td>
-        <td><span class="pill ${s.regime.includes('GOLDILOCKS') ? 'PASS' : (s.regime.includes('RISK') ? 'FAIL' : 'WARN')}">${s.regime}</span></td>
-      </tr>`).join('')}</tbody>`;
-
-  document.getElementById('datasetTable').innerHTML = `
-    <thead><tr><th>Domain</th><th>Dataset</th><th>One-Line Import Command</th></tr></thead>
-    <tbody>${ov.datasets.map(d => `<tr><td><b>${d.domain}</b></td><td><a href="${d.url}" target="_blank" style="color:#60a5fa;">${d.title}</a></td><td><code>${d.import_hint}</code></td></tr>`).join('')}</tbody>`;
+        <td class="num"><b>${s.readiness}</b> / 100</td>
+      </tr>`).join('')}
+    </tbody>`;
 }
 
 function exportSessionJson() {
-  const payload = {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({
     exported_at: new Date().toISOString(),
     compliance: STATE.compData,
     rollout: STATE.rollData,
     binding: STATE.bindData,
     electrolyte: STATE.elecData
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'wignerflow_compliance_receipt.wignerstudio.json';
+  }, null, 2)], { type: 'application/json' }));
+  a.download = 'wignerflow_report.json';
   a.click();
 }
 
-async function initStudio() {
-  setupOrbit('canvasComp3D', 'comp', drawComp3D);
-  setupOrbit('canvasRoll3D', 'roll', drawRoll3D);
-  setupOrbit('canvasBind3D', 'bind', drawBind3D);
-  setupOrbit('canvasElec3D', 'elec', drawElec3D);
+async function init() {
+  attachOrbit('canvasComp3D', 'comp', drawComp3D);
+  attachOrbit('canvasRoll3D', 'roll', drawRoll3D);
+  attachOrbit('canvasBind3D', 'bind', drawBind3D);
+  attachOrbit('canvasElec3D', 'elec', drawElec3D);
 
-  const r = await fetch('/api/overview');
-  const ov = await r.json();
+  document.getElementById('canvasParity').addEventListener('mousemove', e => {
+    const rect = e.target.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    let best = null, bd = 999;
+    STATE.parityPts.forEach(pt => {
+      const d = Math.hypot(pt.x - mx, pt.y - my);
+      if (d < bd) { bd = d; best = pt; }
+    });
+    if (best && bd < 20) {
+      const p = best.p;
+      document.getElementById('parityHover').textContent =
+        `${p.c_M.toFixed(2)} M LiPF6 in EC:DMC (298 K) — Aligned conductivity: ${p.sigma_aligned.toFixed(2)} mS/cm`;
+    }
+  });
+
+  const ov = await (await fetch('/api/overview')).json();
   STATE.overview = ov;
-  document.getElementById('runtimeInfo').textContent =
-    `Live Engine: Python ${ov.runtime.python} · PyTorch ${ov.runtime.torch} (${ov.runtime.cpu_threads} CPU threads)`;
+  document.getElementById('runtimeBadge').innerHTML =
+    `<span class="dot"></span>PyTorch ${ov.runtime.torch.split('+')[0]} · Live`;
   document.getElementById('customXyzInput').value = ov.default_xyz;
-  renderFaultCatalog(ov.fault_catalog);
-  populateBenchmarks(ov);
+  document.getElementById('compFault').innerHTML = ov.fault_catalog.map(f =>
+    `<option value="${f.id}">${f.title}</option>`
+  ).join('');
+
+  populateTables(ov);
   await runCompliance();
 
   setInterval(() => {
-    if (STATE.playing.comp && STATE.compData && STATE.compData.viewer_frames.length > 1 && !document.getElementById('chkTwinVec').checked) {
-      STATE.frameIdx.comp = (STATE.frameIdx.comp + 1) % STATE.compData.viewer_frames.length;
-      document.getElementById('compFrameSlider').value = STATE.frameIdx.comp;
-      drawComp3D();
-    }
     if (STATE.playing.roll && STATE.rollData) {
       STATE.frameIdx.roll = (STATE.frameIdx.roll + 1) % Math.max(1, STATE.rollData.viewer_frames.length);
       drawRoll3D();
@@ -1049,7 +1634,7 @@ async function initStudio() {
   }, 110);
 }
 
-window.addEventListener('DOMContentLoaded', initStudio);
+window.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
@@ -1060,23 +1645,24 @@ class WignerFlowStudioHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return
 
-    def _set_cors(self):
+    def _set_headers(self, content_type: str, length: int):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(length))
 
     def _send_json(self, code: int, payload: dict):
         raw = json.dumps(payload).encode("utf-8")
         self.send_response(code)
-        self._set_cors()
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
+        self._set_headers("application/json; charset=utf-8", len(raw))
         self.end_headers()
         self.wfile.write(raw)
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self._set_cors()
+        self._set_headers("text/plain; charset=utf-8", 0)
         self.end_headers()
 
     def do_GET(self):
@@ -1084,9 +1670,7 @@ class WignerFlowStudioHandler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             raw = STUDIO_HTML.encode("utf-8")
             self.send_response(200)
-            self._set_cors()
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(raw)))
+            self._set_headers("text/html; charset=utf-8", len(raw))
             self.end_headers()
             self.wfile.write(raw)
         elif path == "/api/overview":
