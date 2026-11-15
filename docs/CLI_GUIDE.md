@@ -58,9 +58,11 @@ wignerflow-pocket electrolyte --preset li_high_salt_agg --json
 Check a WignerFlow checkpoint on CPU:
 
 ```bash
-wignerflow-pocket checkpoint --steps 24 --sampling-steps 3 --neighbor verlet
-wignerflow-pocket checkpoint --ckpt checkpoints/argon_flow_v1_cpu_reduced.pt --thermostat --json
+wignerflow-pocket checkpoint --ckpt checkpoints/argon_flow_v0.pt --steps 24 --sampling-steps 3 --neighbor verlet
+wignerflow-pocket checkpoint --ckpt checkpoints/argon_flow_v0.pt --thermostat --json
 ```
+
+Note: `checkpoints/argon_flow_v1_cpu_reduced.pt` is a 1000-step reduced CPU test run ([`docs/RETRAIN_NOTES_oct29.md`](RETRAIN_NOTES_oct29.md)), not a release model.
 
 Run a short trajectory and save it:
 

@@ -30,7 +30,7 @@ WignerFlow generates molecular dynamics trajectories directly. Given the last 3 
 ```bash
 git clone https://github.com/yaniguan/WignerFlow.git && cd WignerFlow
 pip install -e .                                   # torch, e3nn, numpy, scipy, h5py, matplotlib
-gh release download v0.1.0 -D checkpoints -p 'argon_flow_v0.pt'   # or download it from the v0.1.0 release page
+# argon_flow_v0.pt is tracked in checkpoints/ (and also attached to the v0.1.0 GitHub release)
 (cd checkpoints && sha256sum -c argon_flow_v0.pt.sha256)
 
 python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt --steps 20 --out demo_out
@@ -93,7 +93,7 @@ tests/        pytest suite (equivariance, permutation, PBC, neighbors, ...)
 results/      metrics.json and figures per experiment
 docs/         release notes, stability, speed, related work
 colab/        GPU notebooks (full retrain, stable fine-tune, long rollout)
-checkpoints/  checksums; weights are on the GitHub release
+checkpoints/  small .pt weights (~8 MB) and SHA-256 checksums
 ```
 
 ## Limitations / status
