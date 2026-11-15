@@ -61,7 +61,7 @@ python scripts/pocket_md.py electrolyte --preset li_ec_fec_additive
 python scripts/pocket_md.py electrolyte --preset li_high_salt_agg
 
 # 4. WignerFlow neural checkpoint CPU rollout + dual epistemic audit
-python scripts/pocket_md.py checkpoint --ckpt checkpoints/argon_flow_v1_cpu_reduced.pt
+python scripts/pocket_md.py checkpoint --ckpt checkpoints/argon_flow_v0.pt
 
 # 5. Batch-screen all 8 candidates and export JSON report
 python scripts/pocket_md.py batch --json-out pocket_batch.json

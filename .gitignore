@@ -12,7 +12,7 @@ data/
 *.dcd
 *.pt
 *.ckpt
-# small release checkpoints (~8 MB) are tracked
+# small checkpoints in checkpoints/ (~8 MB) are tracked
 !checkpoints/*.pt
 runs/
 wandb/

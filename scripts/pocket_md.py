@@ -9,7 +9,7 @@ Examples:
     python scripts/pocket_md.py binding --preset aspirin_cox_stable
     python scripts/pocket_md.py binding --pdb systems/aspirin.pdb --xml systems/aspirin.xml
     python scripts/pocket_md.py electrolyte --preset li_ec_fec_additive
-    python scripts/pocket_md.py checkpoint --ckpt checkpoints/argon_flow_v1_cpu_reduced.pt
+    python scripts/pocket_md.py checkpoint --ckpt checkpoints/argon_flow_v0.pt
     python scripts/pocket_md.py batch --json-out pocket_batch.json
     python scripts/pocket_md.py serve --port 8765
 """
