@@ -41,6 +41,45 @@ forces are NaN. Kinetic energies are computed from velocities and masses.
 `complete=True` is set only after frames have been flushed. Existing trajectory
 files require `--overwrite`; replacing one invalidates its training cache.
 
+## Metadata
+
+To include PFF metadata, pass it to `import_trajectory(particle_metadata=...)`
+or use a JSON file with `scripts/import_md.py --particle-metadata FILE`.
+Metadata is off by default. The version 1 format in `equitraj/topology.py`
+requires `version: 1`,
+`units: {"charge": "e", "distance": "nm"}`, per-particle `charges`,
+`ff_types`, `molecule_ids`, and unique `original_indices`, plus `bonds`
+(index pairs), `constraints` (index, index, distance), and
+`drude_parent_map` (Drude, parent pairs). Empty topology lists are valid.
+Filtering updates particle indices and keeps `original_indices` unchanged.
+It drops bonds and constraints that include removed particles. It raises an
+error if a kept Drude's parent was removed. Charges and masses are never
+combined. `read_traj` checks the metadata and returns it as `particle_metadata`.
+Files without metadata still work.
+
+## Preflight
+
+Before using caches, training checks the HDF5 files in all configured splits.
+It checks atom order and elements, masses, time steps, periodicity, positions,
+velocities, and fixed cells. Each trajectory can have a different fixed cell.
+Optional `atom_ids` or `particle_names` datasets let it check the order of atoms
+with the same element. Without these, it cannot detect changes in their order.
+To reject estimated velocities, set `reject_estimated_velocities: true` in the
+training config or pass the same keyword to `TrajWindows`. It defaults to `false`.
+
+## Constraints
+
+Distance constraints are off by default. To enable them, pass
+`constraint_projector=DistanceProjector([(i, j, distance_A), ...])` to
+`equitraj.rollout.rollout`. Import `DistanceProjector` from `equitraj.constraints`.
+Corrections use particle masses and keep the center of mass and total momentum
+fixed. Masses must be positive, and constraints must be independent.
+Corrections run after the optional thermostat. Temperature calculations account
+for the constraints. Diagnostics record the remaining errors and correction
+sizes. The rollout raises an error if corrections fail to reach the tolerances.
+Periodic distances use the nearest image. Corrections can change kinetic energy
+and transport, so check the results for your physical system.
+
 ## Validation
 
 ```sh
@@ -76,6 +115,29 @@ A mapping can explicitly supply `stable_frames`. The optional Python `energy`
 callable receives `(positions_A, velocities_A_per_fs, masses_amu, box_A_or_None)`
 for each frame and must return total energy in kJ/mol. Its drift is kJ/mol/ns.
 Short fitted transport estimates can be negative or unconverged.
+
+`equitraj.validation.validate` accepts `charges` as one value per atom, in
+units of the elementary charge, or as a dictionary of charges by element.
+Pass integer `molecule_ids` to report each molecule's center of mass diffusion
+and use its net charge for Nernst–Einstein conductivity. The center of mass
+is weighted by atom mass. Molecular analysis is off by default.
+Einstein–Helfand conductivity always uses the combined motion of atom charges.
+Keep each molecule whole and use unwrapped coordinates in a common rest frame.
+Motion of charges within a molecule can affect Einstein–Helfand estimates over
+the measured time lags, even if those charges stay close together.
+These estimates alone do not show that the trajectories are long enough.
+
+## Pair exclusions
+
+Pair exclusions are off by default. To exclude pairs, use a boolean `(N,N)`
+mask with `True` for each excluded pair. The mask must be symmetric and use
+the current particle order. Pass `excluded_pairs=mask` to `RepulsionPrior`,
+`overlap_penalty`, `estimate_rmin`, and `rollout` (or `StabilityMonitor`).
+These skip the excluded pairs when pushing atoms apart, damping velocities,
+computing the overlap loss, estimating distance limits, and checking or
+reporting overlaps. Pairs in the same molecule are not excluded automatically.
+The prior's mask is not saved in checkpoints. Supply it again when loading
+a model, using the same particle order. Other crash checks still apply.
 
 ## CPU proof and speed
 
