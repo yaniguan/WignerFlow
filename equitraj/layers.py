@@ -15,12 +15,35 @@ Blocks:
 """
 
 import math
+import os
+import sys
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from equitraj import so3
+
+ATTENTION_VERSION = "v1"
+_WARNED_LEGACY_ATTENTION = set()
+
+
+def check_attention_version(ck, source=None):
+    """Warn once when a v0 checkpoint (missing attention_version or 'v0') runs on v1 attention."""
+    ver = ck.get("attention_version", "v0")
+    if ver == ATTENTION_VERSION:
+        return None
+    label = os.path.basename(str(source)) if source else str(ck.get("name", "checkpoint"))
+    if label in _WARNED_LEGACY_ATTENTION:
+        return None
+    _WARNED_LEGACY_ATTENTION.add(label)
+    msg = (
+        f"WARNING: {label} has attention_version='{ver}', while current GraphAttention uses "
+        f"'{ATTENTION_VERSION}' (cutoff envelope inside softmax + zero-logit sink). "
+        f"Check out tag v0.1.0 to reproduce the published v0 numbers."
+    )
+    print(msg, file=sys.stderr, flush=True)
+    return msg
 
 
 # ---------------------------------------------------------------- radial functions

@@ -18,3 +18,5 @@ Rebuild a file from a training run:
 ```bash
 python scripts/export_ckpt.py --run results/argon/B_S3a_seed1 --ckpt snapshots/best_step10000.pt --out checkpoints/argon_flow_v0.pt
 ```
+
+Note: `argon_flow_v0.pt` was trained and evaluated with tag `v0.1.0`, before the `GraphAttention` cutoff-envelope and zero-logit sink update in `equitraj/layers.py`. Check out tag `v0.1.0` to reproduce the published v0 table.

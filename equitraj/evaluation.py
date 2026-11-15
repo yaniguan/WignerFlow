@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch
 from equitraj.dataset import TrajWindows
+from equitraj.layers import check_attention_version
 from equitraj.model import EquiTraj
 
 def first_zero(t, c):
@@ -14,13 +15,15 @@ def first_zero(t, c):
 
 
 def load_model(run_dir, ckpt, device, split="test", data_dir=None):
-    ck = torch.load(os.path.join(run_dir, ckpt), map_location=device, weights_only=False)
+    ckpt_path = os.path.join(run_dir, ckpt)
+    ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     if "cfg" in ck:
         cfg = dict(ck["cfg"])
         step = ck["step"]
     else:
         if data_dir is None:
             raise ValueError("Released checkpoints require --data_dir for ground-truth evaluation")
+        check_attention_version(ck, source=ckpt_path)
         cfg = {"model": ck["model_cfg"], "k": ck["k"], "stride_steps": ck["stride_steps"]}
         step = ck["train_step"]
     if data_dir is not None:

@@ -18,6 +18,7 @@ import torch
 
 from equitraj import analysis
 from equitraj.dataset import TrajWindows
+from equitraj.layers import ATTENTION_VERSION
 from equitraj.rollout import temperature
 
 
@@ -56,6 +57,7 @@ def main():
     pos, vel, box = ds[0]  # k context frames + 1 target frame; the target is not exported
     payload = {
         "format": "wignerflow-v0",
+        "attention_version": ck.get("attention_version", ATTENTION_VERSION),
         "name": cfg["name"],
         "train_step": int(ck["step"]),
         "model": {key: v.cpu() for key, v in ck["model"].items()},

@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from equitraj import analysis, plots
+from equitraj.layers import check_attention_version
 from equitraj.model import EquiTraj
 from equitraj.rollout import rollout, temperature
 
@@ -21,6 +22,7 @@ from equitraj.rollout import rollout, temperature
 def load_release(path, device):
     ck = torch.load(path, map_location=device, weights_only=True)
     assert ck.get("format") == "wignerflow-v0", "not a WignerFlow v0 release checkpoint"
+    check_attention_version(ck, source=path)
     model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), ck
