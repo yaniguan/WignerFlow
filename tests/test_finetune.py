@@ -136,3 +136,70 @@ def test_micro_batch_gradient_equals_full_batch():
     assert micro_batch_size_for({"batch_size": 8, "micro_batch_size": 2}, 4) == 2
     assert micro_batch_size_for({"batch_size": 8, "micro_batch_min_m": 1}, 2) == 4
     assert micro_batch_size_for({"batch_size": 8, "micro_batch_size": 99}, 4) == 8
+
+
+def test_colab_init_cell_warns_when_init_snapshot_ignored_on_resume(tmp_path, capsys):
+    import yaml
+
+    nb = json.loads((ROOT / "colab" / "argon_stable_ft.ipynb").read_text(encoding="utf-8"))
+    init_cells = [
+        "".join(c["source"])
+        for c in nb["cells"]
+        if c["cell_type"] == "code" and "B_S3a_stable_ft_runtime.yaml" in "".join(c["source"])
+    ]
+    assert len(init_cells) == 1
+    cell_code = init_cells[0]
+
+    run_dir = tmp_path / "argon_full_oct29"
+    snaps = run_dir / "train" / "snapshots"
+    snaps.mkdir(parents=True)
+    s8k = snaps / "step008000.pt"
+    s16k = snaps / "step016000.pt"
+    s8k.write_bytes(b"s8k")
+    s16k.write_bytes(b"s16k")
+    ft = run_dir / "train_stable_ft"
+    ft.mkdir()
+    (ft / "init_rank.json").write_text(json.dumps({"chosen": str(s8k), "ranking": []}))
+
+    def exec_cell(init_snapshot):
+        capsys.readouterr()
+        ns = {
+            "RUN": run_dir,
+            "FT": ft,
+            "FT_NAME": "train_stable_ft",
+            "REPO": ROOT,
+            "DATA_LOCAL": tmp_path / "data",
+            "INIT_SNAPSHOT": init_snapshot,
+            "RANK_TOP": 3,
+            "RANK_STEPS": 2000,
+            "Path": Path,
+            "yaml": yaml,
+            "json": json,
+            "sys": sys,
+            "run": lambda *a, **kw: (_ for _ in ()).throw(AssertionError("rank_snapshots should not run")),
+        }
+        exec(cell_code, ns)  # noqa: S102
+        return capsys.readouterr().out, ns["INIT"]
+
+    # 1. Fresh run with default 'auto' picks step008000.pt and prints full path without warning
+    out1, chosen1 = exec_cell("auto")
+    assert chosen1 == str(s8k.resolve())
+    assert f"init_from: {s8k.resolve()}" in out1
+    assert "WARNING:" not in out1
+
+    # 2. Resume with default 'auto' keeps saved init_from without warning
+    out2, chosen2 = exec_cell("auto")
+    assert chosen2 == str(s8k.resolve())
+    assert "WARNING:" not in out2
+
+    # 3. Resume with matching INIT_SNAPSHOT keeps saved init_from without warning
+    out3, chosen3 = exec_cell("step008000.pt")
+    assert chosen3 == str(s8k.resolve())
+    assert "WARNING:" not in out3
+
+    # 4. Resume with different INIT_SNAPSHOT keeps saved init_from AND prints clear warning naming FT_NAME
+    out4, chosen4 = exec_cell("step016000.pt")
+    assert chosen4 == str(s8k.resolve())
+    assert "WARNING:" in out4
+    assert "Change FT_NAME" in out4
+    assert f"init_from: {s8k.resolve()}" in out4
