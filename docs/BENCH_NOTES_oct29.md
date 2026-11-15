@@ -48,11 +48,12 @@ Defaults are sized for 8 CPU cores and about 3 GB of free RAM. The model is B_S3
 | 64 | 8 | 1216 | 0.167 | 0.264 | 0.177 | 1108 |
 
 **Cutoff continuity** (float64, an atom pair crossing r_c; "max crossing" = max output change in the step that crosses the cutoff):
-- On `main`: crossing jump stays ~8e-02 to 4.2e-01 as h goes 1e-2 → 1e-4 (relative jump 1e-2 to 2e-1), while control steps shrink linearly → **outputs are discontinuous at the cutoff**, as predicted below (envelope applied after softmax).
-- Same script with `equitraj/layers.py` from the local `fix/cutoff-envelope` branch (envelope as log-bias inside softmax + zero-logit sink): crossing jump falls as ~h^3 (e.g. 5.7e-03 → 5.7e-06 → 5.7e-09), i.e. continuous. That fix is not on `main` yet.
+- On `main` as of 2026-10-29 (`v0.1.0`): crossing jump stays ~8e-02 to 4.2e-01 as h goes 1e-2 → 1e-4 (relative jump 1e-2 to 2e-1), while control steps shrink linearly → **outputs are discontinuous at the cutoff**, as predicted below (envelope applied after softmax).
+- Same script with `equitraj/layers.py` from the `fix/cutoff-envelope` branch (envelope as log-bias inside softmax + zero-logit sink): crossing jump falls as ~h^3 (e.g. 5.7e-03 → 5.7e-06 → 5.7e-09), i.e. continuous.
+- **Update (2026-11-14):** The cutoff-envelope and zero-logit sink fix is on `main` ([`equitraj/layers.py`](../equitraj/layers.py)). The v0 weights (`checkpoints/argon_flow_v0.pt`) predate the fix.
 
-## Prediction from reading the code (confirmed by the scan above)
+## Prediction from reading the v0.1.0 code (confirmed by the scan above)
 
-`GraphAttention` (equitraj/layers.py) computes the softmax over all edges into a node and only then multiplies by the cutoff envelope. When an edge enters the cutoff, its own value is multiplied by envelope ≈ 0, so it adds almost nothing. But its logit is not suppressed, so it joins the softmax denominator with O(1) weight. That rescales the attention on every other edge into that node by a finite amount. **The outputs are therefore expected to jump when an atom crosses the cutoff**, despite the comment on `envelope` that says otherwise.
+In `v0.1.0`, `GraphAttention` (`equitraj/layers.py`) computed the softmax over all edges into a node and only then multiplied by the cutoff envelope. When an edge entered the cutoff, its own value was multiplied by envelope ≈ 0, so it added almost nothing. But its logit was not suppressed, so it joined the softmax denominator with O(1) weight. That rescaled the attention on every other edge into that node by a finite amount. **The outputs were therefore expected to jump when an atom crossed the cutoff**, despite the comment on `envelope` that said otherwise.
 
-`bench_cutoff_continuity.py` is built to confirm or refute this. With a jump, the "max crossing" column stays the same size as h shrinks from 1e-2 to 1e-4 Å, while the other steps shrink like h. A common fix is to put the envelope inside the normalisation: α = env·exp(logit) / Σ env·exp(logit). That would change the trained model's behaviour, so it was not made here.
+`bench_cutoff_continuity.py` is built to confirm or refute this. With a jump, the "max crossing" column stays the same size as h shrinks from 1e-2 to 1e-4 Å, while the other steps shrink like h. Putting `log(envelope)` inside the logits with a zero-logit sink fixes this on `main` (see the 2026-11-14 update above); the v0 weights predate that change.
