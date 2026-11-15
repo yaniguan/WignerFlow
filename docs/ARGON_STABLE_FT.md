@@ -60,3 +60,9 @@ settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400.
 - Final evaluation: `scripts/eval_multiseed.py` on v0 and `best_stable.pt`, test trajectory, 8 starts × 3 seeds ×
   1000 steps. Then `scripts/compare_v0.py` writes `v0_vs_v1.json` with a pass/fail on all four metrics
   (temperature_rel_err, rdf_l1, vacf_zero_rel_err, D_rel_err; lower is better) and on crash fraction.
+
+## Resume vs new fine-tune (`colab/argon_stable_ft.ipynb`)
+
+- **Resume an existing fine-tune:** keep `FT_NAME` unchanged (default `'train_stable_ft'`) and leave `INIT_SNAPSHOT = 'auto'`. When `<FT_NAME>/B_S3a_stable_ft_runtime.yaml` already exists, the notebook keeps its saved `init_from` path and continues from `<FT_NAME>/ckpt.pt`.
+- **Start a new fine-tune from another snapshot:** change `FT_NAME` to a new folder name (for example `'train_stable_ft_s16k'`) and set `INIT_SNAPSHOT` to the file name in `train/snapshots/` (for example `'step016000.pt'`). If `FT_NAME` already has a runtime config with a different `init_from`, the notebook prints a warning that `INIT_SNAPSHOT` was ignored.
+- **Two meanings of "step 8000":** `train/snapshots/step008000.pt` is step 8000 of the original `argon_full_oct29/train` run (used as `init_from`), whereas step 8000 inside `<FT_NAME>` is where the fine-tune curriculum switches from `m = 3` to `m = 4`.
