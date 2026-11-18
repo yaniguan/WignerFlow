@@ -1,0 +1,56 @@
+{
+  "name": "argon_edge_distill",
+  "system": "argon",
+  "teacher": {
+    "checkpoint": "checkpoints/argon_flow_v0.pt",
+    "sampling_steps": 10,
+    "note": "v0 release checkpoint; facts in checkpoints/README.md"
+  },
+  "gate": {
+    "script": "scripts/evaluate.py",
+    "criteria": "v0 criteria in scripts/evaluate.py (V0_CRITERIA)",
+    "rule": "every stage must pass the gate on the val split before the next stage starts"
+  },
+  "stages": [
+    {
+      "id": "S1_four_step_teacher",
+      "goal": "teacher validated at 4 flow steps (10 cannot halve exactly; docs/SPEED.md)",
+      "status": "todo",
+      "requires": ["scripts/evaluate.py"],
+      "command": "python scripts/evaluate.py --run <run_dir> --sampling_steps 4 --split val --device cuda"
+    },
+    {
+      "id": "S2_progressive_4_to_2",
+      "goal": "2-step student from the 4-step teacher",
+      "status": "code exists, not run",
+      "requires": ["scripts/distill.py", "equitraj/distill.py"],
+      "command": "python scripts/distill.py --teacher four.pt --data train_contexts.pt --teacher-steps 4 --out two.pt --device cuda"
+    },
+    {
+      "id": "S3_progressive_2_to_1",
+      "goal": "1-step student",
+      "status": "code exists, not run",
+      "requires": ["scripts/distill.py"],
+      "command": "python scripts/distill.py --teacher two.pt --data train_contexts.pt --teacher-steps 2 --out one.pt --device cuda"
+    },
+    {
+      "id": "S4_narrow_student",
+      "goal": "smaller network (fewer channels / blocks) trained on teacher rollouts",
+      "status": "todo",
+      "requires": [],
+      "command": null
+    },
+    {
+      "id": "S5_low_precision",
+      "goal": "bf16 inference via FastRollout; int8 / edge export later",
+      "status": "bf16 path exists (equitraj/fast.py); edge export todo",
+      "requires": ["equitraj/fast.py", "scripts/bench_speed.py"],
+      "command": "python scripts/bench_speed.py --precisions fp32 bf16 --sampling-steps 1 10 --out speed.jsonl"
+    }
+  ],
+  "targets": {
+    "student_params": "TBD",
+    "edge_hardware": ["Jetson Orin Nano Super", "Jetson AGX Orin 64GB", "single 24GB GPU"],
+    "latency": "TBD"
+  }
+}
