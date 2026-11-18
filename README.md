@@ -14,6 +14,9 @@
 
 **Molecular dynamics without an integrator: an equivariant model that jumps a trajectory 50 fs per step.**
 
+**Project Website & Interactive 3D Studio:** [https://yaniguan.github.io/WignerFlow/](https://yaniguan.github.io/WignerFlow/)
+
+[![Project Website](https://img.shields.io/badge/project_page-live_3D_studio-b5d88e?style=flat&labelColor=101820)](https://yaniguan.github.io/WignerFlow/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)

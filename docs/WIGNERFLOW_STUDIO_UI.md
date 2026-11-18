@@ -1,14 +1,17 @@
-# WignerFlow Studio
+# WignerFlow Project Homepage & Studio
 
-`WignerFlow Studio` (`equitraj/studio.py` + `equitraj/compliance.py`) is a browser app that connects to a local Python + PyTorch server. It lets you try every feature in WignerFlow and test 10 basic physics rules in real time, with no extra web frameworks required.
+`site/` and `equitraj/studio.py` provide both a static research project website (deployable directly to GitHub Pages with no build step) and a live local PyTorch server (`WignerFlow Studio`) featuring hardware-accelerated WebGL2 ray-cast 3D molecular rendering, interactive SVG publication charts, and live 10-gate equivariance checks.
 
 ---
 
 ## 1. Quick Start
 
 ```bash
-# Open the interactive web app on http://127.0.0.1:8788
+# Open the live research homepage + interactive PyTorch Studio on http://127.0.0.1:8788
 python scripts/wignerflow_studio.py --port 8788
+
+# Rebuild site/assets/homepage-data.json from committed results/ and checkpoints/
+python scripts/build_site_data.py
 
 # Or run the 10-rule physics check in the terminal and save a JSON report
 python scripts/wignerflow_studio.py --audit-only --target aspirin_hetero_o3 --precision float64 --json-out audit.json
@@ -16,15 +19,15 @@ python scripts/wignerflow_studio.py --audit-only --target aspirin_hetero_o3 --pr
 
 ---
 
-## 2. Five Tabs Inside the App
+## 2. Five Views Inside the App
 
-| Tab | What You Can Do | What You See |
+| View | What You Can Do | What You See |
 | :--- | :--- | :--- |
-| **1. Physics Rules Check (`G1-G10`)** | Test trained models (`argon_flow_v1`) or multi-element molecules (`aspirin_hetero_o3`) under any 3D rotation, or click **`F1-F10` Break-a-Rule switches** to see how bugs get caught. | 3D rotated-vs-unrotated arrows, 5-axis accuracy radar, and a 10-rule pass/fail list. |
-| **2. Molecule Simulator (`3D & .xyz`)** | Run fast CPU simulations on built-in molecules (`aspirin`, `ala2`, `ethanol`, `li_ec_pf6`) or paste your own `.xyz` coordinates. | Live 3D moving molecule, temperature curve, bond-stretch check, and `.xyz` download. |
-| **3. Drug Pocket Check** | Wiggle a candidate drug pose inside a protein pocket for a short CPU run to see if it stays locked in (`GO`) or clashes and pops out (`REJECT`). | 3D pocket + drug view, distance drift (`RMSD`), hydrogen bonds, and `GO / HOLD / REJECT` badge. |
-| **4. Battery Electrolytes & CALiSol-23** | Simulate a small lithium electrolyte box and separate free ions from ion pairs. Shows the saved CALiSol-23 aligner metrics and the top 15 recipes from the 1,000,000-recipe screen (toy model output, not lab-tested). | 3D periodic box, `Li+-O` neighbor curve, CALiSol-23 metrics, and the top 15 table. |
-| **5. All Benchmark Numbers** | Browse saved results: the MD17/MD22 large-time-step test, CALiSol-23 metrics, measured CPU speed, and one-line dataset import commands. | Summary tables and `.json` report download. |
+| **`Physics`** | Test trained models (`argon_flow_v1`) or multi-element molecules (`aspirin_hetero_o3`) under any 3D rotation, or select **`F1-F10` Fault Injections** to see how broken physics rules get caught. | 3D twin-arrow equivariance overlay, `-log10(error)` symmetry bar chart, and 10 expandable pass/fail rows. |
+| **`Simulate`** | Run fast CPU simulations on built-in molecules (`aspirin`, `ala2`, `ethanol`, `li_ec_pf6`) or paste custom `.xyz` coordinates. | Live 3D moving molecule, kinetic temperature `T(t)` curve, bond-stretch check, and `.xyz` export. |
+| **`Drug Triage`** | Wiggle a candidate drug pose inside a protein pocket for a short CPU run to see if it stays locked in (`GO`) or clashes and pops out (`REJECT`). | 3D pocket + ligand view, `RMSD` drift curve, unbinding time, and `GO / HOLD / REJECT` badge. |
+| **`Electrolytes`** | Simulate a small lithium electrolyte box and separate free ions from ion pairs. Shows the saved `CALiSol-23` aligner metrics and concentration curve from `results/calisol/`. | 3D solvation cell, `EC:DMC` concentration curve, and saved `CALiSol-23` alignment comparison table. |
+| **`Benchmarks`** | Browse saved results loaded at start-up from `results/`: the `MD17`/`MD22` large-step pair-model baseline, measured CPU box scaling, and the top 15 toy-model screening table. | Editorial summary cards, clean tables, solvation shell bars, and `.json` report export. |
 
 ---
 
