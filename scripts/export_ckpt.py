@@ -1,24 +1,27 @@
 """Export a small, self-contained release checkpoint from a training run.
 
     python scripts/export_ckpt.py --run results/argon/B_S3a_seed1 --ckpt snapshots/best_step10000.pt \
-        --out checkpoints/argon_flow_v0.pt
+        --out checkpoints/argon_flow_v0.pt --attention-version v0
 
 Drops the optimizer state and adds what scripts/demo.py needs so that it runs without the
 training data and without OpenMM: model config, atom types and masses, one starting window
 (k frames from a test trajectory), and reference RDF / VACF / temperature from the test trajectories.
 The file holds only tensors, numbers, strings and lists, so torch.load(weights_only=True) works.
+
+attention_version comes from the training checkpoint. Older training checkpoints do not store it,
+so then --attention-version is required (v0 for runs trained before the GraphAttention update).
 """
 
 import argparse
 import hashlib
 import os
+import sys
 
 import numpy as np
 import torch
 
 from equitraj import analysis
 from equitraj.dataset import TrajWindows
-from equitraj.layers import ATTENTION_VERSION
 from equitraj.rollout import temperature
 
 
@@ -49,15 +52,21 @@ def main():
     ap.add_argument("--run", required=True)
     ap.add_argument("--ckpt", default="best.pt")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--attention-version", choices=["v0", "v1"],
+                    help="attention version of the run; required when the training checkpoint does not store it")
     args = ap.parse_args()
     ck = torch.load(os.path.join(args.run, args.ckpt), map_location="cpu", weights_only=False)
+    attention_version = ck.get("attention_version", args.attention_version)
+    if attention_version is None:
+        sys.exit(f"error: {args.ckpt} has no attention_version field. Pass --attention-version v0 "
+                 f"(trained before the GraphAttention update, tag v0.1.0) or --attention-version v1.")
     cfg = ck["cfg"]
     ds = TrajWindows(cfg["data_dir"], "test", cfg["stride_steps"], cfg["k"], m=1)
     k = cfg["k"]
     pos, vel, box = ds[0]  # k context frames + 1 target frame; the target is not exported
     payload = {
         "format": "wignerflow-v0",
-        "attention_version": ck.get("attention_version", ATTENTION_VERSION),
+        "attention_version": attention_version,
         "name": cfg["name"],
         "train_step": int(ck["step"]),
         "model": {key: v.cpu() for key, v in ck["model"].items()},

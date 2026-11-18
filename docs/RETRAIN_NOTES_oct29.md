@@ -71,7 +71,7 @@ Final-snapshot export and paired comparison commands (queued by `results/argon/c
 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
   /workspace/venv311/bin/python scripts/export_ckpt.py \
   --run results/argon/cpu_reduced/train --ckpt snapshots/step001000.pt \
-  --out checkpoints/argon_flow_v1_cpu_reduced.pt
+  --out checkpoints/argon_flow_v1_cpu_reduced.pt --attention-version v1
 
 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
   /workspace/venv311/bin/python scripts/evaluate.py --run . \

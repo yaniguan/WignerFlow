@@ -1,4 +1,4 @@
-"""Smoke test of the v0 release checkpoint (skipped when the file is not present)."""
+"""Release checkpoints: smoke test, attention_version warnings and export (file tests skip when absent)."""
 
 import os
 import sys
@@ -7,6 +7,7 @@ import pytest
 import torch
 
 CKPT = "checkpoints/argon_flow_v0.pt"
+CKPT_V1 = "checkpoints/argon_flow_v1_cpu_reduced.pt"
 
 
 @pytest.mark.skipif(not os.path.exists(CKPT), reason="release checkpoint not present")
@@ -26,18 +27,12 @@ def test_release_checkpoint_loads_and_steps():
 
 
 @pytest.mark.skipif(not os.path.exists(CKPT), reason="release checkpoint not present")
-def test_v0_checkpoint_warns_once_and_export_sets_attention_version(tmp_path, capsys, monkeypatch):
+def test_v0_checkpoint_warns_once(capsys):
     pytest.importorskip("e3nn")
     pytest.importorskip("matplotlib")
-    import h5py
-    import numpy as np
-    import yaml
-
     sys.path.insert(0, "scripts")
-    import export_ckpt  # noqa: PLC0415
     from demo import load_release  # noqa: PLC0415
-    from equitraj.layers import ATTENTION_VERSION, _WARNED_LEGACY_ATTENTION  # noqa: PLC0415
-    from equitraj.model import EquiTraj  # noqa: PLC0415
+    from equitraj.layers import _WARNED_LEGACY_ATTENTION  # noqa: PLC0415
 
     torch.set_default_dtype(torch.float32)
     _WARNED_LEGACY_ATTENTION.clear()
@@ -45,14 +40,36 @@ def test_v0_checkpoint_warns_once_and_export_sets_attention_version(tmp_path, ca
 
     load_release(CKPT, "cpu")
     err1 = capsys.readouterr().err
-    assert "WARNING:" in err1
+    assert err1.count("WARNING:") == 1
     assert "v0.1.0" in err1
 
     load_release(CKPT, "cpu")
-    err2 = capsys.readouterr().err
-    assert err2 == ""
+    assert capsys.readouterr().err == ""
 
-    # Build a tiny synthetic test dataset + training checkpoint and run export_ckpt.main()
+
+@pytest.mark.skipif(not os.path.exists(CKPT_V1), reason="reduced v1 checkpoint not present")
+def test_reduced_v1_checkpoint_does_not_warn(capsys):
+    pytest.importorskip("e3nn")
+    pytest.importorskip("matplotlib")
+    sys.path.insert(0, "scripts")
+    from demo import load_release  # noqa: PLC0415
+    from equitraj.layers import _WARNED_LEGACY_ATTENTION  # noqa: PLC0415
+
+    torch.set_default_dtype(torch.float32)
+    _WARNED_LEGACY_ATTENTION.clear()
+    capsys.readouterr()
+    load_release(CKPT_V1, "cpu")
+    assert capsys.readouterr().err == ""
+
+
+def _tiny_training_run(tmp_path, attention_version=None):
+    """Tiny synthetic test dataset + training checkpoint for export_ckpt.main()."""
+    import h5py
+    import numpy as np
+    import yaml
+
+    from equitraj.model import EquiTraj  # noqa: PLC0415
+
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "config.yaml").write_text(
@@ -85,21 +102,104 @@ def test_v0_checkpoint_warns_once_and_export_sets_attention_version(tmp_path, ca
     tiny = EquiTraj(n_types=1, k=2, stride_fs=50.0, **model_cfg)
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    torch.save(
-        {
-            "step": 50,
-            "model": tiny.state_dict(),
-            "elements": ["Ar"],
-            "cfg": {"name": "tiny_v1", "data_dir": str(data_dir), "stride_steps": 2, "k": 2, "model": model_cfg},
-        },
-        run_dir / "best.pt",
-    )
-    out_pt = tmp_path / "exported_v1.pt"
-    monkeypatch.setattr(sys, "argv", ["export_ckpt.py", "--run", str(run_dir), "--ckpt", "best.pt", "--out", str(out_pt)])
+    ck = {
+        "step": 50,
+        "model": tiny.state_dict(),
+        "elements": ["Ar"],
+        "cfg": {"name": "tiny", "data_dir": str(data_dir), "stride_steps": 2, "k": 2, "model": model_cfg},
+    }
+    if attention_version is not None:
+        ck["attention_version"] = attention_version
+    torch.save(ck, run_dir / "best.pt")
+    return run_dir
+
+
+def _export(monkeypatch, run_dir, out_pt, *extra):
+    sys.path.insert(0, "scripts")
+    import export_ckpt  # noqa: PLC0415
+
+    argv = ["export_ckpt.py", "--run", str(run_dir), "--ckpt", "best.pt", "--out", str(out_pt), *extra]
+    monkeypatch.setattr(sys, "argv", argv)
     export_ckpt.main()
 
-    exported = torch.load(out_pt, map_location="cpu", weights_only=True)
-    assert exported["attention_version"] == ATTENTION_VERSION
+
+def test_export_without_field_or_flag_errors(tmp_path, monkeypatch):
+    pytest.importorskip("e3nn")
+    pytest.importorskip("h5py")
+    torch.set_default_dtype(torch.float32)
+    run_dir = _tiny_training_run(tmp_path)
+    out_pt = tmp_path / "exported.pt"
+    with pytest.raises(SystemExit) as exc:
+        _export(monkeypatch, run_dir, out_pt)
+    assert "--attention-version" in str(exc.value.code)
+    assert not out_pt.exists()
+
+
+def test_export_with_flag_v0_writes_v0(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("e3nn")
+    pytest.importorskip("h5py")
+    pytest.importorskip("matplotlib")
+    sys.path.insert(0, "scripts")
+    from demo import load_release  # noqa: PLC0415
+    from equitraj.layers import _WARNED_LEGACY_ATTENTION  # noqa: PLC0415
+
+    torch.set_default_dtype(torch.float32)
+    run_dir = _tiny_training_run(tmp_path)
+    out_pt = tmp_path / "exported_v0.pt"
+    _export(monkeypatch, run_dir, out_pt, "--attention-version", "v0")
+    assert torch.load(out_pt, map_location="cpu", weights_only=True)["attention_version"] == "v0"
+
+    _WARNED_LEGACY_ATTENTION.clear()
+    capsys.readouterr()
+    load_release(str(out_pt), "cpu")
+    assert "WARNING:" in capsys.readouterr().err
+
+
+def test_export_uses_training_checkpoint_field(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("e3nn")
+    pytest.importorskip("h5py")
+    pytest.importorskip("matplotlib")
+    sys.path.insert(0, "scripts")
+    from demo import load_release  # noqa: PLC0415
+    from equitraj.layers import ATTENTION_VERSION  # noqa: PLC0415
+
+    torch.set_default_dtype(torch.float32)
+    run_dir = _tiny_training_run(tmp_path, attention_version=ATTENTION_VERSION)
+    out_pt = tmp_path / "exported_v1.pt"
+    _export(monkeypatch, run_dir, out_pt)
+    assert torch.load(out_pt, map_location="cpu", weights_only=True)["attention_version"] == ATTENTION_VERSION
     capsys.readouterr()
     load_release(str(out_pt), "cpu")
     assert capsys.readouterr().err == ""
+
+
+def test_train_checkpoints_store_attention_version(tmp_path, monkeypatch):
+    pytest.importorskip("e3nn")
+    import yaml
+
+    from equitraj import train  # noqa: PLC0415
+    from equitraj.layers import ATTENTION_VERSION  # noqa: PLC0415
+    from test_resume import _config, _write_traj  # noqa: PLC0415
+
+    data_dir, out_dir = tmp_path / "data", tmp_path / "run"
+    data_dir.mkdir()
+    _write_traj(data_dir / "traj_000.h5", 24)
+    _write_traj(data_dir / "traj_001.h5", 8)
+    (data_dir / "config.yaml").write_text(yaml.safe_dump({"split": {"train": [0], "val": [1], "test": []}}))
+    cfg = _config(data_dir, out_dir, steps=1)
+    cfg["eval"]["every"] = 1  # also write best.pt, best_stable.pt and a snapshot
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(cfg))
+
+    previous_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        monkeypatch.setattr(sys, "argv", ["train", "--config", str(config_path), "--device", "cpu", "--no_tensorboard"])
+        train.main()
+    finally:
+        torch.set_default_dtype(previous_dtype)
+
+    for path in [out_dir / "ckpt.pt", out_dir / "best.pt", out_dir / "best_stable.pt",
+                 out_dir / "snapshots" / "step000001.pt"]:
+        ck = torch.load(path, map_location="cpu", weights_only=False)
+        assert ck["attention_version"] == ATTENTION_VERSION, path
