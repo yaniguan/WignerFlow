@@ -20,4 +20,4 @@ dependencies:
   - tensorboard
   - pip
   - pip:
-      - e3nn
+      - "e3nn>=0.4.4,<0.6"
