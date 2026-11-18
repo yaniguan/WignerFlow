@@ -11,6 +11,7 @@ Argon only. The model was trained on 256 Lennard-Jones argon atoms at 95 K and 1
 so other species are rejected and other states are flagged as out of distribution.
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -97,13 +98,25 @@ class FrameSplitPredictor:
         return dx, v
 
 
+@contextlib.contextmanager
+def _float32():
+    """The release weights are float32; ignore a float64 default set elsewhere in the process."""
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        yield
+    finally:
+        torch.set_default_dtype(previous)
+
+
 class ArgonPredictor:
     """Load once, then call predict() per request."""
 
     def __init__(self, ckpt=DEFAULT_CKPT, *, threads=1, sampling_steps=2):
         if threads:
             torch.set_num_threads(threads)
-        self.model, self.ck = load_release(ckpt)
+        with _float32():
+            self.model, self.ck = load_release(ckpt)
         self.fast = FrameSplitPredictor(self.model)
         self.sampling_steps = sampling_steps
         self.sha256 = hashlib.sha256(Path(ckpt).read_bytes()).hexdigest()
@@ -149,6 +162,11 @@ class ArgonPredictor:
         Cost is about n_steps x one step. thermostat_K turns on the repo's CSVR thermostat
         (switch S6, tau = 10 strides) at that temperature; off by default (model only).
         """
+        with _float32():
+            return self._predict(positions, velocities, box, species=species, n_steps=n_steps,
+                                 sampling_steps=sampling_steps, seed=seed, thermostat_K=thermostat_K)
+
+    def _predict(self, positions, velocities, box, *, species, n_steps, sampling_steps, seed, thermostat_K):
         t0 = time.perf_counter()
         sampling_steps = sampling_steps or self.sampling_steps
         pos, vel, box = self._check(positions, velocities, box, species, n_steps, sampling_steps)

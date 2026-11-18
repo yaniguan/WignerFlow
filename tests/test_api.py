@@ -8,6 +8,22 @@ from equitraj.api import MAX_ATOMS, ArgonPredictor, FrameSplitPredictor, InputEr
 from equitraj.bench import make_model
 
 
+@pytest.fixture(autouse=True)
+def float32_default():
+    """Other test modules switch the default dtype to float64; reproduce that here."""
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    yield
+    torch.set_default_dtype(previous)
+
+
+def test_api_ignores_float64_default(pred, ctx):
+    torch.set_default_dtype(torch.float64)
+    out = pred.predict(*ctx)
+    assert torch.get_default_dtype() == torch.float64
+    assert len(out["positions"]) == 1
+
+
 @pytest.fixture(scope="module")
 def pred():
     return ArgonPredictor(threads=1)
