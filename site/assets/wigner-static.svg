@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="105" height="50" viewBox="0 0 105 50" role="img" aria-label="WignerFlow">
+  <defs>
+    <linearGradient id="wf-static-grad" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="97" y2="42">
+      <stop offset="0%" stop-color="#79c2bd"/>
+      <stop offset="48%" stop-color="#b5d88e"/>
+      <stop offset="100%" stop-color="#b9a1de"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="52.5" cy="25" rx="22" ry="18.5" transform="rotate(-24 52.5 25)" stroke="#91b6df" stroke-width="1.15" stroke-dasharray="3 4" opacity="0.45"/>
+    <path d="M 52.5 25.0 C 64.5 10.2, 95.5 9.8, 95.5 25.0 C 95.5 40.2, 64.5 39.8, 52.5 25.0 C 40.5 10.2, 9.5 9.8, 9.5 25.0 C 9.5 40.2, 40.5 39.8, 52.5 25.0 Z"
+          stroke="url(#wf-static-grad)" stroke-width="2.3"/>
+    <circle cx="95.5" cy="25" r="2.4" fill="#b5d88e"/>
+    <circle cx="9.5" cy="25" r="2.4" fill="#79c2bd"/>
+  </g>
+</svg>

@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a0f15">
+  <title>WignerFlow &amp; WignerFlow Studio — Integrator-Free Equivariant Molecular Dynamics</title>
+  <meta name="description" content="WignerFlow jumps molecular dynamics trajectories 50 fs per step without a force field or numerical integrator using E(3)-equivariant Wigner-D convolutions and conditional flow matching.">
+  <link rel="canonical" href="https://yaniguan.github.io/WignerFlow/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="WignerFlow — Molecular Dynamics Without an Integrator">
+  <meta property="og:description" content="50 fs per step. SO(2) Wigner-D convolutions. Conditional flow matching. Interactive 3D physics studio.">
+  <meta property="og:url" content="https://yaniguan.github.io/WignerFlow/">
+  <meta property="og:image" content="https://yaniguan.github.io/WignerFlow/assets/wignerflow-poster.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="WignerFlow — Integrator-Free Equivariant Molecular Dynamics">
+  <meta name="twitter:description" content="50 fs per step. 4 of 5 seeds stable for 10,000 steps. Interactive WebGL2 3D physics studio.">
+  <meta name="twitter:image" content="https://yaniguan.github.io/WignerFlow/assets/wignerflow-poster.png">
+  <link rel="icon" href="assets/wigner-static.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="gl_mol.js"></script>
+  <script defer src="charts.js"></script>
+  <script defer src="cinema.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="#" aria-label="WignerFlow home">
+      <img src="assets/wigner-animated.svg" width="60" height="29" alt="">
+      <span>WignerFlow <small>Studio</small></span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#method">Method</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#results">Results</a>
+      <a href="#studio">Live Studio</a>
+      <a class="nav-cta" href="https://github.com/yaniguan/WignerFlow" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero wrap">
+      <p class="eyebrow"><span class="status-dot"></span> E(3)-Equivariant Flow Matching · Integrator-Free MD</p>
+      <h1>
+        <span class="hero-name">WignerFlow<span class="title-colon">:</span></span>
+        <span class="hero-title">Molecular Dynamics Without a Numerical Integrator</span>
+      </h1>
+      <p class="hero-deck">
+        Classical MD inches forward 1–5 fs per step to integrate stiff forces.<br>
+        WignerFlow takes the last three frames and jumps <strong>50 fs per step</strong> using SO(2) Wigner-D convolutions and conditional flow matching.
+      </p>
+      <div class="hero-actions">
+        <a class="button primary" href="#studio">Launch Interactive Studio <span aria-hidden="true">↓</span></a>
+        <a class="button secondary" href="#demo"><span aria-hidden="true">▶</span> Watch 50-fs Jump Cinema</a>
+        <a class="text-link" href="#citation">BibTeX <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="authors" aria-label="Project author">
+        <span>Yani Guan</span>
+      </div>
+      <p class="author-note">
+        Open-source Apache-2.0 research codebase &nbsp; · &nbsp;
+        API credits supported by Google Antigravity for Science &nbsp; · &nbsp;
+        <a href="https://github.com/yaniguan/WignerFlow" target="_blank" rel="noopener">Repository &amp; Checkpoints</a>
+      </p>
+    </section>
+
+    <!-- Headline Architectural Results Strip -->
+    <section class="headline-results wrap" aria-label="Measured results at a glance">
+      <a class="headline-result" href="#demo">
+        <span class="small-label">Coarse time stride</span>
+        <div class="big-result"><strong>50<span> fs</span></strong><span class="vs">vs</span><span class="baseline">5<span> fs</span></span></div>
+        <p>10× the argon NVE integration step (25× a 2 fs MD step),<br>with zero force field and zero Verlet integrator.</p>
+        <span class="result-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="headline-result" href="#evidence">
+        <span class="small-label blue">Long-horizon stability</span>
+        <div class="big-result"><strong>4<span> / 5</span></strong><span class="vs">seeds</span><span class="baseline">10⁴<span> steps</span></span></div>
+        <p>0.5 ns continuous model-only rollouts on 256 argon atoms<br>with no thermostat or energy rescaling.</p>
+        <span class="result-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="headline-result" href="#studio">
+        <span class="small-label teal">Exact O(3) symmetry</span>
+        <div class="big-result"><strong>3e-15</strong><span class="vs">in</span><span class="baseline">FP64</span></div>
+        <p>Max displacement error under random 3D rotations,<br>mirror reflections, and translations.</p>
+        <span class="result-arrow" aria-hidden="true">↗</span>
+      </a>
+    </section>
+
+    <!-- 50-fs Interactive WebGL2 Cinema -->
+    <section class="demo-section wrap" id="demo" aria-labelledby="demo-heading">
+      <div class="section-line">
+        <h2 id="demo-heading">See a 50-fs equivariant jump in action.</h2>
+        <div class="cinema-meta">
+          <span id="cinema-time">00:00 / 00:50</span>
+          <button type="button" class="cinema-btn" id="cinema-play-toggle">❚❚ Pause</button>
+        </div>
+      </div>
+      <div class="film-frame">
+        <canvas id="cinema-gl-canvas" width="1280" height="720" aria-label="Interactive 3D WebGL liquid argon rollout"></canvas>
+        <canvas id="cinema-hud-canvas" width="1280" height="720" aria-hidden="true"></canvas>
+      </div>
+      <div class="chapters" aria-label="Jump to a cinema chapter">
+        <button type="button" data-cinema-seek="0" class="active"><span>00:00</span> 3-Frame Context</button>
+        <button type="button" data-cinema-seek="9"><span>00:09</span> Wigner-D Shell</button>
+        <button type="button" data-cinema-seek="19"><span>00:19</span> Flow ODE Transport</button>
+        <button type="button" data-cinema-seek="30"><span>00:30</span> Residual vs Direct</button>
+        <button type="button" data-cinema-seek="40"><span>00:40</span> 10⁴-Step Rollout</button>
+      </div>
+    </section>
+
+    <!-- 01 / The Method -->
+    <section class="section wrap" id="method">
+      <div class="section-heading">
+        <p class="eyebrow">01 / The method</p>
+        <h2>Three frames in.<br><span class="muted-heading">Fifty femtoseconds ahead.</span></h2>
+        <p class="section-intro">
+          At a 50 fs stride in a warm liquid, the next state is a probability distribution rather than a single deterministic point. WignerFlow pairs exact 3D equivariance with conditional flow matching over coasting residuals.
+        </p>
+      </div>
+
+      <div class="method-layout">
+        <div class="loop-steps">
+          <article>
+            <span class="step-number teal">01</span>
+            <div>
+              <h3>Spatial SO(2) + Wigner-D encoder</h3>
+              <p>Each neighbor edge rotates features into a local edge frame via Wigner-D matrices (l ≤ 2). Putting log(envelope) inside softmax with a zero-logit sink makes cutoff crossings smooth.</p>
+            </div>
+          </article>
+          <article>
+            <span class="step-number blue">02</span>
+            <div>
+              <h3>Invariant causal temporal attention</h3>
+              <p>Scalar (l = 0) keys and queries attend across the last k = 3 frames while transporting higher-degree equivariant vectors and quadrupoles without breaking rotation or mirror parity.</p>
+            </div>
+          </article>
+          <article>
+            <span class="step-number purple">03</span>
+            <div>
+              <h3>Residual conditional flow matching</h3>
+              <p>Instead of predicting raw velocity v_new—which systematically damps motion toward 0 K—the flow head integrates corrections relative to constant-velocity coasting (Δx − vΔt, v_new − v).</p>
+            </div>
+          </article>
+          <div class="memory-callout">
+            <span class="small-label">Post-training stability alignment</span>
+            <p>Gradual unroll curriculum (m: 2 → 3 → 4), all-step unroll supervision, <strong>RepulsionPrior</strong>, and <strong>SpikeGuard</strong> prevent multi-step rollout blowups.</p>
+          </div>
+        </div>
+
+        <figure class="figure-shell">
+          <div class="mech-stage">
+            <canvas id="mech-wigner-canvas" width="960" height="540" aria-label="Animated Wigner-D edge alignment and smooth cutoff envelope"></canvas>
+            <div class="animation-controls">
+              <button type="button" data-mech-toggle="mech-wigner-canvas" title="Pause animation" aria-label="Toggle Wigner-D animation">❚❚</button>
+            </div>
+          </div>
+          <figcaption>Edge-aligned SO(2) message passing with log-envelope + zero-logit sink removes the step discontinuity at r_c = 6.0 Å.</figcaption>
+        </figure>
+      </div>
+
+      <figure class="figure-shell policy-figure">
+        <div class="mech-stage">
+          <canvas id="mech-flow-canvas" width="960" height="500" aria-label="Animated 3-frame temporal fusion, flow ODE, and stability curriculum"></canvas>
+          <div class="animation-controls">
+            <button type="button" data-mech-toggle="mech-flow-canvas" title="Pause animation" aria-label="Toggle flow curriculum animation">❚❚</button>
+          </div>
+        </div>
+        <figcaption>Autoregressive 50 fs loop and post-training stability alignment (gradual unroll curriculum, RepulsionPrior, SpikeGuard, and m = 4 micro-batching).</figcaption>
+      </figure>
+    </section>
+
+    <!-- 02 / Long-Horizon Evidence -->
+    <section class="section evidence-section" id="evidence">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">02 / Long-horizon evidence</p>
+          <h2>Does an integrator-free model stay physical?</h2>
+          <p class="section-intro">
+            Every model checkpoint is tested on 15 model-only rollouts of 10,000 steps (0.5 ns each) from held-out test trajectories—with no OpenMM forces, no thermostat, and every training seed reported.
+          </p>
+        </div>
+
+        <div class="finding-columns">
+          <article>
+            <span class="small-label">Liquid structure &amp; cage rattling</span>
+            <h3>Accurate RDF and VACF at 50 fs stride.</h3>
+            <p>On the released v0 checkpoint (step 10,000), the Ar–Ar first solvation peak matches OpenMM within 0.025 Å (height error 0.1%), and the velocity autocorrelation zero crossing lands at 305.5 fs vs 307.4 fs truth (0.6% error).</p>
+          </article>
+          <article>
+            <span class="small-label blue">Multi-seed honesty</span>
+            <h3>Checkpoint selection matters.</h3>
+            <div class="inline-metric">
+              <strong>92.2 K / 92.6 K</strong>
+              <span>Seeds 3 &amp; 4 (−2.9% and −2.4% vs 94.9 K ground truth)</span>
+            </div>
+            <p>Across five unpicked seeds, 4 of 5 survive all 10⁴ steps and 2 of 5 pass every v0 criterion; Seed 2 crashes around 4,000 steps, motivating stability-first checkpoint selection (<code>best_stable.pt</code>).</p>
+          </article>
+        </div>
+
+        <div class="chart-shell">
+          <div class="chart-heading">
+            <div>
+              <h3 id="evidence-chart-title">Explore measured rollout &amp; continuity benchmarks</h3>
+              <p id="evidence-chart-sub">All data loaded directly from committed JSON / JSONL files under results/</p>
+            </div>
+            <div class="comparison-controls">
+              <label for="benchmark-view-select">Dataset</label>
+              <select id="benchmark-view-select" aria-label="Select benchmark dataset">
+                <option value="seeds">5-Seed Validation &amp; 10⁴-Step Test Stability (K)</option>
+                <option value="rdf">Radial Distribution Function g(r) — Truth vs Model</option>
+                <option value="vacf">Velocity Autocorrelation C(t)/C(0) — Truth vs Model</option>
+                <option value="cutoff">Cutoff Continuity Scan Across r_c = 6.0 Å (log–log)</option>
+              </select>
+              <label class="band-toggle" id="band-toggle-wrap">
+                <input type="checkbox" id="show-target-band" checked>
+                <span>Show ±5% target band</span>
+              </label>
+            </div>
+          </div>
+          <div id="evidence-chart" aria-busy="true">Loading chart data…</div>
+          <div id="evidence-chart-legend" class="chart-legend"></div>
+          <p id="evidence-chart-caption" class="chart-caption"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 / Ablations & Molecular Applications -->
+    <section class="section wrap" id="results">
+      <div class="section-heading">
+        <p class="eyebrow">03 / Ablations &amp; molecular screening</p>
+        <h2>Why residual flow works.<br><span class="muted-heading">Where fast screening helps.</span></h2>
+      </div>
+
+      <!-- Task 1: Head & Target Ablation -->
+      <article class="application" id="ablations">
+        <div class="application-header">
+          <span class="task-badge">Study 1</span>
+          <h3>Residual flow vs regression and direct targets</h3>
+        </div>
+        <p class="application-lead">
+          Testing deterministic regression (Head A) against conditional flow matching (Head B), and direct state prediction against constant-velocity coasting residuals over 10,000-step rollouts.
+        </p>
+        <ol class="workflow" aria-label="Evaluation protocol">
+          <li>256 Ar atoms (NVE truth)</li>
+          <li>k = 3 frames @ 50 fs stride</li>
+          <li>15 × 10⁴ model-only steps</li>
+          <li>Zero thermostat</li>
+          <li>Crash, T, RDF, VACF &amp; D audit</li>
+        </ol>
+
+        <div class="experiment-layout">
+          <div>
+            <p class="small-label">Equilibrium temperature after 5,000–10,000 steps</p>
+            <h4>Residual targets stop systematic velocity damping.</h4>
+            <div class="native-bars" role="img" aria-label="Temperature comparison: Truth 94.9 K, Flow Residual Seed 4 92.6 K, Regression Residual 57.8 K, Regression Direct 37.2 K">
+              <div class="bar-col">
+                <strong class="blue">94.9 K</strong>
+                <div class="bar-track"><div class="bar expert" style="height:86%"></div></div>
+                <span>OpenMM Truth</span>
+                <small>NVE reference</small>
+              </div>
+              <div class="bar-col">
+                <strong>92.6 K</strong>
+                <div class="bar-track"><div class="bar ours" style="height:84%"></div></div>
+                <span>Flow · Residual</span>
+                <small>Seed 4 (−2.4%)</small>
+              </div>
+              <div class="bar-col">
+                <strong class="orange">57.8 K</strong>
+                <div class="bar-track"><div class="bar warn" style="height:52.5%"></div></div>
+                <span>Reg. · Residual</span>
+                <small>Seed 1 (−39.1%)</small>
+              </div>
+              <div class="bar-col">
+                <strong class="orange">37.2 K</strong>
+                <div class="bar-track"><div class="bar warn" style="height:33.8%"></div></div>
+                <span>Reg. · Direct</span>
+                <small>Frozen (−60.8%)</small>
+              </div>
+            </div>
+            <p class="fine-print">
+              Source: <code>RESULTS.md</code> and <code>results/argon/*/eval*/metrics.json</code>. Published v0 argon numbers and <code>checkpoints/argon_flow_v0.pt</code> were produced with git tag <code>v0.1.0</code> (before the log-envelope + sink update on <code>main</code>).
+            </p>
+          </div>
+
+          <div class="assay-details">
+            <h4>Measured speed &amp; scope.</h4>
+            <dl>
+              <div>
+                <dt>A100 rollout speed (batch 1, 256 Ar)</dt>
+                <dd><strong>25.8</strong> <span>ns/day (5.97 steps/s)</span></dd>
+              </div>
+              <div>
+                <dt>V100 15-trajectory parallel throughput</dt>
+                <dd><strong>111.0</strong> <span>ns/day aggregate (7.4 ns/day per traj)</span></dd>
+              </div>
+              <div>
+                <dt>OpenMM 256-atom Argon CPU (with HDF5 I/O)</dt>
+                <dd><strong class="blue">515</strong> <span>ns/day (results/argon/ground_truth)</span></dd>
+              </div>
+            </dl>
+            <p class="fine-print">
+              Classical LJ argon is cheaper per step on CPU than an l_max = 2 equivariant network; the speed payoff targets polarizable force fields and ab initio MD where force evaluations dominate.
+            </p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Committed Run</th>
+                <th>Head</th>
+                <th>Target</th>
+                <th>Step</th>
+                <th>Survived</th>
+                <th>T model / truth</th>
+                <th>RDF peak err</th>
+                <th>VACF zero err</th>
+                <th>Diffusion err</th>
+                <th>v0 Criteria</th>
+              </tr>
+            </thead>
+            <tbody id="ablation-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <!-- Task 2: CaliSol-23 & Solvation Speciation -->
+      <article class="application" id="electrolyte-study">
+        <div class="application-header">
+          <span class="task-badge blue-badge">Study 2</span>
+          <h3>Electrolyte transport alignment &amp; coarse-step benchmarks</h3>
+        </div>
+        <p class="application-lead">
+          Raw Nernst–Einstein estimates overpredict concentrated battery electrolyte conductivity because ion pairs (CIP) and aggregates (AGG) move neutral charge clusters. Two-stage post-training alignment calibrates coarse transport against experimental CaliSol-23 data.
+        </p>
+
+        <div class="experiment-layout">
+          <div>
+            <p class="small-label blue">CaliSol-23 held-out conductivity alignment</p>
+            <h4 id="calisol-headline">EC/DMC concentration bell curve &amp; held-out parity.</h4>
+            <div id="calisol-chart" style="margin-top:16px;"></div>
+            <p class="fine-print">
+              Source: <code>results/calisol/align_eval_seed42.json</code> and <code>results/solvation_top15/top15_solvation_report.json</code>. Fast PocketMD runs use analytical CPU micro-potentials for rapid pre-screening before full polarizable MD.
+            </p>
+          </div>
+          <div class="assay-details">
+            <h4>Committed benchmark metrics.</h4>
+            <dl id="calisol-dl"></dl>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:24px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Formulation</th>
+                <th>σ (298 K)</th>
+                <th>σ (253 K)</th>
+                <th>SSIP %</th>
+                <th>CIP %</th>
+                <th>AGG %</th>
+                <th>Regime</th>
+              </tr>
+            </thead>
+            <tbody id="solvation-tbody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- 04 / Live Interactive WignerFlow Studio -->
+    <section class="section studio-section" id="studio">
+      <div class="wrap">
+        <div class="studio-header-row">
+          <div>
+            <p class="eyebrow">04 / Interactive WignerFlow Studio</p>
+            <h2 style="font-size:clamp(30px,4vw,46px);font-weight:560;letter-spacing:-1.5px;line-height:1.15;">
+              Inspect 3D symmetry, rollouts &amp; triage live.
+            </h2>
+          </div>
+          <div id="studio-engine-badge" class="engine-pill static">
+            <span class="status-dot"></span>
+            <span id="studio-engine-text">Checking live PyTorch backend…</span>
+          </div>
+        </div>
+
+        <div class="studio-tabs" role="tablist" aria-label="WignerFlow Studio tools">
+          <button type="button" class="studio-tab active" data-studio-tab="compliance">10-Gate O(3) Physics Audit</button>
+          <button type="button" class="studio-tab" data-studio-tab="rollout">3D Trajectory Rollout</button>
+          <button type="button" class="studio-tab" data-studio-tab="binding">Drug Pocket Triage</button>
+          <button type="button" class="studio-tab" data-studio-tab="electrolyte">Electrolyte Speciation</button>
+        </div>
+
+        <!-- Pane 1: 10-Gate Physics Compliance -->
+        <div class="studio-pane active" id="pane-compliance">
+          <div class="studio-controls">
+            <div class="ctrl-field">
+              <label for="comp-target">Target Model</label>
+              <select id="comp-target" class="studio-select"></select>
+            </div>
+            <div class="ctrl-field compact">
+              <label for="comp-precision">Precision</label>
+              <select id="comp-precision" class="studio-select">
+                <option value="float64" selected>FP64 (Exact)</option>
+                <option value="float32">FP32</option>
+              </select>
+            </div>
+            <div class="ctrl-field" style="flex:1.4;">
+              <label for="comp-fault">Surgical Fault Injection (Falsifiability Test)</label>
+              <select id="comp-fault" class="studio-select"></select>
+            </div>
+            <div class="ctrl-field compact">
+              <label for="comp-angles">Euler (°)</label>
+              <input id="comp-angles" class="studio-input" type="text" value="37, 64, 118">
+            </div>
+            <button type="button" class="button primary" id="btn-run-compliance" style="min-height:38px;padding:8px 18px;">Run Audit</button>
+          </div>
+
+          <div class="studio-grid">
+            <div class="viewer-card">
+              <div class="card-head">
+                <h4>WebGL2 3D Equivariance Twin Vectors</h4>
+                <label class="band-toggle"><input type="checkbox" id="comp-show-arrows" checked> <span>Show f(X) &amp; R⁻¹f(RX)</span></label>
+              </div>
+              <div class="gl-viewport-wrap">
+                <canvas id="comp-gl-canvas" width="640" height="420"></canvas>
+                <div class="gl-overlay-bar">
+                  <div class="gl-legend-pill">
+                    <span><strong class="lime">●</strong> Direct f(X)</span>
+                    <span><strong class="blue">●</strong> Rotated R⁻¹f(RX)</span>
+                  </div>
+                  <button type="button" class="gl-reset-btn" id="comp-reset-view">Reset 3D view</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>Ten-Gate Symmetry &amp; Conservation Audit</h4>
+                <span id="comp-summary-pill" class="pill pass">10 / 10 PASS</span>
+              </div>
+              <ul class="gate-list" id="comp-gate-list"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pane 2: 3D Trajectory Rollout -->
+        <div class="studio-pane" id="pane-rollout">
+          <div class="studio-controls">
+            <div class="ctrl-field">
+              <label for="roll-preset">Molecular System</label>
+              <select id="roll-preset" class="studio-select">
+                <option value="aspirin" selected>Aspirin (21 atoms · OpenFF vacuum)</option>
+                <option value="ala2">Alanine Dipeptide (22 atoms · AMBER)</option>
+                <option value="ethanol">Ethanol CH3CH2OH (9 atoms)</option>
+                <option value="li_ec_pf6">LiPF6 in EC Periodic Box (ECC q=0.8)</option>
+                <option value="custom">Custom .xyz Coordinates</option>
+              </select>
+            </div>
+            <div class="ctrl-field compact">
+              <label for="roll-frames">Frames</label>
+              <input id="roll-frames" class="studio-input" type="number" min="16" max="160" value="54">
+            </div>
+            <div class="ctrl-field compact">
+              <label for="roll-temp">Target T (K)</label>
+              <input id="roll-temp" class="studio-input" type="number" min="50" max="800" value="300">
+            </div>
+            <button type="button" class="button primary" id="btn-run-rollout" style="min-height:38px;padding:8px 18px;">Simulate</button>
+            <button type="button" class="button secondary" id="btn-dl-xyz" style="min-height:38px;padding:8px 15px;">Export .xyz</button>
+          </div>
+
+          <div id="roll-custom-wrap" style="display:none;margin-bottom:18px;">
+            <textarea id="roll-xyz-text" class="studio-textarea" spellcheck="false"></textarea>
+          </div>
+
+          <div class="studio-grid">
+            <div class="viewer-card">
+              <div class="card-head">
+                <h4 id="roll-title">Aspirin 3D Trajectory</h4>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <button type="button" class="cinema-btn" id="roll-play-btn">❚❚ Pause</button>
+                  <span id="roll-frame-lbl">Frame 1 / 54</span>
+                </div>
+              </div>
+              <div class="gl-viewport-wrap">
+                <canvas id="roll-gl-canvas" width="640" height="420"></canvas>
+                <div class="gl-overlay-bar">
+                  <input type="range" id="roll-scrubber" min="0" max="53" value="0" style="pointer-events:auto;width:62%;accent-color:#b5d88e;">
+                  <button type="button" class="gl-reset-btn" id="roll-reset-view">Reset 3D view</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>Physical Stability &amp; Thermal Trace</h4>
+                <span id="roll-verdict-pill" class="pill pass">GO</span>
+              </div>
+              <div class="kpi-strip" id="roll-kpis"></div>
+              <div style="padding:16px;" id="roll-temp-svg"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pane 3: Drug Pocket Triage -->
+        <div class="studio-pane" id="pane-binding">
+          <div class="studio-controls">
+            <div class="ctrl-field">
+              <label for="bind-preset">Docked Pose Candidate</label>
+              <select id="bind-preset" class="studio-select">
+                <option value="aspirin_cox_stable" selected>Aspirin in COX Pocket — Stable Native Pose</option>
+                <option value="aspirin_induced_fit">Aspirin in COX Pocket — Induced-Fit Pose</option>
+                <option value="aspirin_decoy_clash">Aspirin in COX Pocket — Steric-Clash Decoy</option>
+              </select>
+            </div>
+            <div class="ctrl-field compact">
+              <label for="bind-replicas">Replicas</label>
+              <input id="bind-replicas" class="studio-input" type="number" min="2" max="6" value="3">
+            </div>
+            <button type="button" class="button primary" id="btn-run-binding" style="min-height:38px;padding:8px 18px;">Screen Pose</button>
+          </div>
+          <div class="studio-grid">
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>OpenBPMD + τ-RAMD Screening Metrics</h4>
+                <span id="bind-verdict-pill" class="pill pass">GO</span>
+              </div>
+              <div class="kpi-strip" id="bind-kpis"></div>
+              <pre class="receipt-pre" id="bind-receipt"></pre>
+            </div>
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>40-Complex OpenFF Protein–Ligand Benchmark</h4>
+                <span>Committed reference</span>
+              </div>
+              <div style="padding:20px;color:var(--muted);font-size:14px;line-height:1.75;">
+                <p>Short multi-replica pocket agitation screens out steric clashes and weakly anchored decoys before committing GPU hours to production free-energy perturbation (RB-FEP).</p>
+                <p style="margin-top:14px;">Run from terminal with your own complex:</p>
+                <pre class="receipt-pre" style="background:#0e161e;border-radius:7px;margin-top:10px;padding:14px;">wignerflow-pocket binding --pdb complex.pdb --xml ligand.xml --replicas 3</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pane 4: Battery Electrolyte Speciation -->
+        <div class="studio-pane" id="pane-electrolyte">
+          <div class="studio-controls">
+            <div class="ctrl-field">
+              <label for="elec-preset">Electrolyte Formulation</label>
+              <select id="elec-preset" class="studio-select">
+                <option value="li_ec_fec_additive" selected>1.0 M LiPF6 in EC/DMC + 10% FEC Additive</option>
+                <option value="li_ec_base">1.0 M LiPF6 in EC/DMC Baseline</option>
+                <option value="li_ec_vc_additive">1.0 M LiPF6 in EC/DMC + VC High-Viscosity Additive</option>
+                <option value="li_high_salt_agg">3.2 M High-Salt Aggregate Trap (AGG-Dominated)</option>
+              </select>
+            </div>
+            <button type="button" class="button primary" id="btn-run-elec" style="min-height:38px;padding:8px 18px;">Run Speciation</button>
+          </div>
+          <div class="studio-grid">
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>Li⁺ Coordination Shell &amp; Conductivity</h4>
+                <span id="elec-verdict-pill" class="pill pass">GO</span>
+              </div>
+              <div class="kpi-strip" id="elec-kpis"></div>
+              <pre class="receipt-pre" id="elec-receipt"></pre>
+            </div>
+            <div class="audit-card">
+              <div class="card-head">
+                <h4>MD17 Coarse-Stride Stability Summary</h4>
+                <span>results/pure_md_md17</span>
+              </div>
+              <div class="table-wrap" style="border:0;border-radius:0;">
+                <table>
+                  <thead>
+                    <tr><th>Molecule</th><th>Verlet 10 fs</th><th>WignerFlow 10 fs</th><th>h(r) MAE</th><th>VDOS cos</th></tr>
+                  </thead>
+                  <tbody id="md17-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 / Read & Cite -->
+    <section class="section paper-section" id="citation">
+      <div class="wrap">
+        <div class="paper-heading">
+          <div>
+            <p class="eyebrow">05 / Code &amp; citation</p>
+            <h2>Reproduce every rollout.</h2>
+            <p>
+              All checkpoints, ground-truth metrics, multi-seed evaluation logs, and the interactive studio ship in the repository with zero proprietary dependencies.
+            </p>
+          </div>
+          <div class="paper-links">
+            <a class="button primary" href="https://github.com/yaniguan/WignerFlow" target="_blank" rel="noopener">GitHub Repository <span aria-hidden="true">↗</span></a>
+            <a class="button secondary" href="https://github.com/yaniguan/WignerFlow/blob/main/RESULTS.md" target="_blank" rel="noopener">RESULTS.md <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+
+        <div class="citation-box">
+          <div class="citation-top">
+            <span>BibTeX</span>
+            <button type="button" id="copy-citation">Copy citation</button>
+            <span id="copy-status" role="status" aria-live="polite"></span>
+          </div>
+          <pre id="bibtex">@misc{wignerflow2026,
+  title  = {WignerFlow: Autoregressive E(3)-Equivariant Generation of Molecular Dynamics Trajectories},
+  author = {Guan, Yani},
+  year   = {2026},
+  url    = {https://github.com/yaniguan/WignerFlow},
+  note   = {v0.1.0, open-source research release}
+}</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <a class="brand" href="#">
+      <img src="assets/wigner-static.svg" width="52" height="25" alt="">
+      <span>WignerFlow</span>
+    </a>
+    <p>50 fs equivariant trajectory jumps without a numerical integrator.</p>
+    <a href="https://github.com/yaniguan/WignerFlow/discussions" target="_blank" rel="noopener">Discussions Q&amp;A <span aria-hidden="true">↗</span></a>
+    <span>Apache-2.0 · 2026</span>
+  </footer>
+</body>
+</html>
