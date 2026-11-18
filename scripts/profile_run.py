@@ -29,7 +29,8 @@ from equitraj.dataset import TrajWindows, compute_stats
 from equitraj.model import EquiTraj
 from equitraj.prior import estimate_rmin
 from equitraj.profiling import GpuSampler, profile_training, rollout_speed, torch_profile, write_summary
-from equitraj.train import noise_sigma_at, training_loss, unroll_length
+from equitraj.train import (accumulate_gradients, build_loss_options, micro_batch_size_for, noise_sigma_at,
+                            unroll_length)
 
 
 def load_model(args, cfg):
@@ -44,20 +45,7 @@ def load_model(args, cfg):
     return ck, k, mc, args.ckpt
 
 
-def loss_options(tc, ds, model, device):
-    """The optional training_loss arguments, built as in equitraj.train.main."""
-    opts = {"unroll_weights": tc.get("unroll_loss_weights"), "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0))}
-    nts = tc.get("noise_type_scale")
-    if nts is not None:
-        if isinstance(nts, dict):
-            nts = [float(nts.get(e, 1.0)) for e in ds.elements]
-        opts["noise_type_scale"] = torch.tensor(nts, dtype=torch.float32, device=device)
-    op = tc.get("overlap_penalty") or {}
-    if op.get("weight", 0.0) > 0:
-        rmin = model.prior.rmin if model.prior is not None else estimate_rmin(ds, op.get("percentile", 0.1)).to(device)
-        opts["overlap_weight"] = float(op["weight"])
-        opts["overlap_r0"] = rmin * float(op.get("rmin_scale", 1.0))
-    return opts
+loss_options = build_loss_options
 
 
 def openmm_comparison(path, model_ns_per_day):
@@ -87,6 +75,8 @@ def main():
     ap.add_argument("--train-steps", type=int, default=20)
     ap.add_argument("--train-warmup", type=int, default=3)
     ap.add_argument("--batch-size", type=int, help="default: train.batch_size")
+    ap.add_argument("--micro-batch-size", type=int,
+                    help="windows per backward pass (default: micro_batch_size_for(train, m))")
     ap.add_argument("--m", type=int, help="unroll length (default: the last train.unroll entry)")
     ap.add_argument("--workers", type=int, help="DataLoader workers (default: train.workers)")
     ap.add_argument("--rollout-steps", type=int, default=50)
@@ -158,18 +148,21 @@ def main():
 
         # ---- training-step breakdown (on a copy)
         bs = args.batch_size or tc["batch_size"]
+        mb = (args.micro_batch_size if args.micro_batch_size is not None
+              else micro_batch_size_for({**tc, "batch_size": bs}, m))
+        mb = max(1, min(int(mb), bs))
         workers = tc.get("workers", 4) if args.workers is None else args.workers
         loader = torch.utils.data.DataLoader(ds, batch_size=bs, shuffle=True, drop_last=True, num_workers=workers,
                                              persistent_workers=workers > 0)
         train_model = copy.deepcopy(model)
         opt = torch.optim.AdamW(train_model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
-        loss_opts = loss_options(tc, ds, train_model, device)
+        loss_opts = build_loss_options(tc, ds, train_model, device)
         noise = noise_sigma_at(tc, tc["steps"])
         backprop, unroll_ss = tc.get("backprop", "truncated"), tc.get("unroll_sampling_steps", 2)
         train = profile_training(train_model, loader, types, masses, opt=opt, n_steps=args.train_steps,
                                  warmup=args.train_warmup, m=m, noise_sigma=noise, backprop=backprop,
                                  unroll_sampling_steps=unroll_ss, grad_clip=tc.get("grad_clip", 1.0),
-                                 loss_opts=loss_opts, periodic=ds.periodic, device=device)
+                                 loss_opts=loss_opts, periodic=ds.periodic, device=device, micro_batch_size=mb)
         train["schedule_m_final"] = unroll_length(tc["unroll"], tc["steps"])
         train["noise_sigma"] = noise
         train["workers"] = workers
@@ -184,10 +177,9 @@ def main():
                 bb = batch[2].to(device) if ds.periodic else None
 
                 def fn():
-                    loss = training_loss(train_model, bp, bv, bb, types, masses, m, noise, backprop, unroll_ss,
-                                         **loss_opts)
                     opt.zero_grad(set_to_none=True)
-                    loss.backward()
+                    accumulate_gradients(train_model, bp, bv, bb, types, masses, m, noise, backprop, unroll_ss,
+                                         mb, **loss_opts)
                     torch.nn.utils.clip_grad_norm_(train_model.parameters(), tc.get("grad_clip", 1.0))
                     opt.step()
             else:

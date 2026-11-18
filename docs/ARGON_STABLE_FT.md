@@ -48,7 +48,7 @@ settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400.
   `ckpt.pt` stores the guard history, the current unroll length, and the skip count, and resume restores
   them. An older checkpoint has no guard state, so the count starts again for that session.
 - LR 1e-4 (warmup 300, cosine over 16k), grad clip 0.5.
-- Memory at m=4: with batch 8 one training step peaked at 50.2 GB (profiling, A100-80GB) and ran out of
+- Memory at m=4: with batch 8 (full batch, no micro-batching) one training step peaked at 50.2 GB (profiling, A100-80GB) and ran out of
   memory on an A100-40GB. From `micro_batch_min_m: 4` on, each batch is run as micro-batches of
   `micro_batch_size: 4` windows with gradient accumulation. The gradient and the loss are the same as for
   the full batch (test_micro_batch_gradient_equals_full_batch); only the memory peak goes down. Both keys

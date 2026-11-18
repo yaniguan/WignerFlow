@@ -28,7 +28,7 @@ import numpy as np
 import torch
 
 from equitraj import model as model_module
-from equitraj.train import training_loss
+from equitraj.train import accumulate_gradients, training_loss
 
 PHASES = ("data", "neighbor_list", "forward", "backward", "optimizer")
 
@@ -151,11 +151,12 @@ def _peak_rss_mb():
 
 def profile_training(model, batches, types, masses, opt=None, n_steps=10, warmup=2, m=1, noise_sigma=0.0,
                      backprop="truncated", unroll_sampling_steps=2, grad_clip=1.0, loss_opts=None,
-                     periodic=True, lr=1e-4, device=None):
+                     periodic=True, lr=1e-4, device=None, micro_batch_size=None):
     """Run warmup + n_steps training steps (as in equitraj.train) and time their phases.
 
     batches: iterable of (pos, vel, box) as yielded by a DataLoader over TrajWindows.
     opt: optimizer (default AdamW(lr)). loss_opts: extra keyword arguments of training_loss.
+    micro_batch_size: when set, splits each batch across accumulate_gradients just like equitraj.train.
     Phases: data (next batch + transfer), neighbor_list (build_graph, also when recomputed in
     backward by gradient checkpointing), forward (loss without the graphs), backward (zero_grad +
     backward without the graphs), optimizer (grad clipping + step).
@@ -163,6 +164,8 @@ def profile_training(model, batches, types, masses, opt=None, n_steps=10, warmup
     """
     if n_steps < 1 or warmup < 0:
         raise ValueError("n_steps must be positive and warmup nonnegative")
+    if micro_batch_size is not None and int(micro_batch_size) < 1:
+        raise ValueError("micro_batch_size must be positive when set")
     device = torch.device(device) if device is not None else next(model.parameters()).device
     types, masses = types.to(device), masses.to(device)
     if opt is None:
@@ -175,26 +178,36 @@ def profile_training(model, batches, types, masses, opt=None, n_steps=10, warmup
     losses = []
     was_training = model.training
     model.train()
+    eff_mb = None
     with time_neighbor_list(timer):
         for i in range(warmup + n_steps):
             if i == warmup:
                 timer.reset()
                 losses = []
+                if device.type == "cuda":
+                    torch.cuda.reset_peak_memory_stats(device)
             with timer.step():
                 with timer.phase("data"):
                     pos, vel, box = next(stream)
                     pos, vel = pos.to(device, non_blocking=True), vel.to(device, non_blocking=True)
                     box = box.to(device) if periodic and box is not None else None
-                with timer.phase("forward"):
-                    loss = training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
-                                         unroll_sampling_steps, **loss_opts)
-                with timer.phase("backward"):
+                eff_mb = int(pos.shape[0]) if micro_batch_size is None else max(1, min(int(micro_batch_size), int(pos.shape[0])))
+                if micro_batch_size is not None:
                     opt.zero_grad(set_to_none=True)
-                    loss.backward()
+                    loss_val = accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
+                                                    unroll_sampling_steps, eff_mb, timer=timer, **loss_opts)
+                else:
+                    with timer.phase("forward"):
+                        loss = training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
+                                             unroll_sampling_steps, **loss_opts)
+                    with timer.phase("backward"):
+                        opt.zero_grad(set_to_none=True)
+                        loss.backward()
+                    loss_val = loss.item()
                 with timer.phase("optimizer"):
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                     opt.step()
-            losses.append(loss.item())
+            losses.append(loss_val)
     model.train(was_training)
     out = timer.summary()
     out.update({"warmup": warmup, "batch_size": int(pos.shape[0]), "atoms": int(pos.shape[2]), "m": m,
@@ -203,9 +216,10 @@ def profile_training(model, batches, types, masses, opt=None, n_steps=10, warmup
                 "loss_finite": bool(np.all(np.isfinite(losses)))})
     if device.type == "cuda":
         peak = torch.cuda.max_memory_allocated(device)
-        out.update({"peak_mem_bytes": int(peak), "peak_mem_GB": peak / 1e9})
+        out.update({"micro_batch_size": eff_mb, "peak_mem_bytes": int(peak), "peak_mem_GB": peak / 1e9})
     else:
-        out.update({"peak_mem_bytes": None, "peak_mem_GB": None, "peak_rss_MB": _peak_rss_mb()})
+        out.update({"micro_batch_size": eff_mb, "peak_mem_bytes": None, "peak_mem_GB": None,
+                    "peak_rss_MB": _peak_rss_mb()})
     return out
 
 
