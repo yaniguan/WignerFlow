@@ -14,13 +14,55 @@ Blocks:
     TemporalAttention   per-atom attention over the past k frames
 """
 
+import hashlib
 import math
+import os
+import sys
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from equitraj import so3
+
+ATTENTION_VERSION = "v1"
+_WARNED_LEGACY_ATTENTION = set()
+# SHA-256 of committed v1 files exported before export_ckpt.py wrote attention_version
+_V1_CHECKPOINT_SHA256 = {
+    "ff3d4cf1552e1ae4a6851c661adbe7007f292e32c5392b5518e1f81837e8717f",  # argon_flow_v1_cpu_reduced.pt
+}
+
+
+def _file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_attention_version(ck, source=None):
+    """Warn once when a v0 checkpoint (missing attention_version or 'v0') runs on v1 attention.
+
+    A file without the field counts as v1 when its SHA-256 is in _V1_CHECKPOINT_SHA256.
+    """
+    ver = ck.get("attention_version")
+    if ver is None:
+        known_v1 = source is not None and os.path.isfile(source) and _file_sha256(source) in _V1_CHECKPOINT_SHA256
+        ver = "v1" if known_v1 else "v0"
+    if ver == ATTENTION_VERSION:
+        return None
+    label = os.path.basename(str(source)) if source else str(ck.get("name", "checkpoint"))
+    if label in _WARNED_LEGACY_ATTENTION:
+        return None
+    _WARNED_LEGACY_ATTENTION.add(label)
+    msg = (
+        f"WARNING: {label} has attention_version='{ver}', while current GraphAttention uses "
+        f"'{ATTENTION_VERSION}' (cutoff envelope inside softmax + zero-logit sink). "
+        f"Check out tag v0.1.0 to reproduce the published v0 numbers."
+    )
+    print(msg, file=sys.stderr, flush=True)
+    return msg
 
 
 # ---------------------------------------------------------------- radial functions

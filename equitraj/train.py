@@ -34,6 +34,7 @@ from torch.utils.checkpoint import checkpoint
 from equitraj import analysis, so3
 from equitraj.dataset import TrajWindows, compute_stats
 from equitraj.ema import ExponentialMovingAverage, configure_matmul_precision
+from equitraj.layers import ATTENTION_VERSION
 from equitraj.model import EquiTraj
 from equitraj.monitor import REASONS
 from equitraj.neighbors import VerletList
@@ -709,7 +710,8 @@ def main():
         atomic_save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
                      "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
                      "elements": train_ds.elements, "rng": capture_rng_state(),
-                     "loader": batch_sampler.state_dict(), "spike_guard": guard.state_dict()}, path)
+                     "loader": batch_sampler.state_dict(), "spike_guard": guard.state_dict(),
+                     "attention_version": ATTENTION_VERSION}, path)
 
     if args.no_tensorboard:
         class ScalarWriter:
@@ -767,7 +769,8 @@ def main():
                         f.write(json.dumps({"step": step, **d}) + "\n")
             # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
             # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
-            atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements},
+            atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements,
+                         "attention_version": ATTENTION_VERSION},
                         os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
         log.write(json.dumps(metrics) + "\n")
         log.flush()

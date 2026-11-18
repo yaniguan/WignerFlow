@@ -869,6 +869,8 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     ckpt_path = Path(ckpt_path)
     t0 = time.perf_counter()
     ck = torch.load(ckpt_path, map_location=device, weights_only=True)
+    from equitraj.layers import check_attention_version
+    check_attention_version(ck, source=ckpt_path)
     model = EquiTraj(
         n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"]
     ).float().to(device).eval()

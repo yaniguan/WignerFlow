@@ -72,6 +72,8 @@ Argon, 256 atoms, flow head, 15 rollouts × 10⁴ steps (0.5 ns each) per seed, 
 
 v0 criteria: no crash; temperature within 5%; RDF peak position within 0.05 Å and height within 10%; VACF first zero within 10%; diffusion within 20%. Full tables: [`RESULTS.md`](RESULTS.md).
 
+Note: The v0 table above and `checkpoints/argon_flow_v0.pt` come from tag `v0.1.0` (before the `GraphAttention` cutoff-envelope and zero-logit sink update on `main`). Check out tag `v0.1.0` to reproduce those numbers.
+
 ## How it works
 
 ```mermaid
