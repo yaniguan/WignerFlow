@@ -325,6 +325,26 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
     return loss
 
 
+def build_loss_options(tc, ds, model, device):
+    """Build optional keyword arguments for training_loss from the train config."""
+    opts = {
+        "unroll_weights": tc.get("unroll_loss_weights"),
+        "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0)),
+        "verlet_skin": tc.get("verlet_skin"),
+    }
+    nts = tc.get("noise_type_scale")
+    if nts is not None:  # dict element -> scale (missing elements: 1) or list in ds.elements order
+        if isinstance(nts, dict):
+            nts = [float(nts.get(e, 1.0)) for e in ds.elements]
+        opts["noise_type_scale"] = torch.tensor(nts, dtype=torch.float32, device=device)
+    op = tc.get("overlap_penalty") or {}
+    if op.get("weight", 0.0) > 0:
+        rmin = model.prior.rmin if model.prior is not None else estimate_rmin(ds, op.get("percentile", 0.1)).to(device)
+        opts["overlap_weight"] = float(op["weight"])
+        opts["overlap_r0"] = rmin * float(op.get("rmin_scale", 1.0))
+    return opts
+
+
 def micro_batch_size_for(tc, m):
     """Number of windows per forward/backward pass at unroll length m.
 
@@ -343,7 +363,7 @@ def micro_batch_size_for(tc, m):
 
 
 def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
-                         micro_batch_size, **loss_opts):
+                         micro_batch_size, timer=None, **loss_opts):
     """Run training_loss on micro-batches of the batch and call backward on each one.
 
     Every term of training_loss is a mean over the windows of the batch, so each micro-batch loss is
@@ -356,10 +376,12 @@ def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, ba
     for start in range(0, batch, micro_batch_size):
         end = min(start + micro_batch_size, batch)
         part_box = None if box is None else box[start:end]
-        loss = training_loss(model, pos[start:end], vel[start:end], part_box, types, masses, m, noise_sigma,
-                             backprop, unroll_sampling_steps, **loss_opts)
+        with (timer.phase("forward") if timer is not None else nullcontext()):
+            loss = training_loss(model, pos[start:end], vel[start:end], part_box, types, masses, m, noise_sigma,
+                                 backprop, unroll_sampling_steps, **loss_opts)
         share = (end - start) / batch
-        (loss * share).backward()
+        with (timer.phase("backward") if timer is not None else nullcontext()):
+            (loss * share).backward()
         total += loss.item() * share
         del loss
     return total
@@ -669,21 +691,8 @@ def main():
             ema.load_state_dict(torch.load(ema_path, map_location=device, weights_only=True))
 
     # optional stability options (absent keys keep the original behavior)
-    loss_opts = {"unroll_weights": tc.get("unroll_loss_weights"), "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0)),
-                 "verlet_skin": tc.get("verlet_skin")}
-    nts = tc.get("noise_type_scale")
-    if nts is not None:  # dict element -> scale (missing elements: 1) or list in train_ds.elements order
-        if isinstance(nts, dict):
-            nts = [float(nts.get(e, 1.0)) for e in train_ds.elements]
-        loss_opts["noise_type_scale"] = torch.tensor(nts, dtype=torch.float32, device=device)
-    op = tc.get("overlap_penalty") or {}
-    if op.get("weight", 0.0) > 0:
-        if model.prior is not None:
-            rmin = model.prior.rmin
-        else:
-            rmin = estimate_rmin(train_ds, op.get("percentile", 0.1)).to(device)
-        loss_opts["overlap_weight"] = float(op["weight"])
-        loss_opts["overlap_r0"] = rmin * float(op.get("rmin_scale", 1.0))
+    loss_opts = build_loss_options(tc, train_ds, model, device)
+    if "overlap_r0" in loss_opts:
         print(json.dumps({"overlap_penalty_r0": loss_opts["overlap_r0"].tolist()}), flush=True)
 
     def lr_at(s):

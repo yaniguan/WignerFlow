@@ -186,3 +186,60 @@ def test_openmm_comparison(tmp_path):
     out = mod.openmm_comparison(str(p), 5.0)
     assert out["speed_ratio"] == pytest.approx(0.25) and out["platform"] == "CPU"
     assert out["bench_model_ns_per_day"] == 4.0
+
+
+def test_profile_training_micro_batch_matches_full_batch_and_writes_json(tmp_path):
+    from equitraj.train import build_loss_options, micro_batch_size_for
+
+    prev_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        base = tiny_model(head="regression", k=2).double()
+        pos, vel, box, types, masses = system(b=4, frames=4, seed=7)
+        pos, vel, box, masses = pos.double(), vel.double(), box.double(), masses.double()
+        batches = [(pos, vel, box), (pos.flip(0), vel.flip(0), box)]
+
+        m_full = tiny_model(head="regression", k=2).double()
+        m_full.load_state_dict(base.state_dict())
+        m_mb = tiny_model(head="regression", k=2).double()
+        m_mb.load_state_dict(base.state_dict())
+
+        out_full = profile_training(m_full, batches, types, masses, n_steps=2, warmup=0, m=2,
+                                    noise_sigma=0.0, backprop="truncated", unroll_sampling_steps=1, lr=1e-3)
+        out_mb = profile_training(m_mb, batches, types, masses, n_steps=2, warmup=0, m=2,
+                                  noise_sigma=0.0, backprop="truncated", unroll_sampling_steps=1, lr=1e-3,
+                                  micro_batch_size=2)
+
+        assert out_full["micro_batch_size"] == 4
+        assert out_mb["micro_batch_size"] == 2
+        assert out_mb["loss_mean"] == pytest.approx(out_full["loss_mean"], rel=1e-9, abs=1e-12)
+        for p_full, p_mb in zip(m_full.parameters(), m_mb.parameters()):
+            assert torch.allclose(p_full, p_mb, rtol=1e-7, atol=1e-9)
+    finally:
+        torch.set_default_dtype(prev_dtype)
+
+    summary_path = write_summary(str(tmp_path), {"train": out_mb})
+    raw_text = Path(summary_path).read_text()
+    saved = json.loads(raw_text)
+    assert saved["train"]["micro_batch_size"] == 2
+    assert '"micro_batch_size": 2' in raw_text
+    keys = list(saved["train"].keys())
+    assert abs(keys.index("micro_batch_size") - keys.index("peak_mem_GB")) <= 2
+
+    class DummyDS:
+        elements = ["Ar", "Ne"]
+
+    tc = {
+        "batch_size": 8,
+        "micro_batch_size": 4,
+        "unroll_loss_weights": [1.0, 1.0],
+        "noise_v_ratio": 0.5,
+        "verlet_skin": 0.8,
+        "noise_type_scale": {"Ar": 1.2},
+    }
+    assert micro_batch_size_for(tc, 4) == 4
+    opts = build_loss_options(tc, DummyDS(), base, torch.device("cpu"))
+    assert opts["unroll_weights"] == [1.0, 1.0]
+    assert opts["noise_v_ratio"] == 0.5
+    assert opts["verlet_skin"] == 0.8
+    assert torch.allclose(opts["noise_type_scale"], torch.tensor([1.2, 1.0], dtype=F32))
