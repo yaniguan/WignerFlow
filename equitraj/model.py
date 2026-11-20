@@ -53,6 +53,20 @@ def build_graph(pos, box, cutoff, lmax, method="brute_force"):
             "wigner": so3.edge_wigner(vec, lmax)}
 
 
+def build_graph_plain(pos, box, cutoff, method="brute_force"):
+    """Same neighbor graph as build_graph but without Wigner matrices (for the non-equivariant baseline)."""
+    fn = cell_list if method == "cell_list" else brute_force
+    n = pos.shape[1]
+    srcs, dsts, vecs = [], [], []
+    for f in range(pos.shape[0]):
+        sr, ds, ve = fn(pos[f], None if box is None else box[f], cutoff)
+        srcs.append(sr + f * n)
+        dsts.append(ds + f * n)
+        vecs.append(ve)
+    vec = torch.cat(vecs)
+    return {"src": torch.cat(srcs), "dst": torch.cat(dsts), "vec": vec, "dist": torch.linalg.norm(vec, dim=-1)}
+
+
 def remove_com(vec, masses):
     """Remove the mass-weighted mean from per-atom vectors. vec: (B, N, 3), masses: (N,)."""
     w = masses / masses.sum()
@@ -350,6 +364,16 @@ class EquiTraj(nn.Module):
             x = blk(x, graph_last)
         return x, graph_last
 
+    # ------------------------------------------------------------ heads (overridden by the baseline in baselines.py)
+
+    def regress(self, cond):
+        """Head A: condition features -> normalized outputs (B*N, 2, 3)."""
+        return self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
+
+    def denoise(self, cond, graph, y_tau, tau, candidate_graph_fn=None):
+        """Head B: flow-matching velocity for the noisy target y_tau at flow time tau (B*N,)."""
+        return self.denoiser(cond, graph, y_tau, tau, candidate_graph_fn=candidate_graph_fn)
+
     # ------------------------------------------------------------ scaling helpers
 
     def scale_up(self, y, types, b, masses=None):
@@ -445,15 +469,14 @@ class EquiTraj(nn.Module):
         v_last = self.base_velocity(pos, vel, stride_fs)
         y = self.targets_to_y(dx_target, v_target, v_last, types, masses=masses, stride_fs=stride_fs)
         if self.head_type == "regression":
-            pred = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
-            return ((pred - y) ** 2).mean()
+            return ((self.regress(cond) - y) ** 2).mean()
         # flow matching: y_tau = (1 - tau) eps + tau y, target velocity y - eps
         eps = self.com_free_noise(b, types, masses, like=y)
         tau = torch.rand(b, dtype=y.dtype, device=y.device)
         tau_n = tau.repeat_interleave(types.shape[0])
         y_tau = (1 - tau_n)[:, None, None] * eps + tau_n[:, None, None] * y
         cand_fn = self._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, stride_fs)
-        pred = self.denoiser(cond, graph, y_tau, tau_n, candidate_graph_fn=cand_fn)
+        pred = self.denoise(cond, graph, y_tau, tau_n, candidate_graph_fn=cand_fn)
         return ((pred - (y - eps)) ** 2).mean()
 
     # ------------------------------------------------------------ prediction
@@ -478,23 +501,34 @@ class EquiTraj(nn.Module):
                                   ff_types=ff_types, bonds=bonds, stride_fs=stride_fs)
         v_last = self.base_velocity(pos, vel, stride_fs)
         if self.head_type == "regression":
-            y = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
+            y = self.regress(cond)
         else:
             y = self.com_free_noise(b, types, masses, like=cond) if noise is None else noise
             cand_fn = self._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, stride_fs)
             dt = 1.0 / n_steps
             for i in range(n_steps):  # Euler or 2nd-order Heun integration of the learned flow from tau=0 to 1
                 tau0 = torch.full((b * n,), i * dt, dtype=cond.dtype, device=cond.device)
-                v0 = self.denoiser(cond, graph, y, tau0, candidate_graph_fn=cand_fn)
+                v0 = self.denoise(cond, graph, y, tau0, candidate_graph_fn=cand_fn)
                 if sampler == "euler":
                     y = y + dt * v0
                 else:
                     y_pred = y + dt * v0
                     tau1 = torch.full((b * n,), (i + 1) * dt, dtype=cond.dtype, device=cond.device)
-                    v1 = self.denoiser(cond, graph, y_pred, tau1, candidate_graph_fn=cand_fn)
+                    v1 = self.denoise(cond, graph, y_pred, tau1, candidate_graph_fn=cand_fn)
                     y = y + 0.5 * dt * (v0 + v1)
         dx, v = self.y_to_targets(y, types, v_last, masses=masses, stride_fs=stride_fs)
         dx, v = remove_com(dx, masses), remove_com(v, masses)
         if self.prior is not None:  # mass-weighted pair pushes: the center of mass stays fixed
             dx, v = self.prior(pos[:, -1], dx, v, types, box, masses)
         return dx, v
+
+
+def make_model(n_types, k, stride_fs, **cfg):
+    """Build the model named by cfg["arch"]: "equi" (default, EquiTraj) or "plain" (non-equivariant baseline)."""
+    cfg = dict(cfg)
+    arch = cfg.pop("arch", "equi")
+    if arch == "plain":
+        from equitraj.baselines import PlainTraj  # noqa: PLC0415
+
+        return PlainTraj(n_types=n_types, k=k, stride_fs=stride_fs, **cfg)
+    return EquiTraj(n_types=n_types, k=k, stride_fs=stride_fs, **cfg)
