@@ -84,7 +84,7 @@ Single-GPU plan (one H200 or B200 kept busy, with this repo's calls batched into
 | M4 edge test | one Jetson Orin Nano Super | $399 | developer.nvidia.com/embedded/faq |
 
 - Do not buy a GPU box for this repo. A used 4090 (~$3k) equals ~8,800 rented 4090 hours at $0.34/hr.
-- Buy the edge kit only when M2 passes.
+- Edge tests run on a rented 24GB GPU first; no hardware purchase in this plan.
 
 ## Risks
 
