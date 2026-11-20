@@ -385,6 +385,16 @@ class EquiTraj(nn.Module):
         s = self._resolve_stride(stride_fs, v_last.shape[0], v_last.dtype, v_last.device)
         return s[:, None, None]
 
+    def base_velocity(self, pos, vel, stride_fs=None):
+        """Velocity that residual targets are measured from: the last true velocity, or, for a position-only model
+        (use_velocity=False), the mean velocity over the last stride from the positions. A position-only model must
+        not get the true velocity through the output path either."""
+        if self.use_velocity:
+            return vel[:, -1]
+        if pos.shape[1] < 2:
+            return torch.zeros_like(vel[:, -1])
+        return (pos[:, -1] - pos[:, -2]).to(vel.dtype) / self._coasting_dt(stride_fs, vel[:, -1])
+
     def targets_to_y(self, dx, v_new, v_last, types, masses=None, stride_fs=None):
         """Physical (Δx, v_new) -> normalized model outputs, given the last context velocity."""
         if self.target == "residual":
@@ -432,7 +442,8 @@ class EquiTraj(nn.Module):
         q, _, bh = self._resolve_chemistry(n, pos.device, pos.dtype, charges=charges, ff_types=ff_types, bonds=bonds)
         cond, graph = self.encode(pos, vel, types, box, charges=charges, ff_types=ff_types,
                                   bonds=bonds, stride_fs=stride_fs)
-        y = self.targets_to_y(dx_target, v_target, vel[:, -1], types, masses=masses, stride_fs=stride_fs)
+        v_last = self.base_velocity(pos, vel, stride_fs)
+        y = self.targets_to_y(dx_target, v_target, v_last, types, masses=masses, stride_fs=stride_fs)
         if self.head_type == "regression":
             pred = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
             return ((pred - y) ** 2).mean()
@@ -441,7 +452,7 @@ class EquiTraj(nn.Module):
         tau = torch.rand(b, dtype=y.dtype, device=y.device)
         tau_n = tau.repeat_interleave(types.shape[0])
         y_tau = (1 - tau_n)[:, None, None] * eps + tau_n[:, None, None] * y
-        cand_fn = self._candidate_graph_builder(pos[:, -1], vel[:, -1], types, box, masses, graph, q, bh, stride_fs)
+        cand_fn = self._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, stride_fs)
         pred = self.denoiser(cond, graph, y_tau, tau_n, candidate_graph_fn=cand_fn)
         return ((pred - (y - eps)) ** 2).mean()
 
@@ -465,11 +476,12 @@ class EquiTraj(nn.Module):
         q, _, bh = self._resolve_chemistry(n, pos.device, pos.dtype, charges=charges, ff_types=ff_types, bonds=bonds)
         cond, graph = self.encode(pos, vel, types, box, graphs=graphs, charges=charges,
                                   ff_types=ff_types, bonds=bonds, stride_fs=stride_fs)
+        v_last = self.base_velocity(pos, vel, stride_fs)
         if self.head_type == "regression":
             y = self.y_out(self.readout(cond)[:, 1:4, :]).transpose(1, 2)
         else:
             y = self.com_free_noise(b, types, masses, like=cond) if noise is None else noise
-            cand_fn = self._candidate_graph_builder(pos[:, -1], vel[:, -1], types, box, masses, graph, q, bh, stride_fs)
+            cand_fn = self._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, stride_fs)
             dt = 1.0 / n_steps
             for i in range(n_steps):  # Euler or 2nd-order Heun integration of the learned flow from tau=0 to 1
                 tau0 = torch.full((b * n,), i * dt, dtype=cond.dtype, device=cond.device)
@@ -481,7 +493,7 @@ class EquiTraj(nn.Module):
                     tau1 = torch.full((b * n,), (i + 1) * dt, dtype=cond.dtype, device=cond.device)
                     v1 = self.denoiser(cond, graph, y_pred, tau1, candidate_graph_fn=cand_fn)
                     y = y + 0.5 * dt * (v0 + v1)
-        dx, v = self.y_to_targets(y, types, vel[:, -1], masses=masses, stride_fs=stride_fs)
+        dx, v = self.y_to_targets(y, types, v_last, masses=masses, stride_fs=stride_fs)
         dx, v = remove_com(dx, masses), remove_com(v, masses)
         if self.prior is not None:  # mass-weighted pair pushes: the center of mass stays fixed
             dx, v = self.prior(pos[:, -1], dx, v, types, box, masses)

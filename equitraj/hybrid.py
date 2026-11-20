@@ -182,7 +182,7 @@ def predict_with_uncertainty(model, pos, vel, types, box, masses, n_ensembles=4,
         for i in range(n_steps):
             tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
             y = y + model.denoiser(cond, graph, y, tau) / n_steps
-        dx_e, v_e = model.y_to_targets(y, types, vel[:, -1], **y_kw)
+        dx_e, v_e = model.y_to_targets(y, types, model.base_velocity(pos, vel), **y_kw)
         dx_e, v_e = remove_com(dx_e, masses), remove_com(v_e, masses)
         if model.prior is not None:
             dx_e, v_e = model.prior(pos[:, -1], dx_e, v_e, types, box, masses)

@@ -388,12 +388,26 @@ def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, ba
     return total
 
 
-def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None):
+def validation_starts(ds, k, n_starts, n_steps):
+    """Evenly spaced window indices whose trajectory has n_steps ground-truth frames after the k context frames.
+
+    The RDF comparison needs those frames; a start near the end of a trajectory would have almost none.
+    """
+    need = (k - 1 + n_steps) * ds.f + 1
+    valid = [i for i, (t, s0) in enumerate(ds.index) if s0 + need <= len(ds.pos[t])]
+    if not valid:
+        raise ValueError(f"no validation window has {n_steps} steps of ground truth after it; use a shorter rollout")
+    return np.array(valid)[np.linspace(0, len(valid) - 1, n_starts).astype(int)]
+
+
+def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None, n_constraints=0):
     """Short rollouts from evenly spaced validation windows. Returns stability and RDF metrics.
 
+    Only windows with n_steps frames of ground truth after them are used as starts.
     diag_sink: optional list; the rollout's crash diagnostics are appended to it.
+    n_constraints: removed from the degrees of freedom in the temperature (0 by default).
     """
-    starts = np.linspace(0, len(ds) - 1, n_starts).astype(int)
+    starts = validation_starts(ds, model.k, n_starts, n_steps)
     items = [ds[i] for i in starts]
     pos = torch.stack([it[0][:model.k] for it in items])
     vel = torch.stack([it[1][:model.k] for it in items])
@@ -422,11 +436,11 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
         metrics["val_abs_T_drift_K_per_ns"] = float(np.mean(drift))
     if not ok or out["positions"] is None:
         return metrics
-    metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses).mean().item()
+    metrics["val_T_end"] = temperature(out["velocities"][-1, ok], ds.masses, n_constraints).mean().item()
     # temperature error averaged over the second half of each rollout (one frame is too noisy to rank checkpoints)
     vel = out["velocities"]
     half = vel.shape[0] // 2
-    t_traj = torch.stack([temperature(vel[i, ok], ds.masses) for i in range(half, vel.shape[0])])  # (frames, ok)
+    t_traj = torch.stack([temperature(vel[i, ok], ds.masses, n_constraints) for i in range(half, vel.shape[0])])  # (frames, ok)
     metrics["val_T_rel_err"] = ((t_traj.mean(0) - t_ref).abs() / t_ref).mean().item()
     # all-atom RDF of each rollout vs the ground-truth frames of the same trajectory over the same time span
     idx = np.arange(len(ds.types))
@@ -722,7 +736,9 @@ def main():
         from torch.utils.tensorboard import SummaryWriter
         writer = SummaryWriter(os.path.join(out_dir, "tb"))
     log = open(os.path.join(out_dir, "log.jsonl"), "a")
-    t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses).mean().item()
+    # opt-in: count constrained degrees of freedom in the temperature (off by default; argon has none)
+    n_con = val_ds.n_constraints if tc.get("constrained_dof", False) else 0
+    t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses, n_con).mean().item()
     last_ckpt, t_start, running = time.time(), time.time(), []
     rewarmup = int(tc.get("rewarmup_steps", 0))
     gnorms = []
@@ -743,11 +759,12 @@ def main():
                 metrics = {"step": step, "val_loss": float(np.mean(val))}
                 diags = []
                 metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
-                                                  ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags))
+                                                  ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags,
+                                                  n_constraints=n_con))
                 if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
                     sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
                                              ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
-                                             diag_sink=diags)
+                                             diag_sink=diags, n_constraints=n_con)
                     metrics.update({"sel_" + key: value for key, value in sel.items()})
             for key, value in metrics.items():
                 if key != "step":

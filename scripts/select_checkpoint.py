@@ -43,12 +43,13 @@ def main():
         cfg = ck["cfg"]
         if ds is None:
             ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1)
-            t_ref = temperature(torch.stack([ds[i][1][0] for i in range(0, len(ds), max(1, len(ds) // 20))]), ds.masses).mean().item()
+            n_con = ds.n_constraints if cfg["train"].get("constrained_dof", False) else 0  # same opt-in as training
+            t_ref = temperature(torch.stack([ds[i][1][0] for i in range(0, len(ds), max(1, len(ds) // 20))]), ds.masses, n_con).mean().item()
         model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
         model.load_state_dict(ck["model"])
         model.to(device).eval()
         torch.manual_seed(0)
-        m = validation_rollout(model, ds, args.starts, args.steps, args.sampling_steps, device, t_ref)
+        m = validation_rollout(model, ds, args.starts, args.steps, args.sampling_steps, device, t_ref, n_constraints=n_con)
         m.update(step=ck["step"], file=name, score=temperature_aware_score(m, args.t_weight))
         rows.append(m)
         print(json.dumps({k: m.get(k) for k in ("step", "val_crash_frac", "val_T_rel_err", "val_rdf_l1", "score")}), flush=True)
