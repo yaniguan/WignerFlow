@@ -1,15 +1,18 @@
 """Surrogate query: the lab agent asks WignerFlow for a cheap physics check.
 
-A query is a small JSON dict. The reasoner (YLM) sends it; this module validates it,
-plans it (no torch needed), runs a model-only rollout from a release checkpoint, and
-returns a JSON report plus short text lines for the reasoner's context.
+A query is a small JSON dict (schema `wignerflow.surrogate_query/v1`). The reasoner
+(YLM) sends either a `system` name or an `ouroboros-ocsr` `smiles` string; this module
+validates it, maps supported SMILES without guessing, runs a model-only rollout from a
+release checkpoint, and returns a JSON report (`wignerflow.surrogate_report/v1`) plus
+short `[physics]` lines for `YLM`'s `lab.protocol_qa.build_prompt(..., physics_lines)`.
 
 Only systems in REGISTRY are in domain. Today that is LJ argon (checkpoints/README.md).
 Anything else returns status "unsupported". The report holds raw rollout numbers from
 this run only. It is not a benchmark result.
 
     python -m lab.surrogate_query --query lab/fixtures/argon_query.json --dry-run
-    python -m lab.surrogate_query --query lab/fixtures/argon_query.json
+    python -m lab.surrogate_query --query lab/fixtures/argon_query.json --context
+    python -m lab.surrogate_query --query lab/fixtures/ocsr_argon_query.json --context
 """
 
 import argparse
@@ -19,6 +22,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+QUERY_SCHEMA = "wignerflow.surrogate_query/v1"
+REPORT_SCHEMA = "wignerflow.surrogate_report/v1"
 
 # Facts copied from checkpoints/README.md; tests/test_lab_scale.py checks them against the file.
 REGISTRY = {
@@ -31,6 +37,14 @@ REGISTRY = {
     },
 }
 
+# Exact lookup from ouroboros-ocsr SMILES to a supported REGISTRY key. Never guess.
+SMILES_TO_SYSTEM = {
+    "[Ar]": "argon",
+    "[18Ar]": "argon",
+    "[36Ar]": "argon",
+    "[40Ar]": "argon",
+}
+
 LIMITS = {"n_steps": (1, 10000), "sampling_steps": (1, 50)}
 DEFAULTS = {"n_steps": 20, "sampling_steps": 10, "seed": 0, "device": "cpu"}
 CAVEATS = [
@@ -40,18 +54,53 @@ CAVEATS = [
 ]
 
 
+def lookup_smiles(smiles):
+    """Map an OCSR SMILES string to a supported REGISTRY system, or return None."""
+    if not isinstance(smiles, str):
+        return None
+    return SMILES_TO_SYSTEM.get(smiles.strip())
+
+
+def query_from_ocsr(record, **overrides):
+    """Build a surrogate query dict from an ouroboros-ocsr row or molecule_context record."""
+    if not isinstance(record, dict):
+        raise ValueError("OCSR record must be a dict")
+    smiles = (record.get("smiles") or record.get("pred") or record.get("prediction") or "").strip()
+    out = {"schema": QUERY_SCHEMA, "smiles": smiles}
+    out.update(overrides)
+    return out
+
+
 def validate_query(query):
     """Return a list of error strings. Empty list means the query is valid."""
     if not isinstance(query, dict):
         return ["query must be a JSON object"]
     errors = []
-    allowed = {"system", "n_steps", "sampling_steps", "seed", "device", "question"}
+    allowed = {"schema", "system", "smiles", "n_steps", "sampling_steps", "seed", "device", "question"}
     extra = sorted(set(query) - allowed)
     if extra:
         errors.append(f"unknown keys: {extra}")
+    schema = query.get("schema")
+    if schema is not None and schema != QUERY_SCHEMA:
+        errors.append(f"schema must be '{QUERY_SCHEMA}'")
+    has_system = "system" in query
+    has_smiles = "smiles" in query
     system = query.get("system")
-    if not isinstance(system, str) or not system:
+    smiles = query.get("smiles")
+    if not has_system and not has_smiles:
+        errors.append("system or smiles must be provided")
+    if has_system and (not isinstance(system, str) or not system.strip()):
         errors.append("system must be a non-empty string")
+    if has_smiles and (not isinstance(smiles, str) or not smiles.strip()):
+        errors.append("smiles must be a non-empty string")
+    if (
+        has_system and isinstance(system, str) and system.strip()
+        and has_smiles and isinstance(smiles, str) and smiles.strip()
+    ):
+        mapped = lookup_smiles(smiles)
+        sys_key = system.strip().lower()
+        if sys_key in REGISTRY and mapped != sys_key:
+            errors.append(f"system '{system}' and smiles '{smiles}' do not match")
     for key, (lo, hi) in LIMITS.items():
         val = query.get(key, DEFAULTS[key])
         if isinstance(val, bool) or not isinstance(val, int) or not lo <= val <= hi:
@@ -68,18 +117,58 @@ def plan_query(query):
     """Describe what run_query would do. Standard library only; never loads torch."""
     errors = validate_query(query)
     if errors:
-        return {"status": "invalid", "errors": errors}
+        return {"schema": REPORT_SCHEMA, "status": "invalid", "errors": errors}
     q = {**DEFAULTS, **query}
-    entry = REGISTRY.get(q["system"].lower())
-    if entry is None:
-        return {"status": "unsupported", "system": q["system"], "supported": sorted(REGISTRY),
-                "reason": "no trained checkpoint for this system"}
+    smiles = q.get("smiles").strip() if isinstance(q.get("smiles"), str) else None
+    raw_system = q.get("system").strip() if isinstance(q.get("system"), str) else None
+
+    if raw_system is not None:
+        sys_key = raw_system.lower()
+        entry = REGISTRY.get(sys_key)
+        if entry is None:
+            rep = {
+                "schema": REPORT_SCHEMA,
+                "status": "unsupported",
+                "system": raw_system,
+                "supported": sorted(REGISTRY),
+                "reason": "no trained checkpoint for this system",
+            }
+            if smiles is not None:
+                rep["smiles"] = smiles
+            return rep
+    else:
+        mapped = lookup_smiles(smiles)
+        if mapped is None:
+            return {
+                "schema": REPORT_SCHEMA,
+                "status": "unsupported",
+                "system": smiles,
+                "smiles": smiles,
+                "supported": sorted(REGISTRY),
+                "supported_smiles": sorted(SMILES_TO_SYSTEM),
+                "reason": "no trained checkpoint for this SMILES",
+            }
+        sys_key = mapped
+        entry = REGISTRY[sys_key]
+
     ckpt = ROOT / entry["checkpoint"]
-    return {"status": "planned", "system": q["system"].lower(), "checkpoint": entry["checkpoint"],
-            "checkpoint_present": ckpt.exists(), "n_atoms": entry["n_atoms"],
-            "n_steps": q["n_steps"], "sampling_steps": q["sampling_steps"], "seed": q["seed"],
-            "device": q["device"], "stride_fs": entry["stride_fs"],
-            "simulated_ps": q["n_steps"] * entry["stride_fs"] / 1000.0}
+    planned = {
+        "schema": REPORT_SCHEMA,
+        "status": "planned",
+        "system": sys_key,
+        "checkpoint": entry["checkpoint"],
+        "checkpoint_present": ckpt.exists(),
+        "n_atoms": entry["n_atoms"],
+        "n_steps": q["n_steps"],
+        "sampling_steps": q["sampling_steps"],
+        "seed": q["seed"],
+        "device": q["device"],
+        "stride_fs": entry["stride_fs"],
+        "simulated_ps": q["n_steps"] * entry["stride_fs"] / 1000.0,
+    }
+    if smiles is not None:
+        planned["smiles"] = smiles
+    return planned
 
 
 @contextlib.contextmanager

@@ -1,0 +1,2 @@
+{"schema": "wignerflow.surrogate_query/v1", "smiles": "[Ar]", "n_steps": 2, "sampling_steps": 2, "seed": 0,
+ "question": "Does liquid argon stay stable over two 50 fs steps?"}
