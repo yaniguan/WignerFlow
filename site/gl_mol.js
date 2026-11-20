@@ -1,24 +1,31 @@
 /* Hardware-accelerated WebGL2 ray-cast sphere & cylinder 3D molecular viewer.
- * Zero external dependencies. Renders analytical per-pixel ray-cast spheres
- * and capsules with gl_FragDepth, 3-point studio lighting, Fresnel rim light,
- * and smooth trackball orbit. Gracefully falls back to shaded 2D if WebGL2 is absent.
+ * Zero external dependencies. Supports both Porcelain Daylight ('light', default)
+ * and Obsidian Studio ('dark') backgrounds with ChimeraX-grade 3-point lighting.
  */
 (() => {
   'use strict';
 
   const CPK = {
-    H:  [0.86, 0.90, 0.95, 0.28],
-    C:  [0.27, 0.33, 0.40, 0.44],
-    N:  [0.44, 0.63, 0.87, 0.42],
-    O:  [0.86, 0.43, 0.36, 0.41],
-    F:  [0.64, 0.85, 0.48, 0.39],
-    P:  [0.89, 0.65, 0.34, 0.50],
-    S:  [0.88, 0.78, 0.36, 0.50],
-    Cl: [0.45, 0.80, 0.55, 0.48],
-    Li: [0.73, 0.63, 0.87, 0.46],
-    Na: [0.57, 0.71, 0.88, 0.52],
-    Ar: [0.49, 0.76, 0.74, 0.56],
+    H:  [0.78, 0.84, 0.91, 0.28],
+    C:  [0.24, 0.30, 0.38, 0.44],
+    N:  [0.18, 0.44, 0.86, 0.42],
+    O:  [0.88, 0.28, 0.26, 0.41],
+    F:  [0.16, 0.68, 0.44, 0.39],
+    P:  [0.88, 0.52, 0.16, 0.50],
+    S:  [0.84, 0.68, 0.16, 0.50],
+    Cl: [0.16, 0.66, 0.42, 0.48],
+    Li: [0.52, 0.34, 0.88, 0.46],
+    Na: [0.24, 0.52, 0.86, 0.52],
+    Ar: [0.08, 0.58, 0.54, 0.56],
   };
+
+  function isLightTheme() {
+    return document.documentElement.dataset.theme !== 'dark';
+  }
+
+  function defaultBgForTheme(light) {
+    return light ? [243 / 255, 246 / 255, 251 / 255] : [11 / 255, 17 / 255, 24 / 255];
+  }
 
   function mat4Perspective(fovRad, aspect, near, far) {
     const f = 1.0 / Math.tan(fovRad * 0.5);
@@ -34,7 +41,6 @@
   function mat4FromOrbit(rotX, rotY, dist, panX = 0, panY = 0) {
     const cx = Math.cos(rotX), sx = Math.sin(rotX);
     const cy = Math.cos(rotY), sy = Math.sin(rotY);
-    // Ry * Rx followed by camera translation (panX, panY, -dist)
     return new Float32Array([
       cy, sx * sy, -cx * sy, 0,
       0, cx, sx, 0,
@@ -90,7 +96,6 @@
     vViewCenter = vc.xyz;
     vRadius = iRadius;
     vColor = iColor;
-    // Expand billboard slightly to prevent perspective grazing clipping
     vec2 offset = aCorner * iRadius * 1.32;
     vec3 quadPos = vc.xyz + vec3(offset, 0.0);
     vRayTarget = quadPos;
@@ -108,12 +113,12 @@
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
+  uniform float uLightMode;
 
   out vec4 outColor;
 
   void main() {
     vec3 rayDir = normalize(vRayTarget);
-    // Ray from origin (0,0,0) in view space to sphere at vViewCenter
     vec3 oc = -vViewCenter;
     float b = dot(oc, rayDir);
     float c = dot(oc, oc) - vRadius * vRadius;
@@ -133,29 +138,37 @@
     float ndcDepth = clip.z / clip.w;
     gl_FragDepth = ndcDepth * 0.5 + 0.5;
 
-    // 3-point studio illumination (ChimeraX / Blender Satin style)
-    vec3 Lkey = normalize(vec3(0.52, 0.68, 0.78));
-    vec3 Lfill = normalize(vec3(-0.68, 0.32, 0.42));
-    vec3 Lrim = normalize(vec3(0.0, -0.62, -0.78));
+    vec3 Lkey = normalize(vec3(0.48, 0.72, 0.78));
+    vec3 Lfill = normalize(vec3(-0.66, 0.34, 0.44));
+    vec3 Lrim = normalize(vec3(0.0, -0.58, -0.80));
 
     float diffKey = max(dot(N, Lkey), 0.0);
     float diffFill = max(dot(N, Lfill), 0.0);
     float hemi = 0.5 + 0.5 * N.y;
 
     vec3 H = normalize(Lkey + V);
-    float spec = pow(max(dot(N, H), 0.0), 42.0);
-    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.2);
-    float backRim = max(dot(N, Lrim), 0.0) * 0.22;
+    float spec = pow(max(dot(N, H), 0.0), 38.0);
+    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+    float backRim = max(dot(N, Lrim), 0.0) * 0.20;
 
     vec3 base = vColor.rgb;
-    vec3 ambient = base * mix(vec3(0.16, 0.19, 0.24), vec3(0.30, 0.34, 0.40), hemi);
+    vec3 ambLow = mix(vec3(0.18, 0.20, 0.25), vec3(0.34, 0.37, 0.42), uLightMode);
+    vec3 ambHigh = mix(vec3(0.32, 0.35, 0.41), vec3(0.54, 0.57, 0.62), uLightMode);
+    vec3 ambient = base * mix(ambLow, ambHigh, hemi);
     vec3 lit = ambient
-             + base * (diffKey * 0.76 + diffFill * 0.24 + backRim)
-             + vec3(0.96, 0.98, 1.0) * (spec * 0.42)
-             + mix(base, vec3(0.75, 0.88, 0.96), 0.5) * (fresnel * 0.24);
+             + base * (diffKey * 0.72 + diffFill * 0.26 + backRim)
+             + vec3(0.98, 0.99, 1.0) * (spec * 0.40)
+             + mix(base, vec3(0.84, 0.90, 0.96), 0.5) * (fresnel * (0.18 - 0.06 * uLightMode));
+
+    // Subtle dark silhouette edge in porcelain light mode so light atoms stay crisp
+    if (uLightMode > 0.5) {
+      float edgeDark = pow(1.0 - max(dot(N, V), 0.0), 2.4);
+      lit = mix(lit, base * 0.52, edgeDark * 0.34);
+    }
 
     float dist = -hitPos.z;
-    float fog = clamp((dist - uFogNear) / max(uFogFar - uFogNear, 0.001), 0.0, 0.72);
+    float maxFog = mix(0.68, 0.46, uLightMode);
+    float fog = clamp((dist - uFogNear) / max(uFogFar - uFogNear, 0.001), 0.0, maxFog);
     vec3 finalRgb = mix(lit, uFogColor, fog);
 
     outColor = vec4(finalRgb, vColor.a);
@@ -163,11 +176,11 @@
 
   const CYL_VS = `#version 300 es
   precision highp float;
-  layout(location = 0) in vec3 aUnitCyl;     // x=cos, y=sin, z in [0,1]
+  layout(location = 0) in vec3 aUnitCyl;
   layout(location = 1) in vec3 aUnitNorm;
   layout(location = 2) in vec3 iP0;
   layout(location = 3) in vec3 iP1;
-  layout(location = 4) in vec2 iRadTip;      // x=r0, y=r1 (tapered for cones!)
+  layout(location = 4) in vec2 iRadTip;
   layout(location = 5) in vec4 iColor;
 
   uniform mat4 uView;
@@ -209,21 +222,24 @@
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
+  uniform float uLightMode;
 
   out vec4 outColor;
 
   void main() {
     vec3 N = normalize(vViewNorm);
     vec3 V = normalize(-vViewPos);
-    vec3 Lkey = normalize(vec3(0.52, 0.68, 0.78));
-    vec3 Lfill = normalize(vec3(-0.68, 0.32, 0.42));
-    float diff = max(dot(N, Lkey), 0.0) * 0.72 + max(dot(N, Lfill), 0.0) * 0.25 + 0.24;
+    vec3 Lkey = normalize(vec3(0.48, 0.72, 0.78));
+    vec3 Lfill = normalize(vec3(-0.66, 0.34, 0.44));
+    float amb = mix(0.26, 0.42, uLightMode);
+    float diff = max(dot(N, Lkey), 0.0) * 0.68 + max(dot(N, Lfill), 0.0) * 0.24 + amb;
     vec3 H = normalize(Lkey + V);
-    float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.26;
+    float spec = pow(max(dot(N, H), 0.0), 28.0) * 0.24;
     vec3 lit = vColor.rgb * diff + vec3(spec);
 
     float dist = -vViewPos.z;
-    float fog = clamp((dist - uFogNear) / max(uFogFar - uFogNear, 0.001), 0.0, 0.72);
+    float maxFog = mix(0.68, 0.46, uLightMode);
+    float fog = clamp((dist - uFogNear) / max(uFogFar - uFogNear, 0.001), 0.0, maxFog);
     outColor = vec4(mix(lit, uFogColor, fog), vColor.a);
   }`;
 
@@ -248,17 +264,21 @@
     };
   }
 
+  const INSTANCES = new Set();
+
   class WignerGLViewer {
     constructor(canvas, opts = {}) {
       this.canvas = canvas;
-      this.bg = opts.bg || [10 / 255, 15 / 255, 21 / 255];
+      this.customBg = opts.bg || null;
+      this.lightMode = isLightTheme();
+      this.bg = this.customBg || defaultBgForTheme(this.lightMode);
       this.rotX = opts.rotX ?? 0.36;
       this.rotY = opts.rotY ?? -0.58;
       this.zoom = opts.zoom ?? 1.0;
-      this.autoSpin = opts.autoSpin ?? 0.0;
       this.dragging = false;
       this.lastX = 0;
       this.lastY = 0;
+      this.lastSpec = null;
       this.scene = { spheres: [], rods: [], center: [0, 0, 0], radius: 6.0 };
 
       this.gl = null;
@@ -279,6 +299,19 @@
         this.ctx2d = canvas.getContext('2d');
       }
       this._bindEvents();
+      INSTANCES.add(this);
+    }
+
+    syncTheme() {
+      this.lightMode = isLightTheme();
+      if (!this.customBg) {
+        this.bg = defaultBgForTheme(this.lightMode);
+      }
+      if (this.lastSpec) {
+        this.setMolecule(this.lastSpec);
+      } else {
+        this.render();
+      }
     }
 
     _initGL() {
@@ -286,7 +319,6 @@
       this.sphereProg = linkProgram(gl, SPHERE_VS, SPHERE_FS);
       this.cylProg = linkProgram(gl, CYL_VS, CYL_FS);
 
-      // Sphere quad VAO
       this.sphereVao = gl.createVertexArray();
       gl.bindVertexArray(this.sphereVao);
       const quadBuf = gl.createBuffer();
@@ -297,7 +329,6 @@
 
       this.sphereInstBuf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.sphereInstBuf);
-      // stride = 8 floats: center(3), radius(1), color(4)
       gl.enableVertexAttribArray(1);
       gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 0);
       gl.vertexAttribDivisor(1, 1);
@@ -308,7 +339,6 @@
       gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, 16);
       gl.vertexAttribDivisor(3, 1);
 
-      // Cylinder / Cone VAO
       const mesh = makeCylinderMesh(14);
       this.cylIndexCount = mesh.idx.length;
       this.cylVao = gl.createVertexArray();
@@ -332,7 +362,6 @@
 
       this.cylInstBuf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.cylInstBuf);
-      // stride = 12 floats (48 bytes): p0(3), p1(3), radTip(2), color(4)
       gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 48, 0);
       gl.vertexAttribDivisor(2, 1);
@@ -387,17 +416,10 @@
       this.render();
     }
 
-    /**
-     * Build scene geometry from molecular data:
-     *   positions: [[x,y,z], ...]
-     *   elements: ['C','O',...]
-     *   bonds: [[i,j], ...]
-     *   boxA: number | null (cubic box side in Angstrom)
-     *   arrows: [{from:[x,y,z], vec:[dx,dy,dz], color:[r,g,b,a], scale, radius}]
-     *   ghostFrames: [[[x,y,z],...], ...] (optional context trails)
-     *   highlightAtom: index | null, cutoffA: number | null
-     */
     setMolecule(spec) {
+      this.lastSpec = spec;
+      this.lightMode = isLightTheme();
+      if (!this.customBg) this.bg = defaultBgForTheme(this.lightMode);
       const pos = spec.positions || [];
       const elems = spec.elements || [];
       const bonds = spec.bonds || [];
@@ -432,7 +454,6 @@
       const rods = [];
       const atomScale = spec.atomScale || (n > 50 ? 1.05 : 0.96);
 
-      // Optional periodic crystal cell box edges
       if (boxA) {
         const h = boxA * 0.5;
         const corners = [
@@ -444,32 +465,35 @@
           [4, 5], [5, 6], [6, 7], [7, 4],
           [0, 4], [1, 5], [2, 6], [3, 7],
         ];
-        const boxCol = [0.33, 0.45, 0.56, 0.55];
+        const boxCol = this.lightMode ? [0.52, 0.60, 0.70, 0.75] : [0.33, 0.45, 0.56, 0.55];
         for (const [a, b] of edges) {
           rods.push({ p0: corners[a], p1: corners[b], r0: 0.045, r1: 0.045, color: boxCol });
         }
       }
 
-      // Optional ghost context frames (3-frame history trails)
       if (spec.ghostFrames && spec.ghostFrames.length) {
         const gf = spec.ghostFrames;
         for (let g = 0; g < gf.length; g++) {
           const frame = gf[g];
           const frac = (g + 1) / (gf.length + 1);
-          const col = [0.48, 0.72, 0.86, 0.22 + 0.18 * frac];
+          const col = this.lightMode
+            ? [0.56, 0.68, 0.84, 0.35 + 0.2 * frac]
+            : [0.48, 0.72, 0.86, 0.22 + 0.18 * frac];
           for (let i = 0; i < Math.min(n, frame.length); i++) {
             const p = [frame[i][0] - cx, frame[i][1] - cy, frame[i][2] - cz];
             spheres.push({ c: p, r: 0.24 * frac + 0.10, color: col });
             const nextF = g + 1 < gf.length ? gf[g + 1][i] : pos[i];
             const pn = [nextF[0] - cx, nextF[1] - cy, nextF[2] - cz];
             if (Math.hypot(pn[0] - p[0], pn[1] - p[1], pn[2] - p[2]) < (boxA ? boxA * 0.4 : 6.0)) {
-              rods.push({ p0: p, p1: pn, r0: 0.035, r1: 0.05, color: [0.57, 0.78, 0.72, 0.45] });
+              rods.push({
+                p0: p, p1: pn, r0: 0.035, r1: 0.05,
+                color: this.lightMode ? [0.18, 0.58, 0.54, 0.55] : [0.57, 0.78, 0.72, 0.45],
+              });
             }
           }
         }
       }
 
-      // Highlight coordination shell edges around a central atom (Wigner-D chapter)
       const hiIdx = spec.highlightAtom ?? null;
       const cutA = spec.cutoffA ?? 6.0;
       const inShell = new Set();
@@ -487,27 +511,26 @@
               p1: pj,
               r0: 0.055 * env + 0.02,
               r1: 0.055 * env + 0.02,
-              color: [0.71, 0.85, 0.56, 0.85],
+              color: this.lightMode ? [0.05, 0.58, 0.53, 0.9] : [0.71, 0.85, 0.56, 0.85],
             });
           }
         }
       }
 
-      // Atoms
       for (let i = 0; i < n; i++) {
         const el = elems[i] || 'C';
-        const cpk = CPK[el] || [0.58, 0.68, 0.78, 0.44];
+        const cpk = CPK[el] || [0.46, 0.56, 0.68, 0.44];
         let col = [cpk[0], cpk[1], cpk[2], 1.0];
         let rad = cpk[3] * atomScale;
         if (hiIdx !== null) {
           if (i === hiIdx) {
-            col = [0.71, 0.85, 0.56, 1.0];
+            col = this.lightMode ? [0.05, 0.58, 0.53, 1.0] : [0.71, 0.85, 0.56, 1.0];
             rad *= 1.24;
           } else if (inShell.has(i)) {
-            col = [0.57, 0.71, 0.88, 1.0];
+            col = [0.15, 0.39, 0.92, 1.0];
             rad *= 1.08;
           } else {
-            col = [0.22, 0.28, 0.35, 1.0];
+            col = this.lightMode ? [0.76, 0.81, 0.87, 1.0] : [0.22, 0.28, 0.35, 1.0];
             rad *= 0.82;
           }
         }
@@ -518,20 +541,18 @@
         });
       }
 
-      // Covalent bonds (split half-and-half by element color like PyMOL/ChimeraX!)
       for (const [i, j] of bonds) {
         if (i >= n || j >= n) continue;
         const p0 = [pos[i][0] - cx, pos[i][1] - cy, pos[i][2] - cz];
         const p1 = [pos[j][0] - cx, pos[j][1] - cy, pos[j][2] - cz];
         if (boxA && Math.hypot(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]) > boxA * 0.45) continue;
         const pm = [(p0[0] + p1[0]) * 0.5, (p0[1] + p1[1]) * 0.5, (p0[2] + p1[2]) * 0.5];
-        const c0 = CPK[elems[i]] || [0.5, 0.56, 0.64];
-        const c1 = CPK[elems[j]] || [0.5, 0.56, 0.64];
+        const c0 = CPK[elems[i]] || [0.45, 0.52, 0.60];
+        const c1 = CPK[elems[j]] || [0.45, 0.52, 0.60];
         rods.push({ p0, p1: pm, r0: 0.115, r1: 0.115, color: [c0[0], c0[1], c0[2], 1.0] });
         rods.push({ p0: pm, p1, r0: 0.115, r1: 0.115, color: [c1[0], c1[1], c1[2], 1.0] });
       }
 
-      // 3D Vector Arrows (shaft cylinder + conical 3D arrowhead)
       if (spec.arrows && spec.arrows.length) {
         for (const arr of spec.arrows) {
           const p0 = [arr.from[0] - cx, arr.from[1] - cy, arr.from[2] - cz];
@@ -543,7 +564,7 @@
           const shaftFrac = (len - headLen) / len;
           const pNeck = [p0[0] + dx * shaftFrac, p0[1] + dy * shaftFrac, p0[2] + dz * shaftFrac];
           const pTip = [p0[0] + dx, p0[1] + dy, p0[2] + dz];
-          const col = arr.color || [0.71, 0.85, 0.56, 1.0];
+          const col = arr.color || [0.05, 0.58, 0.53, 1.0];
           const rShaft = arr.radius ?? 0.055;
           rods.push({ p0, p1: pNeck, r0: rShaft, r1: rShaft, color: col });
           rods.push({ p0: pNeck, p1: pTip, r0: rShaft * 2.5, r1: 0.004, color: col });
@@ -617,8 +638,9 @@
       const far = dist + rad * 2.8;
       const proj = mat4Perspective(0.68, w / h, near, far);
       const view = mat4FromOrbit(this.rotX, this.rotY, dist);
-      const fogNear = dist - rad * 0.35;
-      const fogFar = dist + rad * 1.65;
+      const fogNear = dist - rad * 0.25;
+      const fogFar = dist + rad * 1.85;
+      const lightVal = this.lightMode ? 1.0 : 0.0;
 
       if (this.sphereCount > 0) {
         gl.useProgram(this.sphereProg);
@@ -627,6 +649,7 @@
         gl.uniform3fv(gl.getUniformLocation(this.sphereProg, 'uFogColor'), this.bg);
         gl.uniform1f(gl.getUniformLocation(this.sphereProg, 'uFogNear'), fogNear);
         gl.uniform1f(gl.getUniformLocation(this.sphereProg, 'uFogFar'), fogFar);
+        gl.uniform1f(gl.getUniformLocation(this.sphereProg, 'uLightMode'), lightVal);
         gl.bindVertexArray(this.sphereVao);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.sphereCount);
       }
@@ -638,6 +661,7 @@
         gl.uniform3fv(gl.getUniformLocation(this.cylProg, 'uFogColor'), this.bg);
         gl.uniform1f(gl.getUniformLocation(this.cylProg, 'uFogNear'), fogNear);
         gl.uniform1f(gl.getUniformLocation(this.cylProg, 'uFogFar'), fogFar);
+        gl.uniform1f(gl.getUniformLocation(this.cylProg, 'uLightMode'), lightVal);
         gl.bindVertexArray(this.cylVao);
         gl.drawElementsInstanced(gl.TRIANGLES, this.cylIndexCount, gl.UNSIGNED_SHORT, 0, this.rodCount);
       }
@@ -672,12 +696,16 @@
         const R = Math.round(s.color[0] * 255), G = Math.round(s.color[1] * 255), B = Math.round(s.color[2] * 255);
         g.addColorStop(0, `rgb(${Math.min(255, R + 85)},${Math.min(255, G + 85)},${Math.min(255, B + 85)})`);
         g.addColorStop(0.6, `rgb(${R},${G},${B})`);
-        g.addColorStop(1, `rgb(${Math.round(R * 0.35)},${Math.round(G * 0.35)},${Math.round(B * 0.38)})`);
+        g.addColorStop(1, `rgb(${Math.round(R * 0.42)},${Math.round(G * 0.42)},${Math.round(B * 0.46)})`);
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(s.p[0], s.p[1], rPx, 0, Math.PI * 2); ctx.fill();
       }
     }
   }
+
+  WignerGLViewer.syncAllThemes = () => {
+    INSTANCES.forEach(v => v.syncTheme());
+  };
 
   window.WignerGLViewer = WignerGLViewer;
 })();

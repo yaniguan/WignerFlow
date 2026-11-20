@@ -15,7 +15,8 @@ from equitraj import pocket
 from equitraj.compliance import AUDIT_TARGETS, FAULT_CATALOG, run_compliance_audit
 from equitraj.studio_data import BENCHMARK_SUITES, DEFAULT_ETHANOL_XYZ, run_studio_rollout
 
-SITE_DIR = Path(__file__).resolve().parents[1] / "site"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SITE_DIR = ROOT_DIR / "site"
 STUDIO_HTML = (SITE_DIR / "index.html").read_text(encoding="utf-8")
 
 BINDING_PRESETS = ["aspirin_cox_stable", "aspirin_induced_fit", "aspirin_decoy_clash"]
@@ -31,6 +32,17 @@ _MIME_OVERRIDES = {
     ".png": "image/png",
     ".webp": "image/webp",
 }
+
+_CACHED_PREDICTOR = None
+
+
+def _get_argon_predictor():
+    global _CACHED_PREDICTOR
+    if _CACHED_PREDICTOR is None:
+        from equitraj.api import ArgonPredictor
+
+        _CACHED_PREDICTOR = ArgonPredictor(threads=1, sampling_steps=2)
+    return _CACHED_PREDICTOR
 
 
 def build_overview_payload() -> dict:
@@ -130,6 +142,59 @@ class WignerFlowStudioHandler(BaseHTTPRequestHandler):
                     seed=int(body.get("seed", 0)),
                 )
                 self._send_json(200, rep)
+            elif path == "/api/cpu_predict":
+                import numpy as np
+                from equitraj.api import AMU_PER_A3_TO_G_CM3, AR_DENSITY_G_CM3
+
+                pred = _get_argon_predictor()
+                demo = pred.ck["demo"]
+                s_steps = max(1, min(10, int(body.get("sampling_steps", 2))))
+                therm = body.get("thermostat_K")
+                therm_val = None if therm in (None, "", "off", False) else float(therm)
+                n_atoms = int(body.get("n_atoms", 256))
+                if n_atoms == 108:
+                    side = float((108 * pred.mass * AMU_PER_A3_TO_G_CM3 / AR_DENSITY_G_CM3) ** (1 / 3))
+                    base = np.array([[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]])
+                    cells = np.array([[i, j, k] for i in range(3) for j in range(3) for k in range(3)])
+                    x = (cells[:, None, :] + base[None]).reshape(-1, 3) * (side / 3.0)
+                    rng = np.random.default_rng(0)
+                    v0 = rng.normal(0, np.sqrt(0.83144626e-4 * 95.0 / pred.mass), (108, 3))
+                    v0 -= v0.mean(0)
+                    pos = np.stack([x - (2 - f) * 50.0 * v0 for f in range(3)])
+                    vel = np.stack([v0] * 3)
+                    box_in = [side, side, side]
+                else:
+                    n_atoms = 256
+                    pos, vel, box_in = demo["pos"], demo["vel"], demo["box"]
+                res = pred.predict(
+                    pos,
+                    vel,
+                    box_in,
+                    n_steps=1,
+                    sampling_steps=s_steps,
+                    seed=int(body.get("seed", 0)),
+                    thermostat_K=therm_val,
+                )
+                # Trim large coordinate arrays to first 2 atoms for compact UI JSON inspection
+                preview = {
+                    "n_atoms": n_atoms,
+                    "time_fs": res["time_fs"],
+                    "temperature_K": [round(float(x), 2) for x in res["temperature_K"]],
+                    "input_temperature_K": round(float(res["input_temperature_K"]), 2),
+                    "density_g_cm3": round(float(res["density_g_cm3"]), 4),
+                    "crash_step": res["crash_step"],
+                    "warnings": res["warnings"],
+                    "latency_ms": round(float(res["latency_ms"]), 1),
+                    "model": res["model"],
+                    "positions_sample_A": [[round(float(c), 3) for c in atom] for atom in res["positions"][0][:2]],
+                }
+                self._send_json(200, preview)
+            elif path == "/api/surrogate":
+                from lab import surrogate_query as sq
+
+                query = body.get("query") or {"system": "argon", "n_steps": 2, "sampling_steps": 2, "seed": 0}
+                rep = sq.run_query(query)
+                self._send_json(200, {"query": query, "report": rep, "context_lines": sq.to_reasoner_context(rep)})
             elif path == "/api/triage":
                 mode = body.get("mode", "binding")
                 if mode == "binding":
