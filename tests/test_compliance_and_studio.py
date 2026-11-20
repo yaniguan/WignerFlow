@@ -113,6 +113,28 @@ def test_studio_http_endpoints_end_to_end():
             assert roll["n_atoms"] == 9
             assert roll["metrics"]["n_bonds"] == 8
             assert len(roll["viewer_frames"]) == 24
+
+        req_cpu = urllib.request.Request(
+            f"{base}/api/cpu_predict",
+            data=json.dumps({"n_atoms": 108, "sampling_steps": 1}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_cpu) as r_cpu:
+            cpu_out = json.loads(r_cpu.read().decode("utf-8"))
+            assert cpu_out["n_atoms"] == 108
+            assert cpu_out["model"]["sampling_steps"] == 1
+
+        req_sur = urllib.request.Request(
+            f"{base}/api/surrogate",
+            data=json.dumps({"query": {"system": "ethanol", "n_steps": 2}}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_sur) as r_sur:
+            sur_out = json.loads(r_sur.read().decode("utf-8"))
+            assert sur_out["report"]["status"] == "unsupported"
+            assert "no surrogate" in sur_out["context_lines"][0]
     finally:
         srv.shutdown()
         srv.server_close()

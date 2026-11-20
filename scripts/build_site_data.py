@@ -1,8 +1,9 @@
 """Build site/assets/homepage-data.json and wignerflow-poster.png from committed results/ and checkpoints/.
 
-Precomputes real snapshots for every interactive Studio preset and fault injection so
-https://yaniguan.github.io/WignerFlow/ works 100% interactively with zero backend server,
-while local `scripts/wignerflow_studio.py` still runs live PyTorch on custom inputs.
+Precomputes real snapshots for every interactive Studio preset, CPU inference API setting,
+Lab surrogate query, and DistanceProjector constraint run so https://yaniguan.github.io/WignerFlow/
+works 100% interactively with zero backend server, while local `scripts/wignerflow_studio.py`
+also executes live PyTorch requests.
 """
 
 from __future__ import annotations
@@ -20,10 +21,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from equitraj import analysis, bench, pocket  # noqa: E402
+from equitraj.api import ArgonPredictor  # noqa: E402
 from equitraj.compliance import AUDIT_TARGETS, FAULT_CATALOG, run_compliance_audit  # noqa: E402
+from equitraj.constraints import DistanceProjector  # noqa: E402
 from equitraj.model import EquiTraj  # noqa: E402
 from equitraj.rollout import rollout, temperature  # noqa: E402
-from equitraj.studio_data import DEFAULT_ETHANOL_XYZ, load_benchmark_suites, run_studio_rollout  # noqa: E402
+from equitraj.studio_data import DEFAULT_ETHANOL_XYZ, load_benchmark_suites, parse_xyz_text, run_studio_rollout  # noqa: E402
+from lab import surrogate_query as sq  # noqa: E402
 
 
 def _read_json(rel: str):
@@ -35,7 +39,7 @@ def build_argon_seeds_panel() -> dict:
     gt = _read_json("results/argon/ground_truth/metrics.json")
     t_gt = float(gt["T_mean_K"])
     seeds = []
-    colors = ["#b5d88e", "#d97757", "#79c2bd", "#91b6df", "#b9a1de"]
+    colors = ["#0d9488", "#e11d48", "#2563eb", "#7c3aed", "#d97706"]
     for idx in range(1, 6):
         run_dir = ROOT / "results" / "argon" / f"B_S3a_seed{idx}"
         log_path = run_dir / "log.jsonl"
@@ -230,6 +234,185 @@ def build_ablation_summary() -> list[dict]:
     return rows
 
 
+def build_cpu_api_panel() -> dict:
+    raw = _read_json("results/cpu_api/bench.json") or {}
+    csvr_s1 = _read_json("results/cpu_api/bench_csvr95_s1.json") or {}
+    csvr_s2 = _read_json("results/cpu_api/bench_csvr95_s2.json") or {}
+    lat = raw.get("latency_ms", {})
+    one = raw.get("one_step", {})
+    roll = raw.get("rollouts", {})
+
+    def _mean_rollout(runs_dict):
+        runs = (runs_dict or {}).get("runs") or []
+        if not runs:
+            return None
+        return {
+            "T_second_half_K": round(float(np.mean([r["T_second_half_K"] for r in runs])), 1),
+            "rdf_peak_pos_err_A": round(float(np.mean([r["rdf_peak_pos_err_A"] for r in runs])), 3),
+            "rdf_peak_height_pct": round(100.0 * float(np.mean([r["rdf_peak_height_rel_err"] for r in runs])), 1),
+            "survived": f"{sum(1 for r in runs if r['crash_step'] < 0)}/{len(runs)}",
+        }
+
+    grid = {}
+    for n_atoms in (108, 256):
+        for s in (1, 2, 4, 10):
+            key = f"N={n_atoms},S={s}"
+            entry = lat.get(key, {})
+            rms = one.get(f"S={s}_vs_S=10_rel_rms", {"dx": 0.0, "v": 0.0})
+            r_off = _mean_rollout(roll.get(f"S={s}"))
+            r_csvr = None
+            if s == 1 and csvr_s1.get("rollouts", {}).get("S=1"):
+                r_csvr = _mean_rollout(csvr_s1["rollouts"]["S=1"])
+            elif s == 2 and csvr_s2.get("rollouts", {}).get("S=2"):
+                r_csvr = _mean_rollout(csvr_s2["rollouts"]["S=2"])
+            grid[f"{n_atoms}_{s}"] = {
+                "n_atoms": n_atoms,
+                "sampling_steps": s,
+                "wall_p50_ms": round(float(entry.get("wall", {}).get("p50", 0.0)), 1),
+                "wall_p95_ms": round(float(entry.get("wall", {}).get("p95", 0.0)), 1),
+                "cpu_p50_ms": round(float(entry.get("cpu", {}).get("p50", 0.0)), 1),
+                "cpu_p95_ms": round(float(entry.get("cpu", {}).get("p95", 0.0)), 1),
+                "dx_rel_rms_pct": round(100.0 * float(rms.get("dx", 0.0)), 2),
+                "v_rel_rms_pct": round(100.0 * float(rms.get("v", 0.0)), 2),
+                "rollout_off": r_off,
+                "rollout_csvr95": r_csvr,
+            }
+
+    ref_old = lat.get("N=256,S=10,EquiTraj.predict (reference path)", {})
+    pred = ArgonPredictor(threads=1, sampling_steps=2)
+    demo = pred.ck["demo"]
+    sample = pred.predict(demo["pos"], demo["vel"], demo["box"], n_steps=1, sampling_steps=2, seed=0)
+    sample_preview = {
+        "n_atoms": 256,
+        "time_fs": sample["time_fs"],
+        "temperature_K": [round(float(x), 2) for x in sample["temperature_K"]],
+        "input_temperature_K": round(float(sample["input_temperature_K"]), 2),
+        "density_g_cm3": round(float(sample["density_g_cm3"]), 4),
+        "crash_step": sample["crash_step"],
+        "warnings": sample["warnings"],
+        "latency_ms": round(float(sample["latency_ms"]), 1),
+        "model": sample["model"],
+        "positions_sample_A": [[round(float(c), 3) for c in atom] for atom in sample["positions"][0][:2]],
+    }
+
+    return {
+        "cpu_model": raw.get("cpu", "Intel(R) Xeon(R) Processor"),
+        "threads": raw.get("threads", 1),
+        "budget_ms": 1000,
+        "frame_split_max_abs_diff": float(one.get("frame_split_vs_EquiTraj_predict_max_abs_diff", 0.0)),
+        "reference_batched_256_s10": {
+            "wall_p50_ms": round(float(ref_old.get("wall", {}).get("p50", 2722.3)), 1),
+            "cpu_p50_ms": round(float(ref_old.get("cpu", {}).get("p50", 2641.3)), 1),
+        },
+        "stage_breakdown_256_s2": [
+            {"stage": "Spatial SO(2) (3 frames)", "ms": 551, "pct": 45, "color": "#0d9488"},
+            {"stage": "Flow Denoiser (S = 2)", "ms": 399, "pct": 33, "color": "#7c3aed"},
+            {"stage": "Fusion Attention", "ms": 189, "pct": 15, "color": "#2563eb"},
+            {"stage": "Embed + Neighbor Graph", "ms": 79, "pct": 6, "color": "#64748b"},
+        ],
+        "grid": grid,
+        "sample_response": sample_preview,
+    }
+
+
+def build_surrogate_lab_panel() -> dict:
+    release = sq.load_release(ROOT / sq.REGISTRY["argon"]["checkpoint"], "cpu")
+    cases = [
+        (
+            "argon_cryo_2step",
+            "Argon 2-Step Sanity Check (In-Domain)",
+            {"system": "argon", "n_steps": 2, "sampling_steps": 2, "seed": 0,
+             "question": "Does liquid argon stay near 95 K with no atom overlap over two 50 fs steps?"},
+        ),
+        (
+            "argon_half_ps",
+            "Argon 10-Step Rollout (0.5 ps Check)",
+            {"system": "argon", "n_steps": 10, "sampling_steps": 4, "seed": 0,
+             "question": "Check mean temperature and closest pair distance over 0.5 ps."},
+        ),
+        (
+            "ethanol_refusal",
+            "Ethanol Query (Out-of-Domain Refusal)",
+            {"system": "ethanol", "n_steps": 20,
+             "question": "Not trained yet; must return unsupported instead of guessing."},
+        ),
+        (
+            "aspirin_refusal",
+            "Aspirin Query (Safety Gate Refusal)",
+            {"system": "aspirin", "n_steps": 10,
+             "question": "Refuse small molecules until a molecule checkpoint passes evaluation."},
+        ),
+    ]
+    out = {}
+    for key, label, q in cases:
+        rep = sq.run_query(q, model_and_ckpt=release)
+        out[key] = {
+            "id": key,
+            "label": label,
+            "query": q,
+            "report": rep,
+            "context_lines": sq.to_reasoner_context(rep),
+        }
+    return out
+
+
+def build_constraints_and_hybrid_panel() -> dict:
+    """Run real DistanceProjector bond projections across stretch levels on Ethanol X-H bonds."""
+    parsed = parse_xyz_text(DEFAULT_ETHANOL_XYZ)
+    pos0 = torch.from_numpy(parsed["positions"]).double()
+    masses = torch.from_numpy(parsed["masses"]).double()
+    # Constrain the 6 X-H bonds of ethanol: C0-H3, C0-H4, C0-H5, C1-H6, C1-H7, O2-H8
+    xh_pairs = [(0, 3), (0, 4), (0, 5), (1, 6), (1, 7), (2, 8)]
+    constraints = []
+    for i, j in xh_pairs:
+        d0 = float(torch.linalg.norm(pos0[i] - pos0[j]).item())
+        constraints.append([float(i), float(j), d0])
+    proj = DistanceProjector(constraints, tolerance=1e-10, velocity_tolerance=1e-12)
+
+    levels = []
+    gen = torch.Generator().manual_seed(7)
+    noise_dir = torch.randn(pos0.shape, generator=gen, dtype=torch.float64)
+    noise_dir = noise_dir / noise_dir.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    vel0 = torch.randn(1, pos0.shape[0], 3, generator=gen, dtype=torch.float64) * 0.012
+
+    for amp in (0.04, 0.10, 0.18, 0.26):
+        x_pert = (pos0 + amp * noise_dir)[None]
+        before_err = max(
+            abs(float(torch.linalg.norm(x_pert[0, int(i)] - x_pert[0, int(j)]).item()) - r0)
+            for i, j, r0 in constraints
+        )
+        com_before = (x_pert[0] * masses[:, None]).sum(0) / masses.sum()
+        x_corr, v_corr, info = proj(x_pert, vel0, masses)
+        com_after = (x_corr[0] * masses[:, None]).sum(0) / masses.sum()
+        com_shift = float(torch.linalg.norm(com_after - com_before).item())
+        bonds_detail = []
+        for idx_b, (i, j, r0) in enumerate(constraints):
+            lbl = f"{parsed['elements'][int(i)]}{int(i)}-{parsed['elements'][int(j)]}{int(j)}"
+            d_pre = float(torch.linalg.norm(x_pert[0, int(i)] - x_pert[0, int(j)]).item())
+            d_post = float(torch.linalg.norm(x_corr[0, int(i)] - x_corr[0, int(j)]).item())
+            bonds_detail.append({
+                "bond": lbl,
+                "target_A": round(r0, 4),
+                "perturbed_A": round(d_pre, 4),
+                "projected_A": round(d_post, 4),
+            })
+        levels.append({
+            "perturbation_A": amp,
+            "max_bond_err_before_A": round(before_err, 4),
+            "max_bond_err_after_A": float(f"{info['distance_residual_A']:.2e}"),
+            "max_vel_err_after_A_fs": float(f"{info['velocity_residual_A_per_fs']:.2e}"),
+            "iterations": int(info["iterations"]),
+            "com_shift_A": float(f"{com_shift:.2e}"),
+            "bonds": bonds_detail,
+        })
+
+    return {
+        "molecule": "Ethanol (6 constrained C-H / O-H bonds)",
+        "tolerance_A": 1e-10,
+        "levels": levels,
+    }
+
+
 def _slim_compliance(rep: dict) -> dict:
     """Drop unused rollout trajectory frames on compliance snapshots to keep JSON compact."""
     out = dict(rep)
@@ -242,25 +425,28 @@ def _slim_compliance(rep: dict) -> dict:
 def write_social_poster_png(path: Path):
     """Render a crisp 1200x630 PNG social card for OpenGraph / Twitter / GitHub previews."""
     w, h = 1200, 630
-    img = Image.new("RGB", (w, h), (10, 15, 21))
+    img = Image.new("RGB", (w, h), (248, 250, 252))
     draw = ImageDraw.Draw(img)
 
-    # Subtle radial glow
-    for r in range(360, 10, -10):
-        alpha = max(0, int(18 * (1 - r / 360.0)))
-        col = (10 + alpha // 2, 15 + alpha, 21 + alpha)
-        draw.ellipse((600 - r * 1.4, 260 - r * 0.85, 600 + r * 1.4, 260 + r * 0.85), fill=col)
+    # Subtle soft porcelain radial tint
+    for r in range(420, 20, -12):
+        frac = 1.0 - r / 420.0
+        col = (int(248 - 16 * frac), int(250 - 4 * frac), int(252 - 2 * frac))
+        draw.ellipse((600 - r * 1.35, 250 - r * 0.82, 600 + r * 1.35, 250 + r * 0.82), fill=col)
+
+    # Crisp border frame
+    draw.rounded_rectangle((36, 36, w - 36, h - 36), radius=24, outline=(226, 232, 240), width=2)
 
     # Draw figure-eight orbital emblem
     pts = []
     for i in range(181):
         th = (i / 180.0) * 2.0 * np.pi
         px = 600.0 + 68.0 * np.cos(th)
-        py = 152.0 + 23.0 * np.sin(2.0 * th)
+        py = 148.0 + 23.0 * np.sin(2.0 * th)
         pts.append((px, py))
-    draw.line(pts, fill=(181, 216, 142), width=4)
-    draw.ellipse((664, 148, 672, 156), fill=(240, 250, 232))
-    draw.ellipse((528, 148, 536, 156), fill=(145, 182, 223))
+    draw.line(pts, fill=(13, 148, 136), width=5)
+    draw.ellipse((663, 143, 673, 153), fill=(37, 99, 235))
+    draw.ellipse((527, 143, 537, 153), fill=(124, 58, 237))
 
     def load_font(size: int, bold: bool = False):
         candidates = (
@@ -273,27 +459,27 @@ def write_social_poster_png(path: Path):
                 continue
         return ImageFont.load_default()
 
-    f_hero = load_font(66, bold=True)
-    f_sub = load_font(54, bold=True)
-    f_deck = load_font(24, bold=False)
+    f_hero = load_font(64, bold=True)
+    f_sub = load_font(50, bold=True)
+    f_deck = load_font(23, bold=False)
 
     t1 = "WignerFlow: "
     t2 = "Integrator-Free"
     w1 = draw.textlength(t1, font=f_hero)
     w2 = draw.textlength(t2, font=f_hero)
     x0 = (w - (w1 + w2)) * 0.5
-    draw.text((x0, 240), t1, font=f_hero, fill=(181, 216, 142))
-    draw.text((x0 + w1, 240), t2, font=f_hero, fill=(237, 241, 247))
+    draw.text((x0, 228), t1, font=f_hero, fill=(13, 148, 136))
+    draw.text((x0 + w1, 228), t2, font=f_hero, fill=(15, 23, 42))
 
     sub = "Equivariant Molecular Dynamics"
     ws = draw.textlength(sub, font=f_sub)
-    draw.text(((w - ws) * 0.5, 330), sub, font=f_sub, fill=(237, 241, 247))
+    draw.text(((w - ws) * 0.5, 316), sub, font=f_sub, fill=(15, 23, 42))
 
-    draw.line([(420, 424), (780, 424)], fill=(181, 216, 142), width=2)
+    draw.line([(420, 412), (780, 412)], fill=(13, 148, 136), width=3)
 
-    deck = "50 fs per step  ·  SO(2) Wigner-D convolutions  ·  Conditional flow matching"
+    deck = "50 fs Jumps  ·  FrameSplit CPU API  ·  Lab [physics] Gate  ·  Interactive 3D Studio"
     wd = draw.textlength(deck, font=f_deck)
-    draw.text(((w - wd) * 0.5, 458), deck, font=f_deck, fill=(170, 182, 196))
+    draw.text(((w - wd) * 0.5, 448), deck, font=f_deck, fill=(71, 85, 105))
 
     img.save(path, format="PNG", optimize=True)
 
@@ -302,7 +488,6 @@ def main():
     out_dir = ROOT / "site" / "assets"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Precompute compliance snapshots for all targets + all 11 fault injections on aspirin_hetero_o3
     comp_snaps: dict[str, dict] = {}
     comp_snaps["aspirin_hetero_o3__none__float64"] = _slim_compliance(
         run_compliance_audit(
@@ -322,13 +507,11 @@ def main():
             run_compliance_audit(target_id=tid, fault="none", precision=prec, euler_deg=(37.0, 64.0, 118.0), rollout_steps=12)
         )
 
-    # Precompute all 4 trajectory rollout presets
     rollout_snaps = {
         p: run_studio_rollout(preset=p, n_frames=54, substeps=8, dt_fs=1.5, temperature_k=300.0)
         for p in ("aspirin", "ala2", "ethanol", "li_ec_pf6")
     }
 
-    # Precompute all 3 drug pocket presets & all 4 electrolyte presets
     binding_snaps = {}
     for p in ("aspirin_cox_stable", "aspirin_induced_fit", "aspirin_decoy_clash"):
         rep = pocket.triage_binding(preset=p, n_frames=60, n_replicas=3, seed=0)
@@ -344,25 +527,26 @@ def main():
         "argon_cinema": build_argon_rollout_and_curves(),
         "cutoff_continuity": build_cutoff_panel(),
         "argon_ablations": build_ablation_summary(),
+        "cpu_api": build_cpu_api_panel(),
+        "surrogate_lab": build_surrogate_lab_panel(),
+        "constraints_demo": build_constraints_and_hybrid_panel(),
         "benchmarks": load_benchmark_suites(),
         "studio_defaults": {
             "compliance_targets": list(AUDIT_TARGETS.values()),
             "fault_catalog": FAULT_CATALOG,
             "default_xyz": DEFAULT_ETHANOL_XYZ,
-            "datasets": pocket.DATASET_CATALOG,
             "compliance_snapshots": comp_snaps,
-            "rollout_snapshots": rollout_snaps,
             "rollout_aspirin": rollout_snaps["aspirin"],
+            "rollout_snapshots": rollout_snaps,
             "binding_snapshots": binding_snaps,
             "electrolyte_snapshots": electrolyte_snaps,
         },
     }
 
-    dst = out_dir / "homepage-data.json"
-    dst.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    poster_png = out_dir / "wignerflow-poster.png"
-    write_social_poster_png(poster_png)
-    print(f"Wrote {dst.name} ({dst.stat().st_size / 1024:.1f} KB) and {poster_png.name} ({poster_png.stat().st_size / 1024:.1f} KB)")
+    json_path = out_dir / "homepage-data.json"
+    json_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    write_social_poster_png(out_dir / "wignerflow-poster.png")
+    print(f"Wrote {json_path} ({json_path.stat().st_size / 1024:.1f} KB) and wignerflow-poster.png")
 
 
 if __name__ == "__main__":

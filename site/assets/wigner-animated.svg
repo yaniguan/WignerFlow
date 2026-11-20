@@ -18,9 +18,9 @@
   </style>
   <defs>
     <linearGradient id="wf-grad" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="97" y2="42">
-      <stop offset="0%" stop-color="#79c2bd"/>
-      <stop offset="48%" stop-color="#b5d88e"/>
-      <stop offset="100%" stop-color="#b9a1de"/>
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
     </linearGradient>
     <path id="wf-orbital" pathLength="1000"
           d="M 52.5 25.0
@@ -31,11 +31,11 @@
     <ellipse id="wf-ring" cx="52.5" cy="25" rx="22" ry="18.5" transform="rotate(-24 52.5 25)"/>
   </defs>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <use href="#wf-ring" stroke="#91b6df" stroke-width="1.15" stroke-dasharray="3 4" opacity="0.42"/>
-    <use href="#wf-orbital" stroke="url(#wf-grad)" stroke-width="2.1" opacity="0.82"/>
-    <use href="#wf-orbital" class="wf-trail-a" stroke="url(#wf-grad)" stroke-width="3.0" stroke-dasharray="52 948" opacity="0.85"/>
-    <use href="#wf-orbital" class="wf-head-a" stroke="#f3f9ec" stroke-width="4.6" stroke-dasharray="0.5 999.5"/>
-    <use href="#wf-orbital" class="wf-trail-b" stroke="url(#wf-grad)" stroke-width="2.8" stroke-dasharray="52 948" opacity="0.75"/>
-    <use href="#wf-orbital" class="wf-head-b" stroke="#e9f2ff" stroke-width="4.2" stroke-dasharray="0.5 999.5"/>
+    <use href="#wf-ring" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.42"/>
+    <use href="#wf-orbital" stroke="url(#wf-grad)" stroke-width="2.2" opacity="0.85"/>
+    <use href="#wf-orbital" class="wf-trail-a" stroke="url(#wf-grad)" stroke-width="3.2" stroke-dasharray="52 948" opacity="0.92"/>
+    <use href="#wf-orbital" class="wf-head-a" stroke="#0d9488" stroke-width="4.8" stroke-dasharray="0.5 999.5"/>
+    <use href="#wf-orbital" class="wf-trail-b" stroke="url(#wf-grad)" stroke-width="3.0" stroke-dasharray="52 948" opacity="0.82"/>
+    <use href="#wf-orbital" class="wf-head-b" stroke="#2563eb" stroke-width="4.4" stroke-dasharray="0.5 999.5"/>
   </g>
 </svg>
