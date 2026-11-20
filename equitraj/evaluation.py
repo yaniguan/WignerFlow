@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from equitraj.dataset import TrajWindows
 from equitraj.layers import check_attention_version
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 
 def first_zero(t, c):
     """First time where c crosses zero, linearly interpolated (None if it never does)."""
@@ -31,7 +31,7 @@ def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
     if "stride_fs" in ck and not np.isclose(ds.stride_fs, ck["stride_fs"]):
         raise ValueError("Dataset stride does not match released checkpoint")
-    model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+    model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), cfg, ds, step
 

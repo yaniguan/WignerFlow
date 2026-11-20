@@ -35,7 +35,7 @@ from equitraj import analysis, so3
 from equitraj.dataset import TrajWindows, compute_stats
 from equitraj.ema import ExponentialMovingAverage, configure_matmul_precision
 from equitraj.layers import ATTENTION_VERSION
-from equitraj.model import EquiTraj
+from equitraj.model import EquiTraj, make_model
 from equitraj.monitor import REASONS
 from equitraj.neighbors import VerletList
 from equitraj.prior import estimate_rmin, overlap_penalty
@@ -660,7 +660,7 @@ def main():
         generator=loader_seed)
     types, masses = train_ds.types.to(device), train_ds.masses.to(device)
 
-    model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
+    model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
     step, best, best_stable = 0, math.inf, None
