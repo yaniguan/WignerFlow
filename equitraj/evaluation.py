@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch
 from equitraj.dataset import TrajWindows
+from equitraj.forcefield import EquiFF
 from equitraj.layers import check_attention_version
 from equitraj.model import EquiTraj
 
@@ -31,7 +32,10 @@ def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
     if "stride_fs" in ck and not np.isclose(ds.stride_fs, ck["stride_fs"]):
         raise ValueError("Dataset stride does not match released checkpoint")
-    model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+    if cfg.get("kind") == "ff":
+        model = EquiFF(n_types=len(ck["elements"]), **cfg["model"])
+    else:
+        model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), cfg, ds, step
 
