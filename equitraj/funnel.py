@@ -247,6 +247,8 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
         `hopping_chi`, and Yeh-Hummer-corrected aligned conductivities at 298 K and 253 K.
     """
     t0_all = time.perf_counter()
+    if hasattr(wignerflow_model, "type_embed") and wignerflow_model.type_embed.num_embeddings < 5:
+        raise ValueError("wignerflow_model must support at least 5 atom types (Li, P, F, C, O)")
     aligner.eval()
 
     # Pre-build exact factor tables for vectorized Stage-1 tensor generation (exact match to decode_candidate_index)
@@ -329,11 +331,12 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
             zeros, zeros, zeros, np.full_like(cm, 0.60), np.full_like(cm, 0.25), np.full_like(cm, 24.0)
         ]))
 
-        s298_m, s298_std = aligner.forward_tensored(feat_298)
-        s253_m, _ = aligner.forward_tensored(feat_253)
-        s298_np = s298_m.numpy()
-        s253_np = s253_m.numpy()
-        std_np = s298_std.numpy()
+        align_dev = next(aligner.parameters()).device
+        s298_m, s298_std = aligner.forward_tensored(feat_298.to(align_dev, dtype=torch.float32))
+        s253_m, _ = aligner.forward_tensored(feat_253.to(align_dev, dtype=torch.float32))
+        s298_np = s298_m.detach().cpu().numpy()
+        s253_np = s253_m.detach().cpu().numpy()
+        std_np = s298_std.detach().cpu().numpy()
 
         # Composite eScore (Amanchukwu 2025 + Kim & Cui 2023): fast-charge sigma_298K + sub-zero sigma_253K
         # + fluorinated SEI stability window bonus + UCB epistemic exploration bonus
@@ -372,6 +375,17 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
 
     # Stage 2: 3D Periodic Box Steric Audit + 8-step Burst WignerFlow Rollout
     t2_start = time.perf_counter()
+    if hasattr(wignerflow_model, "type_embed") and wignerflow_model.type_embed.num_embeddings < 5:
+        raise ValueError("wignerflow_model must support at least 5 atom types (Li, P, F, C, O)")
+    k_ctx = int(wignerflow_model.k)
+    dt_ctx = float(wignerflow_model.stride_fs)
+
+    def _ballistic_context(pos_np, vel_np):
+        p0 = torch.tensor(pos_np, dtype=torch.float64)
+        v0 = torch.tensor(vel_np, dtype=torch.float32)
+        frames = [p0 - float(k_ctx - 1 - f) * dt_ctx * v0.double() for f in range(k_ctx)]
+        return torch.stack(frames, dim=0)[None], v0[None, None].expand(1, k_ctx, -1, 3).clone()
+
     fast_burst = FastRollout(wignerflow_model, sampling_steps=1 if wignerflow_model.head_type == "regression" else 2,
                              neighbor="verlet", skin=0.8)
     tier2_survivors = []
@@ -382,13 +396,16 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
         elems = [["Li", "P", "F", "C", "O"][t] for t in box_data["types"]]
         # Check intermolecular Li / Anion / Solvent clash gate
         pb = minimal_vdw_clash_audit(pos0, elems, group_a=box_data["cation_indices"], group_b=box_data["solvent_o_indices"])
-        x_ctx = torch.tensor(pos0, dtype=torch.float64)[None, None].expand(1, wignerflow_model.k, -1, 3).clone()
-        v_ctx = torch.tensor(box_data["velocities"], dtype=torch.float32)[None, None].expand(1, wignerflow_model.k, -1, 3).clone()
+        x_ctx, v_ctx = _ballistic_context(pos0, box_data["velocities"])
         types_t = torch.tensor(box_data["types"], dtype=torch.long)
         masses_t = torch.tensor(box_data["masses"], dtype=torch.float32)
         bx_t = (torch.eye(3, dtype=torch.float32) * box_data["box_length"])[None]
-        if wignerflow_model.use_charges:
-            fast_burst.model.set_chemistry(charges=torch.tensor(box_data["charges"], dtype=torch.float32))
+        if wignerflow_model.use_charges or wignerflow_model.max_bond_hops > 0:
+            fast_burst.model.set_chemistry(
+                charges=torch.tensor(box_data["charges"], dtype=torch.float32) if wignerflow_model.use_charges else None,
+                bonds=box_data.get("bonds", []) if wignerflow_model.max_bond_hops > 0 else None,
+                n_atoms=len(pos0),
+            )
         out = fast_burst.rollout(x_ctx, v_ctx, types_t, bx_t, masses_t, n_steps=6)
         finite_ok = bool(torch.isfinite(out["positions"]).all().item())
         if finite_ok and pb["min_vdw_ratio"] >= 0.55:
@@ -406,13 +423,16 @@ def run_1m_hierarchical_funnel(aligner: CALiSolTransportAligner, wignerflow_mode
     tier3_obs_253 = []
     for idx_c, desc in enumerate(tier3_pool):
         box_d = build_periodic_electrolyte_box(desc, n_ion_pairs=6, seed=seed + 1000 + idx_c)
-        x_c = torch.tensor(box_d["positions"], dtype=torch.float64)[None, None].expand(1, wignerflow_model.k, -1, 3).clone()
-        v_c = torch.tensor(box_d["velocities"], dtype=torch.float32)[None, None].expand(1, wignerflow_model.k, -1, 3).clone()
+        x_c, v_c = _ballistic_context(box_d["positions"], box_d["velocities"])
         types_t = torch.tensor(box_d["types"], dtype=torch.long)
         masses_t = torch.tensor(box_d["masses"], dtype=torch.float32)
         bx_t = (torch.eye(3, dtype=torch.float32) * box_d["box_length"])[None]
-        if wignerflow_model.use_charges:
-            fast_burst.model.set_chemistry(charges=torch.tensor(box_d["charges"], dtype=torch.float32))
+        if wignerflow_model.use_charges or wignerflow_model.max_bond_hops > 0:
+            fast_burst.model.set_chemistry(
+                charges=torch.tensor(box_d["charges"], dtype=torch.float32) if wignerflow_model.use_charges else None,
+                bonds=box_d.get("bonds", []) if wignerflow_model.max_bond_hops > 0 else None,
+                n_atoms=len(box_d["positions"]),
+            )
         tr = fast_burst.rollout(x_c, v_c, types_t, bx_t, masses_t, n_steps=rollout_steps_tier3)
         pos_tr = tr["positions"][:, 0].numpy()
         vel_tr = tr["velocities"][:, 0].numpy()

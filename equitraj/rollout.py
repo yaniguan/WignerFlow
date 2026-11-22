@@ -18,6 +18,8 @@ def temperature(vel, masses, n_constraints=0):
     """Instantaneous temperature (K) per system. vel: (B, N, 3) Å/fs."""
     ke = 0.5 * torch.einsum("n,bnd->b", masses.double(), vel.double() ** 2) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
     dof = 3 * vel.shape[1] - n_constraints - 3
+    if dof <= 0:
+        return torch.zeros_like(ke)
     return 2 * ke / (dof * KB)
 
 
@@ -35,9 +37,12 @@ def min_pair_distance(pos, box, excluded_pairs=None):
 
 def max_bond_deviation(pos, bonds, r0, box=None):
     """Largest relative bond-length deviation |r - r0| / r0 per system. bonds: (n_bonds, 2)."""
+    if bonds is None or bonds.numel() == 0:
+        return pos.new_zeros(pos.shape[0])
     dr = pos[:, bonds[:, 0]] - pos[:, bonds[:, 1]]
     if box is not None:
-        dr = minimum_image(dr, box[:, None].to(dr.dtype))
+        bx = box[None] if box.ndim == 2 else box
+        dr = minimum_image(dr, bx.to(dr.dtype))
     r = torch.linalg.norm(dr, dim=-1)
     return ((r - r0) / r0).abs().max(dim=1).values
 
@@ -47,7 +52,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
             thermostat=None, energy_fn=None, history=20, monitor=None, predictor=None,
             constraint_projector=None, excluded_pairs=None, *, generator=None, return_state=False,
-            step_offset=0):
+            step_offset=0, check_on_last=True):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -113,7 +118,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         if global_step % save_every == 0:
             saved_x.append(x_new.float().cpu())
             saved_v.append(v_new.cpu())
-        if global_step % check_every == 0 or step == n_steps:
+        if global_step % check_every == 0 or (check_on_last and step == n_steps):
             bad = monitor.check(global_step, x_new, v_new)
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, global_step), crash)
             if (crash >= 0).all():

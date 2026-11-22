@@ -17,8 +17,7 @@ import torch
 import torch.nn as nn
 
 from equitraj.layers import MLP
-from equitraj.model import EquiTraj, build_graph, remove_com
-from equitraj.rollout import max_bond_deviation, min_pair_distance, temperature
+from equitraj.model import EquiTraj, build_graph
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL
 
 
@@ -57,12 +56,15 @@ class EquiFF(nn.Module):
 
 
 def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs, save_every=1, min_dist=0.5, t_max=None,
-                   bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10, n_constraints=0):
+                   bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10, n_constraints=0, excluded_pairs=None,
+                   history=20):
     """Velocity Verlet with the learned forces. One output step = `substeps` Verlet steps of dt_fs (= one stride).
 
     pos, vel: (B, N, 3) the current frame (not a context window). Returns the same dict as rollout.rollout so that
     scripts/evaluate.py can analyse it unchanged. Positions are accumulated in float64.
     """
+    from equitraj.monitor import StabilityMonitor
+
     param = next(model.parameters())
     device, dtype = param.device, param.dtype
     b = pos.shape[0]
@@ -71,6 +73,12 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
     types, masses = types.to(device), masses.to(device).double()
     box = None if box is None else box.to(device)
     inv_m = 1.0 / (masses * AMU_A2_PER_FS2_TO_KJ_PER_MOL)  # Å/fs^2 per (kJ/mol/Å)
+    monitor = StabilityMonitor(
+        types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
+        bond_r0=bond_r0, max_bond_dev=max_bond_dev, history=history,
+        stride_fs=float(substeps) * float(dt_fs), n_constraints=n_constraints,
+        excluded_pairs=excluded_pairs,
+    )
 
     def acc(xx):
         return model.forces(xx.to(dtype), types, None if box is None else box.to(dtype)).double() * inv_m[None, :, None]
@@ -89,12 +97,7 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
             saved_x.append(x.float().cpu())
             saved_v.append(v.float().cpu())
         if step % check_every == 0 or step == n_steps:
-            bad = ~torch.isfinite(x).all(dim=(1, 2)) | ~torch.isfinite(v).all(dim=(1, 2))
-            bad |= min_pair_distance(x.float(), box) < min_dist
-            if t_max is not None:
-                bad |= temperature(v.float(), masses.float(), n_constraints) > t_max
-            if bonds is not None:
-                bad |= max_bond_deviation(x.float(), bonds.to(device), bond_r0.to(device), box=box) > max_bond_dev
+            bad = monitor.check(step, x, v.float())
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)
             if (crash >= 0).all():
                 break
@@ -102,4 +105,4 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
         torch.cuda.synchronize()
     return {"positions": torch.stack(saved_x) if saved_x else None,
             "velocities": torch.stack(saved_v) if saved_v else None, "crash_step": crash.cpu(),
-            "steps_done": step, "wall_s": time.time() - t0}
+            "steps_done": step, "wall_s": time.time() - t0, "diagnostics": monitor.diagnostics()}

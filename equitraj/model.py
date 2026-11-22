@@ -67,11 +67,40 @@ def build_graph_plain(pos, box, cutoff, method="brute_force"):
     return {"src": torch.cat(srcs), "dst": torch.cat(dsts), "vec": vec, "dist": torch.linalg.norm(vec, dim=-1)}
 
 
-def remove_com(vec, masses):
-    """Remove the mass-weighted mean from per-atom vectors. vec: (B, N, 3), masses: (N,)."""
+def remove_com(vec, masses, batch=None, n_graphs=None):
+    """Remove the mass-weighted mean from per-atom vectors.
+
+    Standard batched layout: vec (B, N, 3), masses (N,) or (B, N).
+    Pad-free flat layout: vec (M, 3) or (1, M, 3), masses (M,), batch (M,) in [0, G).
+    """
     m = masses.to(device=vec.device, dtype=vec.dtype)
+    if batch is not None:
+        squeezed = vec.ndim == 3 and vec.shape[0] == 1
+        v_flat = vec[0] if squeezed else vec
+        b_idx = batch.to(device=vec.device, dtype=torch.long)
+        g = int(b_idx.max().item()) + 1 if (n_graphs is None and b_idx.numel() > 0) else int(n_graphs or 0)
+        if g == 0:
+            return vec
+        m_sum = torch.zeros(g, dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m).clamp_min(1e-30)
+        p_sum = torch.zeros((g, 3), dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m[:, None] * v_flat)
+        out = v_flat - (p_sum / m_sum[:, None])[b_idx]
+        return out[None] if squeezed else out
+    if m.ndim == 2:
+        w = m / m.sum(dim=1, keepdim=True).clamp_min(1e-30)
+        return vec - torch.einsum("bn,bnd->bd", w, vec)[:, None, :]
     w = m / m.sum()
     return vec - torch.einsum("n,bnd->bd", w, vec)[:, None, :]
+
+
+def _unwrap_context_disp(disp_step, box):
+    """Wrap frame-to-frame context displacements across periodic boundaries without touching unwrapped steps."""
+    if box is None or disp_step.numel() == 0:
+        return disp_step
+    bx = box[:, None].to(device=disp_step.device, dtype=disp_step.dtype)
+    jumps = torch.round(disp_step @ torch.linalg.inv(bx))
+    if bool(jumps.any()):
+        return disp_step - jumps @ bx
+    return disp_step
 
 
 def timestep_embedding(t, dim):
@@ -262,7 +291,7 @@ class EquiTraj(nn.Module):
                     raise ValueError("cached bond hops do not match n_atoms")
                 bh = self._chem_bond_hops.to(device=device).clamp_max(self.max_bond_hops)
             else:
-                bh = torch.zeros((n_atoms, n_atoms), dtype=torch.long, device=device)
+                raise ValueError("bonds required when max_bond_hops > 0 (pass bonds=[] for unbonded systems)")
         return q, ft, bh
 
     def _resolve_stride(self, stride_fs, b, dtype, device):
@@ -334,7 +363,7 @@ class EquiTraj(nn.Module):
         if not self.use_velocity:
             v_norm = torch.zeros_like(v_norm)
         disp = torch.zeros_like(pos)
-        disp[:, 1:] = pos[:, 1:] - pos[:, :-1]  # displacement since the previous frame (0 for the oldest)
+        disp[:, 1:] = _unwrap_context_disp(pos[:, 1:] - pos[:, :-1], box)  # displacement since the previous frame (0 for the oldest)
         if s_vec is not None:
             disp = disp / (s_vec / self.stride_fs).view(b, 1, 1, 1)
         d_norm = disp.reshape(-1, 3) / self.dx_std[tf][:, None]
