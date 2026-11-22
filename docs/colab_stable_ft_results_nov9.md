@@ -5,21 +5,17 @@ Inventory date: 2026-11-09 (America/Los_Angeles)
 ## Repository and Branch State
 
 - Repository: `yaniguan/WignerFlow`
-- `main` commit: `3d650126703ba78556e2fc9ed8c1f9da5b0cf7d2`
-- Open pull requests: this note is in open pull request #22. No other pull request is open.
-- Branches kept because Colab notebooks reference them:
-  - `cursor/resilient-drive-ckpt-save-0ccc`
-  - `cursor/attn-sup-colab-nov4-c49b`
-- Future restart rule (only if training is ever restarted later, not now):
-  - GPU: A100 only. The Drive longest-session max of `40430` MiB is close to a 40 GB A100, so "A100 only" may require an 80 GB card, or a confirmed fit with `micro_batch_size` 4. This note does not add a new memory measurement, and it does not start training.
-  - `BRANCH`: `main` or `cursor/resilient-drive-ckpt-save-0ccc`
-  - `INIT_SNAPSHOT`: `step008000.pt` is the written choice for a new fine-tune from the original train snapshot. The notebook does not always use it. See the conflict below.
+- Recorded `main` commit at inventory time: `3d650126703ba78556e2fc9ed8c1f9da5b0cf7d2`
+- Restart settings (if training is resumed later):
+  - GPU: high-VRAM GPU (>= 40 GB, such as A100 / H100 / L40S). The Drive longest-session max of `40430` MiB is close to a 40 GB A100, so an 80 GB card or `micro_batch_size` 4 is recommended.
+  - `BRANCH`: `main`
+  - `INIT_SNAPSHOT`: `step008000.pt` when starting a new fine-tune from the original training snapshot.
 
-### Restart-rule conflict (notebook unchanged)
+### Resume vs new `FT_NAME` behavior
 
-`colab/argon_stable_ft.ipynb` sets the form default `INIT_SNAPSHOT = 'auto'`. If `FT_NAME` already contains `B_S3a_stable_ft_runtime.yaml`, the notebook keeps the original `init_from` from that file and does not apply `INIT_SNAPSHOT`. Training then resumes from `ckpt.pt` when that file exists (`equitraj/train.py`). For the existing Drive run `MyDrive/WignerFlow_runs/argon_full_oct29/train_stable_ft/`, `INIT_SNAPSHOT=step008000.pt` is ignored.
+`colab/argon_stable_ft.ipynb` sets the form default `INIT_SNAPSHOT = 'auto'`. If `FT_NAME` already contains `B_S3a_stable_ft_runtime.yaml`, the notebook keeps the saved `init_from` path from that file (printing a warning if a different `INIT_SNAPSHOT` was requested) and resumes from `ckpt.pt` when `ckpt.pt` exists (`equitraj/train.py`).
 
-Yani needs to decide whether a later restart should continue the existing fine-tune (`ckpt.pt` around step 14000) or start a new `FT_NAME` from the original `MyDrive/WignerFlow_runs/argon_full_oct29/train/snapshots/step008000.pt`. Do not start training from this note. This pull request does not change the notebook.
+To continue the existing fine-tune (`ckpt.pt` around step 14000), keep `FT_NAME = 'train_stable_ft'`. To start a fresh fine-tune from `MyDrive/WignerFlow_runs/argon_full_oct29/train/snapshots/step008000.pt`, set `FT_NAME` to a new directory name and set `INIT_SNAPSHOT = 'step008000.pt'`.
 
 "Step 8000" names two different checkpoints. One is the original run's `train/snapshots/step008000.pt`. The other is step 8000 of this fine-tune, where the Drive log reports `val_crash_frac = 1.0`.
 

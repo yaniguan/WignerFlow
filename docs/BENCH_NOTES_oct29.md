@@ -19,8 +19,7 @@ e3nn is pure Python. If it is missing, `pip install e3nn` brings back the model 
 ## Commands to run
 
 ```bash
-source /workspace/venv311/bin/activate
-pip install e3nn                 # only if missing
+pip install -e ".[test]"
 pytest -q tests/
 python scripts/bench_equivariance.py --out results/bench/equivariance.json
 python scripts/bench_equivariance.py --ckpt checkpoints/argon_flow_v0.pt --trials 3 --out results/bench/equivariance_ckpt.json

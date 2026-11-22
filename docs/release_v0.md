@@ -83,4 +83,4 @@ Run the checkpoint: `python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt`
 
 ## Reproduce
 
-See README, "How to run". The numbers above come from `results/argon/B_S3a_seed1/eval_step10000/metrics.json`.
+See README, "Quickstart". The numbers above come from `results/argon/B_S3a_seed1/eval_step10000/metrics.json`.

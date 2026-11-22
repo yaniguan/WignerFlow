@@ -1,6 +1,6 @@
 # GPU Profiling: Full Analysis (WignerFlow / ouroboros-ocsr / YLM, Colab runs)
 
-> Generated: 2026-11-03 (Pacific Time). Every number comes from the raw files on Google Drive (yaniguan2). The raw file IDs are in `data.json` / `docs/profiling/manifest.json`.
+> Generated: 2026-11-03 (Pacific Time). Every number comes from the raw profiling logs on Google Drive (`data.json` / `docs/profiling/manifest.json`).
 > Data we could not find is marked **missing**. No number is made up or estimated.
 
 ## 0. One-page summary

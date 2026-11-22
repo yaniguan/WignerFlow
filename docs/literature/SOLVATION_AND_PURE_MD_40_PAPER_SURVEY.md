@@ -6,16 +6,16 @@
 Each entry gives the citation, what the paper does, and what we took from it.
 Formulas and target ranges written here are our working choices for the code, not results
 from WignerFlow. Citations were spot-checked against Crossref; please report any error you find.
-**Scope:** Pre-implementation theoretical, algorithmic, and empirical foundation for WignerFlow's next three modules:
-1. **Fine-Grained Battery Electrolyte Solvation & Exchange Kinetics Analyzer** (`SSIP`/`CIP`/`AGG`, partial RDFs, running $CN(r)$, additive enrichment, cage lifetimes $\tau_{\text{ex}}$, and `cNE` ion-pair transport)
-2. **Pure-MD Trajectory Rollout & Coarse-Stride Benchmark Suite** (`MD17`/`rMD17`/`MD22`, `Fu et al.` stability/$h(r)$/RDF/`VDOS`, and coarse-stride operator baselines)
-3. **Fast Composable Scientific MD CLI & Calculator Ecosystem**
+**Scope:** Background papers and equations for three WignerFlow modules:
+1. **Battery Electrolyte Solvation and Exchange Kinetics** (`SSIP`/`CIP`/`AGG`, partial RDFs, running $CN(r)$, additive enrichment, cage lifetimes $\tau_{\text{ex}}$, and `cNE` ion-pair transport)
+2. **MD17 / MD22 Trajectory Rollout Benchmarks** (`MD17`/`rMD17`/`MD22`, stability/$h(r)$/RDF/`VDOS`, and coarse-stride baselines)
+3. **Command-Line MD Tools**
 
 ---
 
-## Part I: Fine-Grained Battery Electrolyte Solvation Shell (`SSIP`/`CIP`/`AGG`), Radial Distribution & Exchange Kinetics (Papers 1–20)
+## Part I: Battery Electrolyte Solvation (`SSIP`/`CIP`/`AGG`), Radial Distribution, and Exchange Kinetics (Papers 1–20)
 
-### Canonical Mathematical Formalism & Cutoff Conventions (Synthesized from Papers 1–20)
+### Core Formulas and Cutoff Distances (Papers 1–20)
 
 #### 1. Partial Radial Distribution Function (RDF) & Running Coordination Number
 For central $\text{Li}^+$ ions ($N_{\text{Li}}$) and coordinating donor species $\beta \in \{\text{O}_{\text{solv}}, \text{O}_{\text{add}}, \text{O}_{\text{anion}}, \text{F}_{\text{anion}}, \text{N}_{\text{anion}}\}$ with bulk number density $\rho_\beta = N_\beta / V$ in periodic volume $V$:
@@ -74,13 +74,13 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 #### 5. Advances and Issues in Developing Salt-Concentrated Battery Electrolytes
 - **Citation:** Yuki Yamada, Jianhui Wang, Seitaro Ko, Eriko Watanabe, and Atsuo Yamada, *Nature Energy* **4**(4), 269–280 (2019). DOI: `10.1038/s41560-019-0336-z`.
-- **Core Problem & Method:** Authoritative mechanistic analysis of superconcentrated electrolytes (>3–5 M, solvent-to-salt molar ratio $N_{\text{solv}}/N_{\text{Li}} \lesssim 2$) where uncoordinated ("free") solvent vanishes and 3D `AGG` networks dominate.
+- **Core Problem & Method:** Reviews superconcentrated electrolytes (>3–5 M, solvent-to-salt molar ratio $N_{\text{solv}}/N_{\text{Li}} \lesssim 2$) where uncoordinated ("free") solvent vanishes and 3D `AGG` networks dominate.
 - **Key Metrics / Formulas:** Tracks fraction of uncoordinated solvent $f_{\text{free}} = 1 - \frac{N_{\text{Li}} \, CN_{\text{Li,solv}}}{N_{\text{solv}} \, \nu_{\text{dent}}}$ ($\to 0$ in superconcentrated regimes), showing LUMO shifts from solvent to anion as $\chi_{\text{CIP}} + \chi_{\text{AGG}} \to 90\text{–}100\%$, at the cost of $5\text{–}20\times$ higher viscosity $\eta$ and poor separator wetting.
-- **Concrete Design Takeaway for WignerFlow:** Include **free-solvent fraction ($f_{\text{free}}$)** alongside $\chi_{\text{SSIP}}/\chi_{\text{CIP}}/\chi_{\text{AGG}}$ as a first-class metric in WignerFlow: $f_{\text{free}} < 0.15$ flags high anodic oxidative stability (>4.4 V), whereas $\chi_{\text{AGG}} > 0.50$ without diluent flags severe viscosity penalty.
+- **Concrete Design Takeaway for WignerFlow:** Include **free-solvent fraction ($f_{\text{free}}$)** alongside $\chi_{\text{SSIP}}/\chi_{\text{CIP}}/\chi_{\text{AGG}}$: $f_{\text{free}} < 0.15$ indicates high anodic oxidative stability (>4.4 V), whereas $\chi_{\text{AGG}} > 0.50$ without diluent indicates a large viscosity penalty.
 
 #### 6. Monolithic Solid–Electrolyte Interphases Formed in Fluorinated Orthoformate-Based Electrolytes Minimize Li Depletion and Pulverization
 - **Citation:** Xia Cao, Xiaodi Ren, Lianfeng Zou, Mark H. Engelhard, William Huang, Haiping Wang, Bethany E. Matthews, Hongkyung Lee, Chongmin Wang, Bruce W. Arey, Yi Cui, Wu Xu, and Ji-Guang Zhang, *Nature Energy* **4**(9), 796–805 (2019). DOI: `10.1038/s41560-019-0464-5` *(with Ren, Zou, Cao, Xu & Zhang, Joule 3, 1662–1676, 2019)*.
-- **Core Problem & Method:** Pioneers Localized High-Concentration Electrolytes (`LHCE`, e.g., LiFSI–DME diluted with non-coordinating fluorinated orthoformate TFEO or TTE) analyzed via AIMD/MD RDFs, cryo-TEM, and XPS.
+- **Core Problem & Method:** Introduces Localized High-Concentration Electrolytes (`LHCE`, e.g., LiFSI–DME diluted with non-coordinating fluorinated orthoformate TFEO or TTE) analyzed via AIMD/MD RDFs, cryo-TEM, and XPS.
 - **Key Metrics / Formulas:** Demonstrates bimodal spatial separation in partial RDFs: solvating solvent DME + $\text{FSI}^-$ populate $r < 2.8\text{ Å}$ ($CN_{\text{Li,O(FSI)}} \approx 1.8\text{–}2.5$, preserving local `CIP`/`AGG` clusters), while hydrofluoroether/orthoformate diluent shows $g_{\text{Li,O(diluent)}}(r) \approx 0$ for $r < 3.5\text{ Å}$ ($CN_{\text{diluent}}(2.8\text{ Å}) < 0.05$), cutting viscosity from $>25\text{ cP}$ to $<4\text{ cP}$ and achieving $>99.5\%$ Li Coulombic efficiency via monolithic $\text{LiF}$-rich SEI.
 - **Concrete Design Takeaway for WignerFlow:** WignerFlow's multi-component analyzer must automatically classify components by $CN_{\text{Li},s}(r_c)$ into **primary solvators** ($CN > 0.2$), **competitive additives**, and **true non-coordinating diluents** ($CN < 0.05$ inside $r_c = 2.8\text{ Å}$ but nonzero in the $4.5\text{–}7.0\text{ Å}$ secondary shell), enabling automated `LHCE` detection.
 
@@ -98,15 +98,15 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 #### 9. Correlations from Ion Pairing and the Nernst–Einstein Equation
 - **Citation:** Arthur France-Lanord and Jeffrey C. Grossman, *Physical Review Letters* **122**(13), 136001 (2019). DOI: `10.1103/PhysRevLett.122.136001`.
-- **Core Problem & Method:** Derives the **cluster Nernst–Einstein (`cNE`)** theory to rescue transport prediction from the noisy $O(1)$ variance of collective Green–Kubo current integrals while correcting the massive overestimation of standard `NE` in ion-paired electrolytes.
+- **Core Problem & Method:** Derives the **cluster Nernst–Einstein (`cNE`)** approximation, avoiding the high variance of collective Green–Kubo current integrals while correcting the large overestimation of standard `NE` in ion-paired electrolytes.
 - **Key Metrics / Formulas:** Partitions ions into connected coordination clusters $(i\text{ cations}, j\text{ anions})$ with population $\langle \alpha_{ij} \rangle$, net charge $z_{ij} = i z_+ + j z_-$, and cluster diffusivity $D_{ij}$:
   $$\sigma_{\text{cNE}} = \frac{e^2}{V k_B T} \sum_{i,j} z_{ij}^2 \langle \alpha_{ij} \rangle D_{ij}, \qquad t_+^{\text{cNE}} = \frac{\sum_{i,j} i\, z_{ij} \langle \alpha_{ij} \rangle D_{ij}}{\sum_{i,j} z_{ij}^2 \langle \alpha_{ij} \rangle D_{ij}}$$
-  Neutral `CIP`s ($i=1, j=1 \implies z_{11}=0$) contribute **zero** to $\sigma_{\text{cNE}}$, and negatively charged `AGG`s ($i=1, j=2 \implies z_{12}=-1$) naturally explain **negative transference numbers** ($t_+^{\text{cNE}} < 0$).
-- **Concrete Design Takeaway for WignerFlow:** Implement `cNE` directly atop the `SSIP`/`CIP`/`AGG` connected-component graph! Because `cNE` uses single-cluster MSDs ($1/\sqrt{N_{\text{clusters}}}$ statistical convergence vs non-self-averaging Green–Kubo), WignerFlow can accurately estimate $\sigma_{\text{cNE}}$, ionicity $\sigma_{\text{cNE}}/\sigma_{\text{NE}}$, and $t_+^{\text{cNE}}$ from short MD/WignerFlow rollouts.
+  Neutral `CIP`s ($i=1, j=1 \implies z_{11}=0$) contribute **zero** to $\sigma_{\text{cNE}}$, and negatively charged `AGG`s ($i=1, j=2 \implies z_{12}=-1$) explain **negative transference numbers** ($t_+^{\text{cNE}} < 0$).
+- **Concrete Design Takeaway for WignerFlow:** Compute `cNE` directly from the `SSIP`/`CIP`/`AGG` connected-component graph so short rollouts can estimate $\sigma_{\text{cNE}}$, ionicity $\sigma_{\text{cNE}}/\sigma_{\text{NE}}$, and $t_+^{\text{cNE}}$ with lower statistical noise than Green–Kubo integrals.
 
 #### 10. Uncharted Waters: Super-Concentrated Electrolytes
 - **Citation:** Oleg Borodin, Julian Self, Kristin A. Persson, Chunsheng Wang, and Kang Xu, *Joule* **4**(1), 69–100 (2020). DOI: `10.1016/j.joule.2019.12.007`.
-- **Core Problem & Method:** Definitive structural-dynamical taxonomy bridging dilute ("salt-in-solvent"), concentrated, "water-in-salt" (`WiSE`), and localized high-concentration electrolytes via MD RDFs, cluster size distributions, and exchange kinetics.
+- **Core Problem & Method:** Classifies dilute ("salt-in-solvent"), concentrated, "water-in-salt" (`WiSE`), and localized high-concentration electrolytes via MD RDFs, cluster size distributions, and exchange kinetics.
 - **Key Metrics / Formulas:** Formalizes percolating `AGG` cluster thresholds (largest cluster fraction $P_\infty = N_{\max}/N_{\text{ion}} > 0.5$ signaling gel-like 3D ionic network percolation) and relates decoupling of $\text{Li}^+$ conductivity from structural relaxation time ($\tau_\alpha / \tau_{\text{Li}} \gg 1$) to asymmetrical anion–solvent nanodomains.
 - **Concrete Design Takeaway for WignerFlow:** Add **percolation order parameter** $P_\infty = \max_k |V_k| / (N_+ + N_-)$ over the ion-pair graph: WignerFlow should penalize candidate fast-charging electrolytes when $P_\infty > 0.35$, as percolated `AGG` networks choke high-rate mass transport.
 
@@ -242,7 +242,7 @@ $$\tau_{\text{ex}} = \int_0^\infty C_{\text{cage}}(t)\,dt = \frac{A\,\tau_0}{\be
 
 #### 25. Forces Are Not Enough: Benchmark and Critical Evaluation for Machine Learning Force Fields with Molecular Simulations
 - **Citation:** Xiang Fu, Zhenghao Wu, Wujie Wang, Tian Xie, Sinan Keten, Rafael Gómez-Bombarelli, and Tommi Jaakkola, *Transactions on Machine Learning Research (TMLR)* (2023; arXiv:2210.07237, ICLR 2023 Physics4ML).
-- **Core Problem & Method:** Landmark benchmark across `MD17`, `Ac-Ala3-NHMe`, periodic liquid water, and $\text{Li}$ thiophosphate solid electrolytes proving that low test Force MAE correlates poorly with actual MD rollout stability and thermodynamic observables.
+- **Core Problem & Method:** Benchmarks `MD17`, `Ac-Ala3-NHMe`, periodic liquid water, and $\text{Li}$ thiophosphate solid electrolytes, showing that low test Force MAE correlates weakly with MD rollout stability and thermodynamic observables.
 - **Key Metrics / Formulas:** Defines the canonical 4-pillar rollout evaluation protocol: (1) **Stability horizon** $T_{\text{stab}}$ under $\max_{(i,j)\in\mathcal{B}} |r_{ij}(t) - b_{ij}^0| > 0.5\text{ Å}$; (2) **Interatomic distance distribution error** $\text{MAE}_{h(r)} = \int |\hat{h}(r) - h_{\text{ref}}(r)|\,dr$ for molecules; (3) **Element-pair `RDF` MAE** for periodic liquids; and (4) **Diffusivity $D$ / `VACF` spectrum** fidelity, alongside inference throughput ($\text{steps/s}$).
 - **Concrete Design Takeaway for WignerFlow:** Make the **Fu et al. 4-pillar metric suite (`Stability` %, $T_{\text{stab}}$, $\text{MAE}_{h(r)}$ / `RDF` MAE, `VDOS` MAE, and wall-clock $\text{ns/day}$)** the exact core output schema of WignerFlow's pure-MD benchmark harness.
 

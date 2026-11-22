@@ -5,7 +5,7 @@ The immediate target is a measured, resumable 20 ns argon rollout with correct e
 ## Audit and gaps
 
 - Argon data use `dt_fs = 5 fs`; stride 10 integration steps means 50 fs per autoregressive step. Thus 20 ns requires **400,000 autoregressive steps**; at a 10 fs stride it requires **2,000,000**. Flow sampling multiplies the network work within each autoregressive step.
-- The argon retrain at training step 6000 currently crashes at approximately 865 rollout steps, about 43 ps. This is the observed baseline, not evidence that the stability configuration reaches 20 ns. See `STABILITY.md`.
+- The argon retrain at training step 6000 currently crashes at approximately 865 rollout steps, about 43 ps. This is the observed baseline, not evidence that the stability configuration reaches 20 ns. See [`docs/STABILITY.md`](STABILITY.md).
 - Types are per element only. Distinct chemical environments share an embedding: carbonyl/ether O in EC/solvents versus O in TFSI, for example. PF6 itself contains no O; if oxygen-bearing species are present with PF6, their O atoms still share the element type. Add force-field atom types, partial charges, topology, molecular identity, and polarization parameters before interpreting molecular PFF transfer.
 - Spatial message passing uses a 6 Å cutoff in the argon stability config. There is no long-range electrostatic or polarization model. Plan an Ewald/PME-like long-range head, or charge-conserving latent charges with explicit long-range interactions and induced dipoles/Drude dynamics. A local repulsion prior cannot supply these interactions.
 - PBC uses minimum-image geometry, with orthorhombic and reduced triclinic support. Require the cutoff to be smaller than half the shortest relevant cell height, and test boundary crossings, skewed cells, and unwrapping. Arbitrary unreduced triclinic cells need explicit reduction/validation. A half-box check on diagonal entries alone is insufficient for skewed cells.
@@ -83,14 +83,14 @@ Use `equitraj.binding.py` for pocket-aligned ligand RMSD, ligand internal RMSD, 
 
 **Exit:** five independent 20 ns runs per held-out complex survive without geometry failures; reference-consistent ligand RMSD/contact distributions and protein flexibility (target contact occupancy error ≤10 percentage points), no systematic artificial pose locking or unbinding, and transport/thermal fidelity. For free-energy replacement, additionally demonstrate replicated, converged alchemical cycles, overlap, cycle closure, and prespecified error against the matched reference benchmark (proposed MAE ≤1 kcal/mol). Twenty nanoseconds of pose retention alone does not meet that gate. Apply prospective AIDD-designed ligand tests only after protein/scaffold holdout validation and uncertainty-triggered OpenMM fallback pass.
 
-## Data needed from Yani for Li-PFF/Na-PFF
+## Required input data for Li-PFF / Na-PFF
 
 - Preferred: OpenMM DCD/XTC coordinates **plus actual velocity arrays**, PDB topology, and serialized system XML. DCD/XTC alone does not contain the needed velocities or force-field topology. Alternatively provide HDF5/extxyz with positions, velocities, box, elements/masses, charges, polarizabilities, and Drude flags/parent mappings. Include units, atom order, wrapping convention, force-field atom types, bonds/angles/torsions, constraints, multipoles/induced dipoles where relevant. The present generic importer does not preserve every PFF field; retain originals/sidecars until the schema is extended.
 - Save at intervals **≤10 fs with velocities** and record the integrator timestep and save frequency separately. Supply NVE or weakly thermostatted segments and thermostat/Drude thermostat details. Retain temperature/energy/force diagnostics; avoid inferring fast dynamics from sparse coordinates.
 - At least **five independent trajectories**, split by trajectory into train/validation/test; target total duration at least a few ns plus **one 20 ns held-out reference** for long validation. Reserve the long reference before model selection. More replicas may be needed for converged transport and uncertainty.
 - All force-field files and versions (AMOEBA/Drude parameters, custom forces/plugins), system XML/PDB, water model, exclusions, constraints, virtual sites, masses/Drude mass partitioning, polarization convergence settings, integrator and timestep.
 - Temperature, pressure/ensemble, density/box, salt concentration, composition, solvent ratios, molecule counts, initialization/equilibration, independent seeds, and any COM removal.
-- OpenMM ns/day on her hardware: GPU/CPU model, precision, platform/plugin versions, timestep, constraints, PME settings, particle count including Drudes, output cadence, and timing scope. Obtain matched on-A100 timings for direct notebook comparisons.
+- Reference OpenMM ns/day: GPU/CPU model, precision, platform/plugin versions, timestep, constraints, PME settings, particle count including Drudes, output cadence, and timing scope. Obtain matched on-A100 timings for direct notebook comparisons.
 
 ## Measured numbers
 

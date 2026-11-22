@@ -304,6 +304,7 @@ def _calisol_summary() -> dict:
             "panel_aligned_spearman_rho": panel["wignerflow_align_stage1_stage2"]["spearman_rho"],
             "aligned_spearman_rho": full["spearman_rho"],
             "unaligned_mae_mS_cm": panel["raw_unaligned_ne"]["mae_mS_cm"],
+            "panel_aligned_mae_mS_cm": panel["wignerflow_align_stage1_stage2"]["mae_mS_cm"],
             "aligned_mae_mS_cm": full["mae_mS_cm"],
             "unaligned_r2": panel["raw_unaligned_ne"]["r2"],
             "panel_aligned_r2": panel["wignerflow_align_stage1_stage2"]["r2"],

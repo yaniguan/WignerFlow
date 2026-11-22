@@ -259,12 +259,19 @@ def build_cpu_api_panel() -> dict:
             key = f"N={n_atoms},S={s}"
             entry = lat.get(key, {})
             rms = one.get(f"S={s}_vs_S=10_rel_rms", {"dx": 0.0, "v": 0.0})
-            r_off = _mean_rollout(roll.get(f"S={s}"))
+            r_off = _mean_rollout(roll.get(f"S={s}")) if n_atoms == 256 else None
             r_csvr = None
-            if s == 1 and csvr_s1.get("rollouts", {}).get("S=1"):
-                r_csvr = _mean_rollout(csvr_s1["rollouts"]["S=1"])
-            elif s == 2 and csvr_s2.get("rollouts", {}).get("S=2"):
-                r_csvr = _mean_rollout(csvr_s2["rollouts"]["S=2"])
+            if n_atoms == 256:
+                if s == 1:
+                    r_csvr = _mean_rollout(
+                        (csvr_s1.get("rollouts") or {}).get("S=1,CSVR 95 K")
+                        or (csvr_s1.get("rollouts") or {}).get("S=1")
+                    )
+                elif s == 2:
+                    r_csvr = _mean_rollout(
+                        (csvr_s2.get("rollouts") or {}).get("S=2,CSVR 95 K")
+                        or (csvr_s2.get("rollouts") or {}).get("S=2")
+                    )
             grid[f"{n_atoms}_{s}"] = {
                 "n_atoms": n_atoms,
                 "sampling_steps": s,

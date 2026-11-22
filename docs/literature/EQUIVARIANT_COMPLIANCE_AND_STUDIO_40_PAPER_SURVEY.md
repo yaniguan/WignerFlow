@@ -9,13 +9,13 @@
 
 ---
 
-## Executive Architectural Synthesis: From 40 Papers to WignerFlow Studio
+## Overview: How the 40 Papers Shape WignerFlow Studio
 
-WignerFlow advances an $N$-atom system across a coarse time stride $\Delta\tau = 50\text{ fs}$ ($25\times$–$100\times$ larger than classical $0.5\text{–}2.0\text{ fs}$ Verlet integration) without evaluating a conservative scalar potential $U(\mathbf{x})$ or running a numerical symplectic integrator. Given a causal history of $H=3$ phase-space frames $\mathcal{H}_t = \{(\mathbf{x}_{t-k\Delta\tau}, \mathbf{v}_{t-k\Delta\tau})\}_{k=0}^{H-1}$ with atomic numbers $\mathbf{Z} \in \mathbb{N}^N$, atomic masses $\mathbf{M}_{\text{mass}} = \operatorname{diag}(m_1,\dots,m_N)$, and optional periodic cell matrix $\mathbf{L} = [\mathbf{a}_1, \mathbf{a}_2, \mathbf{a}_3] \in \mathbb{R}^{3\times 3}$, WignerFlow predicts ballistic-residual phase-space updates:
+WignerFlow advances an $N$-atom system across a coarse time stride $\Delta\tau = 50\text{ fs}$ ($25\times$–$100\times$ larger than classical $0.5\text{–}2.0\text{ fs}$ Verlet integration) without evaluating a scalar potential $U(\mathbf{x})$ or running a numerical integrator. Given the last $H=3$ phase-space frames $\mathcal{H}_t = \{(\mathbf{x}_{t-k\Delta\tau}, \mathbf{v}_{t-k\Delta\tau})\}_{k=0}^{H-1}$ with atomic numbers $\mathbf{Z} \in \mathbb{N}^N$, atomic masses $\mathbf{M}_{\text{mass}} = \operatorname{diag}(m_1,\dots,m_N)$, and optional periodic cell matrix $\mathbf{L} = [\mathbf{a}_1, \mathbf{a}_2, \mathbf{a}_3] \in \mathbb{R}^{3\times 3}$, WignerFlow predicts coasting-residual updates:
 $$\mathbf{x}_{t+\Delta\tau} = \mathbf{x}_t + \mathbf{v}_t \Delta\tau + \Delta\tilde{\mathbf{x}}_\theta(\mathcal{H}_t, \mathbf{Z}, \mathbf{L}), \qquad \mathbf{v}_{t+\Delta\tau} = \mathbf{v}_t + \Delta\mathbf{v}_\theta(\mathcal{H}_t, \mathbf{Z}, \mathbf{L})$$
-via either a deterministic equivariant head or an **equivariant conditional flow matching (CFM)** ODE integrated over flow pseudotime $s \in [0, 1]$.
+using either a deterministic equivariant head or an **equivariant conditional flow matching (CFM)** ODE integrated over $s \in [0, 1]$.
 
-Because WignerFlow eliminates $-\nabla_{\mathbf{x}} U(\mathbf{x})$, it gains massive multi-femtosecond step efficiency on CPUs and GPUs—but forfeits automatic conservative energy preservation, symplectic phase-space volume conservation, and built-in steric divergence barriers. Consequently, **WignerFlow Studio** must combine **exact algebraic group-symmetry auditing (Pillar A)**, **thermodynamic/conservation pathology detection (Pillar B)**, and **interactive linked-view 3D/2D visual diagnostics with live fault injection (Pillar C)**.
+Skipping $-\nabla_{\mathbf{x}} U(\mathbf{x})$ allows 50 fs steps, but removes automatic energy conservation, symplectic volume preservation, and built-in short-range repulsion. **WignerFlow Studio** therefore checks three areas: **exact symmetry rules (Pillar A)**, **conservation and stability checks (Pillar B)**, and **interactive 3D/2D visual inspection with fault injection (Pillar C)**.
 
 ```mermaid
 flowchart LR
@@ -55,9 +55,9 @@ flowchart LR
 
 ---
 
-## Pillar A (Papers 1–16): Equivariant Neural MD & Generative Flow Symmetry Foundations (`SO(3)`, `O(3)` Parity, `T(3)`, `S_N`, Zero-COM Subspace, Periodic Lattice Invariance)
+## Pillar A (Papers 1–16): Symmetry Rules (`SO(3)`, `O(3)` Parity, `T(3)`, `S_N`, Zero-COM, Periodic Cells)
 
-### Unified Group-Theoretic Formalism for WignerFlow (`equitraj`)
+### Symmetry Rules Checked by WignerFlow (`equitraj`)
 
 Let $G = E(3) \times S_N = \bigl(T(3) \rtimes O(3)\bigr) \times S_N$ denote the Euclidean-permutation symmetry group of isolated atomistic phase space, where any orthogonal transformation $\mathbf{Q} \in O(3)$ factors uniquely as $\mathbf{Q} = p_{\mathbf{Q}} \mathbf{R}$ with proper rotation $\mathbf{R} \in SO(3)$ ($\det\mathbf{R}=+1$) and improper spatial inversion sign $p_{\mathbf{Q}} = \det\mathbf{Q} \in \{+1, -1\}$.
 
@@ -196,11 +196,11 @@ Let $G = E(3) \times S_N = \bigl(T(3) \rtimes O(3)\bigr) \times S_N$ denote the 
 
 ---
 
-## Pillar B (Papers 17–30): Physical Compliance, Conservation Laws & Pathological Failure Modes in Neural MD
+## Pillar B (Papers 17–30): Conservation Laws, Thermostats, and Failure Modes in Neural MD
 
-### Unified Thermodynamic & Dynamical Conservation Formalism for Neural MD
+### Conservation and Thermostat Rules
 
-Even when a neural trajectory generator satisfies exact algebraic $E(3) \times S_N$ equivariance (Pillar A), autoregressive rollouts over $10^3\text{–}10^5$ steps can fail catastrophically due to **non-conservative phase-space drift, thermostat masking, equipartition breakdown, or out-of-distribution potential holes**:
+Even when a neural trajectory model respects exact $E(3) \times S_N$ symmetry (Pillar A), long rollouts over $10^3\text{–}10^5$ steps can still fail from **energy drift, thermostat side effects, uneven heating across elements, or out-of-distribution atom overlaps**:
 
 1. **Symplectic Structure, Conservative Forces & Non-Conservative Curl:** Classical Hamiltonian dynamics on $\mathbb{R}^{6N}$ with $H(\mathbf{q}, \mathbf{p}) = \frac{1}{2}\mathbf{p}^\top \mathbf{M}_{\text{mass}}^{-1}\mathbf{p} + U(\mathbf{q})$ preserves the canonical 2-form $\omega = \sum_{i=1}^N d\mathbf{q}_i \wedge d\mathbf{p}_i$ (implying Liouville phase-space volume conservation $\det D\Phi_{\Delta\tau} = 1$), total energy $H$, linear momentum $\mathbf{P}_{\text{tot}} = \sum_i m_i \mathbf{v}_i$ (from $T(3)$ invariance of $U$), and angular momentum $\mathbf{J}_{\text{tot}} = \sum_i \mathbf{r}_i \times m_i \mathbf{v}_i$ (from $SO(3)$ invariance of $U$, guaranteeing zero internal torque $\boldsymbol{\tau}_{\text{net}} = \sum_i \mathbf{r}_i \times \mathbf{F}_i = \mathbf{0}$). Direct force or coarse-stride residual models that bypass $-\nabla_{\mathbf{x}} U(\mathbf{x})$ permit non-zero curl $\nabla_{\mathbf{x}} \times \mathbf{F}_{\text{eff}} \neq \mathbf{0}$, injecting net work $\Delta W_\gamma = \oint_\gamma \mathbf{F}_{\text{eff}} \cdot d\mathbf{x} \neq 0$ around closed vibrational cycles and spurious internal torques $\Delta\mathbf{J}_{\text{tot}} \neq \mathbf{0}$.
 
@@ -216,7 +216,7 @@ Even when a neural trajectory generator satisfies exact algebraic $E(3) \times S
 
 #### 17. The Flying Ice Cube: Velocity Rescaling in Molecular Dynamics Leads to Violation of Energy Equipartition
 - **Citation:** Stephen C. Harvey, Robert K.-Z. Tan, and Thomas E. Cheatham III, *Journal of Computational Chemistry* **19**(7), 726–740 (1998). DOI: `10.1002/(SICI)1096-987X(199805)19:7<726::AID-JCC4>3.0.CO;2-S`.
-- **Core Pathology & Physical Mechanism:** Discovers and mathematically explains the infamous **"flying ice cube" artifact**: in MD simulations using global velocity-rescaling thermostats (Berendsen or canonical rescaling) alongside small numerical integration or force-cutoff errors, high-frequency bond-stretching and angle-bending modes steadily lose energy while low-frequency zero-restoring-force modes (center-of-mass translation and overall rigid-body rotation in vacuum/droplets) exponentially accumulate all system kinetic energy.
+- **Core Pathology & Physical Mechanism:** Explains the classic **"flying ice cube" effect**: in MD simulations using global velocity-rescaling thermostats alongside small integration or cutoff errors, high-frequency bond-stretching and angle-bending modes lose energy while zero-restoring-force modes (center-of-mass translation and rigid-body rotation in vacuum) accumulate kinetic energy.
 - **Key Equations & Quantitative Signatures:** Decomposing total kinetic energy into $K_{\text{tot}} = K_{\text{COM}} + K_{\text{rot}} + K_{\text{vib}}$, equipartition requires:
   $$\frac{\langle K_{\text{COM}} \rangle}{3} = \frac{\langle K_{\text{rot}} \rangle}{3} = \frac{\langle K_{\text{vib}} \rangle}{3N - 6} = \frac{1}{2}k_B T, \qquad T_\alpha = \frac{1}{3 N_\alpha k_B}\sum_{i \in \alpha} m_i \|\mathbf{v}_i\|^2 \approx T \;\;\forall \text{ element species }\alpha$$
   Under global rescaling $\mathbf{v}_i \leftarrow \lambda \mathbf{v}_i$, any step-wise damping of stiff internal vibrations ($\gamma_{\text{vib}} < 1$, which is *endemic* to deterministic $L_2$ coarse-stride neural predictors!) forces $\lambda > 1$, exponentially amplifying $\mathbf{P}_{\text{tot}}$ and $\mathbf{J}_{\text{tot}}$ until $K_{\text{vib}} \to 0$ ("ice cube") while $T_{\text{global}}$ deceptively reads $300\text{ K}$!
@@ -303,7 +303,7 @@ Even when a neural trajectory generator satisfies exact algebraic $E(3) \times S
   1. In `NVE` MD, non-zero curl acts as microscopic non-equilibrium "stirring," causing unbounded linear/exponential **secular temperature drift** $dT/dt \neq 0$.
   2. Under global `NVT` thermostats (`CSVR`/Langevin), non-conservative stirring unevenly heats stiff vs soft modes, **violating equipartition between elements/modes** ($T_{\text{H}} \neq T_{\text{O}}$ in liquid water!).
   3. Proposes hybrid mitigation (conservative fine-tuning or multi-time-stepping conservative corrections).
-- **Design Mandate for WignerFlow Auditor & Studio:** This is the single most important theoretical paper for auditing WignerFlow! Because WignerFlow predicts $(\Delta\tilde{\mathbf{x}}, \Delta\mathbf{v})$ directly without $-\nabla E$, **Gate `G6` (Non-Conservative Curl, Torque & Closed-Loop Work Audit)** explicitly measures: (a) instantaneous net internal torque impulse $\boldsymbol{\tau}_{\text{imp}} = \sum_i (\mathbf{x}_i - \mathbf{x}_{\text{COM}}) \times m_i \Delta\mathbf{v}_i$ (in isolated systems), (b) closed-cycle path-work residual $\mathcal{W}_{\text{loop}} = \oint_{\text{vib}} m \frac{\Delta\mathbf{v}}{\Delta\tau} \cdot d\mathbf{x}$ on synthetic harmonic perturbations, and (c) **element-resolved temperature discrepancy** $|T_{\text{light}} - T_{\text{heavy}}| / T_{\text{target}}$ (`Gate G7`), backed by `equitraj/hybrid.py` conservative fallback (**Fault Injection `F5`**)!
+- **Design Mandate for WignerFlow Auditor & Studio:** Directly motivates **Gate `G6` (Non-Conservative Curl, Torque & Closed-Loop Work Audit)**. Because WignerFlow predicts $(\Delta\tilde{\mathbf{x}}, \Delta\mathbf{v})$ directly without $-\nabla E$, Gate `G6` measures: (a) instantaneous net internal torque impulse $\boldsymbol{\tau}_{\text{imp}} = \sum_i (\mathbf{x}_i - \mathbf{x}_{\text{COM}}) \times m_i \Delta\mathbf{v}_i$ (in isolated systems), (b) closed-cycle path-work residual $\mathcal{W}_{\text{loop}} = \oint_{\text{vib}} m \frac{\Delta\mathbf{v}}{\Delta\tau} \cdot d\mathbf{x}$ on synthetic harmonic perturbations, and (c) **element-resolved temperature discrepancy** $|T_{\text{light}} - T_{\text{heavy}}| / T_{\text{target}}$ (`Gate G7`), backed by `equitraj/hybrid.py` conservative fallback (**Fault Injection `F5`**).
 
 #### 30. Force-Free Molecular Dynamics Through Autoregressive Equivariant Networks (TrajCast)
 - **Citation:** Fabian L. Thiemann, Thiago Reschützegger, Massimiliano Esposito, Tseden Taddese, Juan D. Olarte-Plata, and Fausto Martelli, `arXiv:2503.23794` [physics.chem-ph] (2025); *Nature Machine Intelligence* (2026).

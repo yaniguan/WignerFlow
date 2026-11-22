@@ -306,12 +306,12 @@
             <div class="sandbox-grid-2">
               <div class="sub-panel">
                 <h4>
-                  <span>HybridSimulator Fallback &amp; Context Refill Diagram</span>
+                  <span>HybridRollout Fallback &amp; Context Refill Diagram</span>
                   <span id="hybrid-badge" class="pill pass">Healed &amp; Resumed</span>
                 </h4>
                 <div id="hybrid-diagram-svg"></div>
                 <p class="fine-print">
-                  When <code>StabilityMonitor</code> flags an overlap (<code>d &lt; 0.5 Å</code>), temperature spike, or high flow-ensemble spread, <code>HybridSimulator</code> runs fine-step Verlet healing, refills the <code>k = 3</code> stride buffer, and resumes 50 fs neural jumps.
+                  When <code>StabilityMonitor</code> flags an overlap (<code>d &lt; 0.5 Å</code>), temperature spike, or high flow-ensemble spread, <code>HybridRollout</code> runs fine-step Verlet healing, refills the <code>k = 3</code> stride buffer, and resumes 50 fs neural jumps.
                 </p>
               </div>
 
@@ -541,16 +541,16 @@
               <h3>Electrolyte transport alignment &amp; Li⁺ solvation speciation</h3>
             </div>
             <p class="application-lead">
-              Raw Nernst–Einstein overpredicts concentrated battery conductivity because neutral ion pairs (CIP) and aggregates (AGG) carry zero net charge. Post-training cluster calibration aligns coarse transport against held-out CaliSol-23 measurements.
+              Raw Nernst–Einstein overpredicts concentrated battery conductivity because neutral ion pairs (CIP) and aggregates (AGG) carry zero net charge. Post-training cluster calibration aligns coarse transport against held-out CALiSol-23 measurements.
             </p>
 
             <div class="experiment-layout">
               <div>
-                <p class="small-label blue">CaliSol-23 held-out conductivity bell curve</p>
+                <p class="small-label blue">CALiSol-23 held-out conductivity bell curve</p>
                 <div id="calisol-chart" style="margin-top:10px;"></div>
               </div>
               <div class="assay-details">
-                <h4>Held-out CaliSol-23 parity</h4>
+                <h4>Held-out CALiSol-23 parity</h4>
                 <dl id="calisol-dl"></dl>
                 <p class="fine-print">
                   Source: <code>results/calisol/align_eval_seed42.json</code> and <code>results/solvation_top15/top15_solvation_report.json</code>.
@@ -682,6 +682,7 @@
 
         <div id="roll-custom-wrap" style="display:none;margin-bottom:16px;">
           <textarea id="roll-xyz-text" class="studio-textarea" spellcheck="false"></textarea>
+          <p id="roll-custom-note" class="fine-print" style="display:none;margin-top:6px;"></p>
         </div>
 
         <div class="studio-grid">

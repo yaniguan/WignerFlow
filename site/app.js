@@ -34,7 +34,7 @@
       inSpec: 'k = 3 frames (X, V) + charges / bond hops',
       outSpec: 'O(3) node irreps (l ≤ 2), C² smooth @ r_c = 6 Å',
       cmd: 'GraphAttention(lmax=2, cutoff=6.0)',
-      desc: 'Rotates each neighbor edge into its local z-frame with Wigner-D matrices and places log(envelope) inside softmax with a zero-logit sink so cutoff crossings have zero step jump.',
+      desc: 'Rotates each neighbor edge into its local +y-frame with Wigner-D matrices and places log(envelope) inside softmax with a zero-logit sink so cutoff crossings have zero step jump.',
       jumpSection: '#method',
     },
     {
@@ -85,7 +85,7 @@
       colorKey: 'accent',
       inSpec: 'Neural rollout stream + StabilityMonitor rules',
       outSpec: 'Healed frames + <1e-10 Å bond projection',
-      cmd: 'HybridSimulator(...) / DistanceProjector(...)',
+      cmd: 'HybridRollout(...) / DistanceProjector(...)',
       desc: 'Catches close contacts or thermal spikes mid-rollout, relaxes with fine-step Verlet, enforces exact X–H bond lengths via mass-weighted DistanceProjector, and resumes 50 fs jumps.',
       jumpCapTab: 'hybrid',
     },
@@ -292,8 +292,9 @@
     }
 
     const rollInfo = (cpuState.therm === '95' && cur?.rollout_csvr95) ? cur.rollout_csvr95 : cur?.rollout_off;
-    const tEqStr = rollInfo ? `${rollInfo.T_second_half_K} K` : '—';
-    const rdfErrStr = rollInfo ? `${rollInfo.rdf_peak_pos_err_A} Å` : '—';
+    const rollCellStr = cpuState.atoms === 108
+      ? '256 Ar only'
+      : (rollInfo ? `${rollInfo.T_second_half_K} K (${rollInfo.rdf_peak_pos_err_A} Å)` : '—');
 
     const kpiEl = document.getElementById('cpu-api-kpis');
     if (kpiEl && cur) {
@@ -301,7 +302,7 @@
         <div class="kpi-cell"><small>CPU p50 / Wall p50</small><strong>${Math.round(cur.cpu_p50_ms)} / ${Math.round(cur.wall_p50_ms)} ms</strong></div>
         <div class="kpi-cell"><small>Wall p95 (${cpuState.atoms} Ar)</small><strong>${Math.round(cur.wall_p95_ms)} ms</strong></div>
         <div class="kpi-cell"><small>1-Step dx / v Err</small><strong>${cur.dx_rel_rms_pct}% / ${cur.v_rel_rms_pct}%</strong></div>
-        <div class="kpi-cell"><small>100-Step T (RDF)</small><strong>${tEqStr} (${rdfErrStr})</strong></div>`;
+        <div class="kpi-cell"><small>100-Step T (RDF)</small><strong>${rollCellStr}</strong></div>`;
     }
 
     const jsonEl = document.getElementById('cpu-api-json');
@@ -662,18 +663,20 @@
     const cal = (DATA.benchmarks || {}).calisol23_alignment || {};
     const dl = document.getElementById('calisol-dl');
     if (dl && cal.available) {
+      const pR2 = Number(cal.panel_aligned_r2 ?? cal.aligned_r2).toFixed(3);
+      const pMae = Number(cal.panel_aligned_mae_mS_cm ?? cal.aligned_mae_mS_cm).toFixed(2);
       dl.innerHTML = `
         <div>
-          <dt>Held-out CaliSol-23 formulations (R²)</dt>
-          <dd><strong>${Number(cal.aligned_r2).toFixed(3)}</strong> <span>vs ${Number(cal.unaligned_r2).toFixed(2)} raw Nernst–Einstein</span></dd>
+          <dt>Paired ${cal.n_formulations}-row MD panel (R² / MAE)</dt>
+          <dd><strong>${pR2}</strong> <span>(${pMae} mS/cm vs ${Number(cal.unaligned_r2).toFixed(2)} R², ${Number(cal.unaligned_mae_mS_cm).toFixed(2)} mS/cm raw NE)</span></dd>
+        </div>
+        <div>
+          <dt>Full ${cal.n_heldout_total}-row recipe split (R² / MAE)</dt>
+          <dd><strong class="blue">${Number(cal.aligned_r2).toFixed(3)}</strong> <span>(${Number(cal.aligned_mae_mS_cm).toFixed(2)} mS/cm)</span></dd>
         </div>
         <div>
           <dt>Held-out ranking Spearman ρ</dt>
-          <dd><strong>${Number(cal.aligned_spearman_rho).toFixed(3)}</strong> <span>(${cal.n_heldout_total} held-out formulations)</span></dd>
-        </div>
-        <div>
-          <dt>Conductivity MAE (mS/cm)</dt>
-          <dd><strong class="blue">${Number(cal.aligned_mae_mS_cm).toFixed(2)}</strong> <span>vs ${Number(cal.unaligned_mae_mS_cm).toFixed(2)} unaligned</span></dd>
+          <dd><strong>${Number(cal.aligned_spearman_rho).toFixed(3)}</strong> <span>(panel ρ = ${Number(cal.panel_aligned_spearman_rho ?? cal.aligned_spearman_rho).toFixed(3)} vs ${Number(cal.unaligned_spearman_rho).toFixed(3)} raw NE)</span></dd>
         </div>`;
       renderCaliSolChart();
     }
@@ -1120,7 +1123,13 @@
     tgtSel.addEventListener('change', triggerCompliance);
 
     document.getElementById('roll-preset').addEventListener('change', e => {
-      document.getElementById('roll-custom-wrap').style.display = e.target.value === 'custom' ? 'block' : 'none';
+      const isCustom = e.target.value === 'custom';
+      document.getElementById('roll-custom-wrap').style.display = isCustom ? 'block' : 'none';
+      const note = document.getElementById('roll-custom-note');
+      if (note) {
+        note.style.display = (isCustom && !LIVE_API) ? 'block' : 'none';
+        note.textContent = 'Live custom .xyz simulation runs when connected to python scripts/wignerflow_studio.py; static GitHub Pages previews Ethanol.';
+      }
     });
 
     document.getElementById('btn-run-rollout').addEventListener('click', async e => {
