@@ -33,9 +33,12 @@ def min_pair_distance(pos, box, excluded_pairs=None):
     return d.flatten(1).min(dim=1).values
 
 
-def max_bond_deviation(pos, bonds, r0):
+def max_bond_deviation(pos, bonds, r0, box=None):
     """Largest relative bond-length deviation |r - r0| / r0 per system. bonds: (n_bonds, 2)."""
-    r = torch.linalg.norm(pos[:, bonds[:, 0]] - pos[:, bonds[:, 1]], dim=-1)
+    dr = pos[:, bonds[:, 0]] - pos[:, bonds[:, 1]]
+    if box is not None:
+        dr = minimum_image(dr, box[:, None].to(dr.dtype))
+    r = torch.linalg.norm(dr, dim=-1)
     return ((r - r0) / r0).abs().max(dim=1).values
 
 

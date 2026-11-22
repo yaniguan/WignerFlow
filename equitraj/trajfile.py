@@ -73,6 +73,12 @@ class TrajWriter:
         self.flush()
         self.f.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
 
 def read_traj(path, start=0, stop=None, stride=1):
     """Read a trajectory into a dict of numpy arrays (OpenMM units) plus 'attrs'."""

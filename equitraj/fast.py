@@ -31,6 +31,9 @@ class FastRollout:
         self.model = copy.deepcopy(model).float().eval()
         self.sampling_steps, self.precision, self.sampler = sampling_steps, precision, sampler
         self.neighbor, self.skin, self.rebuild_every = neighbor, skin, rebuild_every
+        if cuda_graphs and getattr(self.model, "geometry_aware", False):
+            warnings.warn("CUDA graphs incompatible with geometry_aware=True; using eager", RuntimeWarning)
+            cuda_graphs = False
         self.cuda_graphs, self.edge_capacity = cuda_graphs, edge_capacity
         self._lists = {}
         self._capture = None
@@ -102,27 +105,31 @@ class FastRollout:
                 if self.effective_precision == "bf16" else nullcontext())
 
     def _eager(self, args):
-        with self._autocast(args[0].device):
-            fn = self._compiled or self.model.predict_with_grad
-            try:
+        fn = self._compiled or self.model.predict_with_grad
+        try:
+            with self._autocast(args[0].device):
                 return fn(*args)
-            except Exception as exc:
-                if self._compiled is not None:
-                    warnings.warn(f"compiled execution failed; using eager: {exc}", RuntimeWarning)
-                    self._compiled = None
-                    return self._eager(args)
-                if self._fp32_model is not None:
-                    warnings.warn(f"fp8 execution failed; using fp32: {exc}", RuntimeWarning)
-                    self.model, self._fp32_model = self._fp32_model, None
-                    self.effective_precision = "fp32"
-                    return self._eager(args)
-                raise
+        except Exception as exc:
+            if self._compiled is not None:
+                warnings.warn(f"compiled execution failed; using eager: {exc}", RuntimeWarning)
+                self._compiled = None
+                return self._eager(args)
+            if self._fp32_model is not None:
+                warnings.warn(f"fp8 execution failed; using fp32: {exc}", RuntimeWarning)
+                self.model, self._fp32_model = self._fp32_model, None
+                self.effective_precision = "fp32"
+                return self._eager(args)
+            raise
 
     @torch.no_grad()
     def predict(self, pos, vel, types, box, masses, noise=None, n_steps=None):
-        pos, vel = pos.float(), vel.float()
+        dev = next(self.model.parameters()).device
+        pos, vel = pos.to(dev, torch.float32), vel.to(dev, torch.float32)
+        types, masses = types.to(dev), masses.to(dev)
         if box is not None:
-            box = box.float()
+            box = box.to(dev, torch.float32)
+        if noise is not None:
+            noise = noise.to(dev, torch.float32)
         r, k, n, _ = pos.shape
         self._step_pairs = {}
         boxes = None if box is None else box[:, None].expand(r, k, 3, 3).reshape(-1, 3, 3)
@@ -193,7 +200,10 @@ class FastRollout:
     def rollout(self, pos, vel, types, box, masses, n_steps, *, save_every=1):
         if n_steps < 1 or save_every < 1:
             raise ValueError("n_steps and save_every must be positive")
-        x, v = pos.double(), vel.float()
+        dev = next(self.model.parameters()).device
+        x, v = pos.to(dev, torch.float64), vel.to(dev, torch.float32)
+        types, masses = types.to(dev), masses.to(dev)
+        box = None if box is None else box.to(dev)
         xs, vs = [], []
         for step in range(1, n_steps + 1):
             dx, vn = self.predict(x, v, types, box, masses)

@@ -1,6 +1,7 @@
 """Checkpoint writes survive a missing output folder (Google Drive unmount). CPU only."""
 import os
 import shutil
+import tempfile
 
 import pytest
 import torch
@@ -30,7 +31,7 @@ def test_atomic_save_creates_missing_parent_from_local_tmp(tmp_path, monkeypatch
     atomic_save(payload, str(dest), retries=3, backoff=0.0)
 
     assert len(saved_to) == 1
-    assert saved_to[0].startswith("/tmp/")
+    assert os.path.dirname(saved_to[0]) == tempfile.gettempdir()
     assert saved_to[0].endswith(".pt")
     assert not os.path.exists(saved_to[0])
     assert copied == [(saved_to[0], str(dest) + ".tmp")]

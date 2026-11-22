@@ -26,6 +26,7 @@ import torch.nn.functional as F
 
 from equitraj import analysis
 from equitraj.adapters import unwrap_positions
+from equitraj.pair_masks import exclusions_from_bonds
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
 
 _KB_SI = 1.380649e-23
@@ -33,9 +34,9 @@ _E_SI = 1.602176634e-19
 _NA = 6.02214076e23
 _YEH_HUMMER_XI = 2.837297
 # Converts (e^2 / (V_A3 * k_B * T)) * D[cm^2/s] -> mS/cm
-_NE_PREFACTOR_MS_CM = (_E_SI ** 2 * 1e-4) / (1e-30 * _KB_SI) * 10.0  # ~1.8607e9
+_NE_PREFACTOR_MS_CM = (_E_SI ** 2 * 1e-4) / (1e-30 * _KB_SI) * 10.0  # ~1.859e12
 # Molar prefactor: (N_A * e^2 / k_B) in (mS/cm) * K / ((mol/L) * (cm^2/s))
-_MOLAR_NE_PREFACTOR = (_NA * 1000.0 * (_E_SI ** 2) * 1e-4 / _KB_SI) * 10.0  # ~1.12055e6
+_MOLAR_NE_PREFACTOR = (_NA * 1000.0 * (_E_SI ** 2) * 1e-4 / _KB_SI) * 10.0  # ~1.120e9
 
 
 # ---------------------------------------------------------------------------
@@ -672,6 +673,7 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
     """
     torch.manual_seed(seed)
     aligned = copy.deepcopy(model).float().train()
+    device = next(aligned.parameters()).device
     opt = torch.optim.AdamW(aligned.parameters(), lr=lr, weight_decay=1e-5)
     shadow = {k: v.detach().clone() for k, v in aligned.state_dict().items() if v.is_floating_point()}
 
@@ -681,13 +683,32 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
 
     for step_idx in range(steps):
         win = windows[int(rng.integers(0, len(windows)))]
-        pos_full = torch.as_tensor(win["positions"], dtype=torch.float32)  # (T, N, 3)
-        vel_full = torch.as_tensor(win["velocities"], dtype=torch.float32)
-        types = torch.as_tensor(win["types"], dtype=torch.long)
-        masses = torch.as_tensor(win["masses"], dtype=torch.float32)
-        box = None if win.get("box") is None else torch.as_tensor(win["box"], dtype=torch.float32)[None]
-        charges = None if win.get("charges") is None else torch.as_tensor(win["charges"], dtype=torch.float32)
-        ion_idx = torch.as_tensor(win.get("ion_indices", np.arange(pos_full.shape[1])), dtype=torch.long)
+        raw_box = win.get("box")
+        raw_pos = np.asarray(win["positions"], dtype=np.float64)
+        if raw_box is not None:
+            raw_pos = unwrap_positions(raw_pos, np.asarray(raw_box, dtype=np.float64))
+        pos_full = torch.as_tensor(raw_pos, dtype=torch.float32, device=device)  # (T, N, 3)
+        vel_full = torch.as_tensor(win["velocities"], dtype=torch.float32, device=device)
+        types = torch.as_tensor(win["types"], dtype=torch.long, device=device)
+        masses = torch.as_tensor(win["masses"], dtype=torch.float32, device=device)
+        box = None if raw_box is None else torch.as_tensor(raw_box, dtype=torch.float32, device=device)[None]
+        charges = None if win.get("charges") is None else torch.as_tensor(win["charges"], dtype=torch.float32, device=device)
+        ion_idx = torch.as_tensor(win.get("ion_indices", np.arange(pos_full.shape[1])), dtype=torch.long, device=device)
+
+        n_atoms = len(masses)
+        skip_mask = torch.eye(n_atoms, dtype=torch.bool, device=device)
+        if win.get("bonds") is not None and len(win["bonds"]) > 0:
+            skip_mask = skip_mask | exclusions_from_bonds(win["bonds"], n_atoms, device=device)
+        if win.get("excluded_pairs") is not None:
+            ex_p = win["excluded_pairs"]
+            if isinstance(ex_p, (set, list, tuple)):
+                for i_ex, j_ex in ex_p:
+                    skip_mask[int(i_ex), int(j_ex)] = True
+                    skip_mask[int(j_ex), int(i_ex)] = True
+            else:
+                ex_t = torch.as_tensor(ex_p, device=device)
+                if ex_t.dtype == torch.bool and ex_t.shape == (n_atoms, n_atoms):
+                    skip_mask = skip_mask | ex_t
 
         max_m = min(int(unroll_m), pos_full.shape[0] - k_ctx)
         start = int(rng.integers(0, max(1, pos_full.shape[0] - k_ctx - max_m + 1)))
@@ -697,14 +718,14 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
         x0_ions = ctx_x[0, -1, ion_idx]
         x0_ions_ref = pos_full[start + k_ctx - 1, ion_idx]
 
-        ndof = max(1.0, float(3 * len(masses) - 3))
+        ndof = max(1.0, float(3 * n_atoms - 3))
         ke_ref0 = (masses[:, None] * (vel_full[start + k_ctx - 1] ** 2)).sum() * AMU_A2_PER_FS2_TO_KJ_PER_MOL
         t_ref = float((ke_ref0 / (ndof * KB)).clamp_min(10.0).item())
 
-        loss_traj = torch.tensor(0.0, dtype=torch.float32)
-        loss_temp = torch.tensor(0.0, dtype=torch.float32)
-        loss_vacf = torch.tensor(0.0, dtype=torch.float32)
-        loss_ov = torch.tensor(0.0, dtype=torch.float32)
+        loss_traj = torch.tensor(0.0, dtype=torch.float32, device=device)
+        loss_temp = torch.tensor(0.0, dtype=torch.float32, device=device)
+        loss_vacf = torch.tensor(0.0, dtype=torch.float32, device=device)
+        loss_ov = torch.tensor(0.0, dtype=torch.float32, device=device)
 
         v_init = ctx_v[0, -1]
         v_init_ref = vel_full[start + k_ctx - 1]
@@ -721,8 +742,13 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
             dx_true = target_x[None] - ctx_x[:, -1]
 
             # Normalized trajectory step loss
-            dx_scale = aligned.out_dx_std[types].clamp_min(1e-4)[None, :, None]
-            v_scale = aligned.out_v_std[types].clamp_min(1e-5)[None, :, None]
+            if getattr(aligned, "target_scaling", "element_std") == "mass":
+                inv_sqrt_m = masses.rsqrt()[None, :, None]
+                dx_scale = (aligned.mass_dx_std * inv_sqrt_m).clamp_min(1e-4)
+                v_scale = (aligned.mass_v_std * inv_sqrt_m).clamp_min(1e-5)
+            else:
+                dx_scale = aligned.out_dx_std[types].clamp_min(1e-4)[None, :, None]
+                v_scale = aligned.out_v_std[types].clamp_min(1e-5)[None, :, None]
             loss_traj = loss_traj + F.smooth_l1_loss(dx_pred / dx_scale, dx_true / dx_scale) + \
                         F.smooth_l1_loss(v_pred / v_scale, target_v[None] / v_scale)
 
@@ -736,14 +762,13 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
             c_true = (target_v * v_init_ref).mean() / v_norm_denom
             loss_vacf = loss_vacf + (c_pred - c_true) ** 2
 
-            # Soft short-range steric overlap penalty
+            # Soft short-range steric overlap penalty (excluding self & bonded 1-2/1-3 pairs)
             dr = x_next[0, :, None, :] - x_next[0, None, :, :]
             if box is not None:
                 l_box = torch.diagonal(box[0])[None, None, :]
                 dr = dr - l_box * torch.round(dr / l_box)
             dist = torch.sqrt((dr ** 2).sum(dim=-1) + 1e-8)
-            eye = torch.eye(len(masses), dtype=torch.bool)
-            pen = F.relu(r_overlap_a - dist.masked_fill(eye, 10.0))
+            pen = F.relu(r_overlap_a - dist.masked_fill(skip_mask, 10.0))
             loss_ov = loss_ov + (pen ** 2).mean()
 
             ctx_x = torch.cat([ctx_x[:, 1:], x_next[:, None]], dim=1)
@@ -789,7 +814,7 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
 # ---------------------------------------------------------------------------
 
 def _pack_feature_tensor(records: list[dict], traj_obs: list[dict | None] | None = None) -> torch.Tensor:
-    """Pack physical mixture descriptors + optional WignerFlow rollout observables into `(B, 15)` float32."""
+    """Pack physical mixture descriptors + optional WignerFlow rollout observables into `(B, 16)` float32."""
     rows = []
     for i, r in enumerate(records):
         obs = None if traj_obs is None else traj_obs[i]

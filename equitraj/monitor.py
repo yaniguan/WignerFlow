@@ -65,7 +65,7 @@ class StabilityMonitor:
              "max_speed": torch.linalg.norm(vd, dim=-1).amax(dim=1),
              "momentum": torch.linalg.norm(torch.einsum("n,bnd->bd", masses.double(), vd), dim=-1)}
         if self.bonds is not None:
-            s["bond_dev"] = max_bond_deviation(x, self.bonds.to(x.device), self.bond_r0.to(x.device)).double()
+            s["bond_dev"] = max_bond_deviation(x, self.bonds.to(x.device), self.bond_r0.to(x.device), box=box).double()
         if self.energy_fn is not None:
             s["PE"] = torch.as_tensor(self.energy_fn(x, box), dtype=torch.float64, device=x.device).reshape(-1)
         return s
@@ -125,7 +125,10 @@ class StabilityMonitor:
             info["value"] = float(temperature(v[None], self.masses.to(v.device), self.n_constraints)[0])
         else:  # bond
             bonds = self.bonds.to(x.device)
-            r = torch.linalg.norm(x[bonds[:, 0]] - x[bonds[:, 1]], dim=-1)
+            dr = x[bonds[:, 0]] - x[bonds[:, 1]]
+            if self.box is not None:
+                dr = minimum_image(dr, self.box[bi].to(x.device, dr.dtype))
+            r = torch.linalg.norm(dr, dim=-1)
             dev = ((r - self.bond_r0.to(x.device)) / self.bond_r0.to(x.device)).abs()
             idx = torch.nonzero(dev > self.max_bond_dev).flatten()[:self.n_report]
             info["bonds"] = [[int(bonds[k, 0]), int(bonds[k, 1]), float(dev[k])] for k in idx.tolist()]

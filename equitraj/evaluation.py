@@ -6,14 +6,19 @@ from equitraj.dataset import TrajWindows
 from equitraj.forcefield import EquiFF
 from equitraj.layers import check_attention_version
 from equitraj.model import make_model
+from equitraj.pair_masks import exclusions_from_bonds
 
 
 def first_zero(t, c):
-    """First time where c crosses zero, linearly interpolated (None if it never does)."""
-    i = np.argmax(c < 0)
+    """First time where c crosses zero from above, linearly interpolated (None if it never does)."""
+    if len(c) == 0 or c[0] < 0:
+        return None
+    if c[0] == 0:
+        return float(t[0])
+    i = int(np.argmax(c < 0))
     if c[i] >= 0:
         return None
-    return t[i - 1] + (t[i] - t[i - 1]) * c[i - 1] / (c[i - 1] - c[i])
+    return float(t[i - 1] + (t[i] - t[i - 1]) * c[i - 1] / (c[i - 1] - c[i]))
 
 
 def load_model(run_dir, ckpt, device, split="test", data_dir=None):
@@ -33,9 +38,22 @@ def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     ds = TrajWindows(cfg["data_dir"], split, cfg["stride_steps"], cfg["k"], m=1)
     if "stride_fs" in ck and not np.isclose(ds.stride_fs, ck["stride_fs"]):
         raise ValueError("Dataset stride does not match released checkpoint")
+    model_cfg = dict(cfg["model"])
+    if model_cfg.get("n_ff_types") == "auto":
+        model_cfg["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
     if cfg.get("kind") == "ff":
-        model = EquiFF(n_types=len(ck["elements"]), **cfg["model"])
+        model = EquiFF(n_types=len(ck["elements"]), **model_cfg)
     else:
-        model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+        model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **model_cfg)
     model.load_state_dict(ck["model"])
-    return model.to(device).eval(), cfg, ds, step
+    model = model.to(device).eval()
+    if getattr(ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+        model.set_chemistry(
+            charges=ds.charges,
+            ff_types=ds.ff_types,
+            bonds=ds.bonds,
+            n_atoms=len(ds.types),
+        )
+    if getattr(model, "prior", None) is not None and ds.bonds is not None and len(ds.bonds) > 0:
+        model.prior.excluded_pairs = exclusions_from_bonds(ds.bonds, len(ds.types), device=device)
+    return model, cfg, ds, step

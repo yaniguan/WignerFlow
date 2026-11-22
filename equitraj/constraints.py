@@ -91,7 +91,7 @@ class DistanceProjector:
             distance = max(distance_errors, default=0.)
             speed = max(speed_errors, default=0.)
             if distance <= self.tolerance and speed <= self.velocity_tolerance:
-                return x, v.to(velocities.dtype), dict(
+                return x.to(positions.dtype), v.to(velocities.dtype), dict(
                     iterations=iteration, distance_residual_A=distance,
                     velocity_residual_A_per_fs=speed,
                     max_position_correction_A=float((x - positions).norm(dim=-1).max()),

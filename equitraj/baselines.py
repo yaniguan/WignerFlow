@@ -75,7 +75,7 @@ class PlainTraj(EquiTraj):
         self.lmax, self.c, self.cutoff, self.k, self.n_rbf = 0, channels, cutoff, k, n_rbf
         self.head_type, self.use_velocity, self.neighbor_method = head, use_velocity, neighbor_method
         self.target, self.stride_fs = target, stride_fs
-        self.target_scaling = "element"
+        self.target_scaling = "element_std"
         self.geometry_aware = False
         self.prior = None
         self.use_charges = False

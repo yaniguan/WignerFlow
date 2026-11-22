@@ -76,7 +76,7 @@ def first_minimum_after_peak(r, g):
     j = i + 1
     while j < len(g) - 1 and not (g[j] <= g[j - 1] and g[j] <= g[j + 1]):
         j += 1
-    return r[j]
+    return r[min(j, len(r) - 1)]
 
 
 def coordination_number(r, g, rho_b, r_cut):
@@ -113,11 +113,14 @@ def vdos(vacf_values, dt_fs):
     Uses a Hann window on the one-sided VACF. Returns (wavenumber in cm^-1, spectrum normalized to max 1).
     The highest resolvable wavenumber is the Nyquist limit 1/(2 dt).
     """
+    freq = np.fft.rfftfreq(4 * len(vacf_values), d=dt_fs)  # 1/fs
+    if len(vacf_values) == 0 or vacf_values[0] == 0:
+        return per_fs_to_wavenumber(freq), np.zeros_like(freq)
     c = vacf_values / vacf_values[0]
     window = np.hanning(2 * len(c))[len(c):]
     spec = np.abs(np.fft.rfft(c * window, n=4 * len(c)))
-    freq = np.fft.rfftfreq(4 * len(c), d=dt_fs)  # 1/fs
-    return per_fs_to_wavenumber(freq), spec / spec.max()
+    smax = spec.max()
+    return per_fs_to_wavenumber(freq), (spec / smax if smax > 0 else np.zeros_like(spec))
 
 
 def msd(positions, lags):

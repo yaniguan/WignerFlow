@@ -61,12 +61,20 @@ def y_to_x(l, dtype, device):
     """Wigner-D of the fixed rotation that maps the y axis onto the x axis (-90 deg about z). Cached.
 
     A rotation about x by beta equals this matrix times a rotation about y by beta times its transpose.
+    e3nn's Irrep.D_from_matrix builds its generator tables in torch.get_default_dtype(), so compute the
+    constant change-of-basis matrix under float64 before casting to `dtype`.
     """
     key = (l, dtype, device)
     if key not in _Y_TO_X:
-        m = torch.tensor([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float64)
-        irrep = o3.Irrep(l, (-1) ** l)
-        _Y_TO_X[key] = irrep.D_from_matrix(m).to(dtype=dtype, device=device)
+        prev = torch.get_default_dtype()
+        torch.set_default_dtype(torch.float64)
+        try:
+            m = torch.tensor([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float64)
+            irrep = o3.Irrep(l, (-1) ** l)
+            d_mat = irrep.D_from_matrix(m)
+        finally:
+            torch.set_default_dtype(prev)
+        _Y_TO_X[key] = d_mat.to(dtype=dtype, device=device)
     return _Y_TO_X[key]
 
 
@@ -104,6 +112,12 @@ def rotate(x, rotation, lmax):
     Used only in tests. In e3nn (>= 0.5) the l=1 components are ordered (x, y, z), so an
     xyz vector can be used directly as an l=1 feature, and D for l=1 equals the matrix itself.
     """
-    irreps = o3.Irreps([(1, (l, (-1) ** l)) for l in range(lmax + 1)])
-    d = irreps.D_from_matrix(rotation.to(x.dtype))
-    return torch.einsum("ij,...jc->...ic", d, x)
+    prev = torch.get_default_dtype()
+    work_dtype = torch.float64 if x.dtype == torch.float64 else torch.float32
+    torch.set_default_dtype(work_dtype)
+    try:
+        irreps = o3.Irreps([(1, (l, (-1) ** l)) for l in range(lmax + 1)])
+        d = irreps.D_from_matrix(rotation.to(dtype=work_dtype, device="cpu"))
+    finally:
+        torch.set_default_dtype(prev)
+    return torch.einsum("ij,...jc->...ic", d.to(dtype=x.dtype, device=x.device), x)

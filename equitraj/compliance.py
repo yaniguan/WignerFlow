@@ -564,9 +564,12 @@ def _run_compliance_audit(
             sampling_steps=sampling_steps, t_max=5.0 * ctx["t_ref_K"], predictor=fast_pred,
         )
         crashed_step = int(out["crash_step"][0])
-        n_ok = r_steps if crashed_step < 0 else max(2, crashed_step)
+        n_ok = r_steps if crashed_step < 0 else max(1, crashed_step - 1)
         x_traj = out["positions"][:n_ok, 0].numpy()
         v_traj = out["velocities"][:n_ok, 0].numpy()
+        if not (np.isfinite(x_traj).all() and np.isfinite(v_traj).all()):
+            x_traj = pos_r0[0, -1:].numpy()
+            v_traj = vel_r0[0, -1:].numpy()
 
     m_np = masses_r.numpy().astype(np.float64)
     m_tot = float(m_np.sum())
@@ -649,7 +652,10 @@ def _run_compliance_audit(
     elem_temps = {}
     for el in unique_elems:
         idx_el = [i for i, e in enumerate(ctx["elements_full"]) if e == el]
-        t_el = float(temperature(torch.from_numpy(v_traj[:, idx_el]), torch.from_numpy(m_np[idx_el])).mean().item())
+        m_el = m_np[idx_el]
+        ke_el = 0.5 * (m_el[None, :] * (v_traj[:, idx_el] ** 2).sum(axis=-1)).sum(axis=-1) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
+        dof_el = max(1e-6, 3.0 * len(idx_el) - 3.0 * (float(m_el.sum()) / max(m_tot, 1e-12)))
+        t_el = float((2.0 * ke_el / (dof_el * KB)).mean())
         elem_temps[el] = round(t_el, 2)
     t_all_mean = float(temperature(torch.from_numpy(v_traj), torch.from_numpy(m_np)).mean().item())
     eq_spread = max(abs(tv - t_all_mean) / max(t_all_mean, 1e-6) for tv in elem_temps.values()) if len(elem_temps) > 1 else 0.0
@@ -669,7 +675,10 @@ def _run_compliance_audit(
     min_vdw = float(min(vdw_ratios))
     if ctx["bonds_alg"] is not None and len(ctx["bonds_alg"]) > 0:
         bp_np = ctx["bonds_alg"].numpy()
-        d_bonds = np.linalg.norm(x_traj[:, bp_np[:, 0]] - x_traj[:, bp_np[:, 1]], axis=-1)
+        dr_bonds = x_traj[:, bp_np[:, 0]] - x_traj[:, bp_np[:, 1]]
+        if box_l_val is not None:
+            dr_bonds = dr_bonds - box_l_val * np.round(dr_bonds / box_l_val)
+        d_bonds = np.linalg.norm(dr_bonds, axis=-1)
         max_bond_dev = float(np.max(np.abs(d_bonds - ctx["bond_r0"][None, :])))
     else:
         max_bond_dev = 0.0
@@ -706,6 +715,11 @@ def _run_compliance_audit(
     # ------------------------------------------------------------------ G10: Dual Epistemic & Flow Straightness
     cond_f, graph_f = model_roll.encode(pos_r0, vel_r0, types_r, box_r0)
     n_f = len(types_r)
+    q_f, _, bh_f = model_roll._resolve_chemistry(n_f, pos_r0.device, pos_r0.dtype)
+    v_last_f = model_roll.base_velocity(pos_r0, vel_r0)
+    cand_fn = model_roll._candidate_graph_builder(
+        pos_r0[:, -1], v_last_f, types_r, box_r0, masses_r, graph_f, q_f, bh_f, None
+    )
     gen_ep = torch.Generator().manual_seed(seed + 911)
     y_init = model_roll.com_free_noise(1, types_r, masses_r, generator=gen_ep, like=cond_f)
     m_steps = max(2, sampling_steps)
@@ -714,14 +728,14 @@ def _run_compliance_audit(
     y_heu = y_init.clone()
     seg_len = 0.0
     for s_i in range(m_steps):
-        tau0 = torch.full((n_f,), s_i * dt_tau)
-        tau1 = torch.full((n_f,), (s_i + 1) * dt_tau)
-        u_e = model_roll.denoiser(cond_f, graph_f, y_eul, tau0)
+        tau0 = torch.full((n_f,), s_i * dt_tau, dtype=cond_f.dtype, device=cond_f.device)
+        tau1 = torch.full((n_f,), (s_i + 1) * dt_tau, dtype=cond_f.dtype, device=cond_f.device)
+        u_e = model_roll.denoise(cond_f, graph_f, y_eul, tau0, candidate_graph_fn=cand_fn)
         y_eul = y_eul + dt_tau * u_e
 
-        u_h0 = model_roll.denoiser(cond_f, graph_f, y_heu, tau0)
+        u_h0 = model_roll.denoise(cond_f, graph_f, y_heu, tau0, candidate_graph_fn=cand_fn)
         y_mid = y_heu + dt_tau * u_h0
-        u_h1 = model_roll.denoiser(cond_f, graph_f, y_mid, tau1)
+        u_h1 = model_roll.denoise(cond_f, graph_f, y_mid, tau1, candidate_graph_fn=cand_fn)
         step_vec = 0.5 * dt_tau * (u_h0 + u_h1)
         seg_len += float(torch.linalg.norm(step_vec.reshape(-1)).item())
         y_heu = y_heu + step_vec
@@ -729,17 +743,17 @@ def _run_compliance_audit(
     chord_len = float(torch.linalg.norm((y_heu - y_init).reshape(-1)).item())
     straightness = chord_len / max(seg_len, 1e-12)
 
-    dx_eul, _ = model_roll.y_to_targets(y_eul, types_r, vel_r0[:, -1], masses=masses_r)
-    dx_heu, _ = model_roll.y_to_targets(y_heu, types_r, vel_r0[:, -1], masses=masses_r)
+    dx_eul, _ = model_roll.y_to_targets(y_eul, types_r, v_last_f, masses=masses_r)
+    dx_heu, _ = model_roll.y_to_targets(y_heu, types_r, v_last_f, masses=masses_r)
     ode_rel_delta = _rel_frob(dx_heu, dx_eul)
 
     draws_x = []
     for d_i in range(3):
         yd = y_init.clone() if d_i == 0 else model_roll.com_free_noise(1, types_r, masses_r, generator=gen_ep, like=cond_f)
         for s_i in range(m_steps):
-            tau = torch.full((n_f,), s_i * dt_tau)
-            yd = yd + dt_tau * model_roll.denoiser(cond_f, graph_f, yd, tau)
-        dxd, _ = model_roll.y_to_targets(yd, types_r, vel_r0[:, -1], masses=masses_r)
+            tau = torch.full((n_f,), s_i * dt_tau, dtype=cond_f.dtype, device=cond_f.device)
+            yd = yd + dt_tau * model_roll.denoise(cond_f, graph_f, yd, tau, candidate_graph_fn=cand_fn)
+        dxd, _ = model_roll.y_to_targets(yd, types_r, v_last_f, masses=masses_r)
         dxd = remove_com(dxd, masses_r)
         draws_x.append((pos_r0[:, -1] + dxd)[0])
     stack_x = torch.stack(draws_x, dim=0)

@@ -25,8 +25,9 @@ def distillation_loss(student, teacher, pos, vel, types, box, masses,
         teacher.train(training)
     sx, sv = student.predict_with_grad(pos, vel, types, box, masses,
                                        n_steps=teacher_steps // 2, noise=noise)
-    target = student.targets_to_y(dx, vn, vel[:, -1], types)
-    prediction = student.targets_to_y(sx, sv, vel[:, -1], types)
+    v_base = student.base_velocity(pos, vel)
+    target = student.targets_to_y(dx, vn, v_base, types, masses=masses)
+    prediction = student.targets_to_y(sx, sv, v_base, types, masses=masses)
     loss = (prediction - target).square().mean()
     if supervised_weight:
         loss = loss + supervised_weight * student.loss(pos, vel, types, box, masses, dx, vn)
