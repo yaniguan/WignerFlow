@@ -1,0 +1,20 @@
+# Alanine dipeptide in vacuum (OpenFF-2.2.1, NVE): 10 x 2 ns trajectories, frames every 2 fs.
+system: ala2
+temperature_K: 300.0
+dt_fs: 1.0
+save_every: 2
+force_every: 10
+friction_per_ps: 1.0
+constraint_tol: 0.000001
+npt_ps: 0.0
+equil_ps: 50.0
+production_ps: 2000.0
+platform: CPU
+precision: mixed
+n_traj: 10
+seed0: 3000
+split:
+  train: [0, 1, 2, 3, 4, 5, 6, 7]
+  val: [8]
+  test: [9]
+out_dir: data/ala2

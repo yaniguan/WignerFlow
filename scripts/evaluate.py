@@ -273,9 +273,11 @@ def main(argv=None):
                         "t (ps)", "MSD (Å²)", "Mean squared displacement")
 
     # ---- speed ----
-    m["speed"] = {"wall_s": out["wall_s"], "s_per_step_batch": out["wall_s"] / out["steps_done"],
-                  "ns_per_day_per_rollout": out["steps_done"] * dt * 1e-6 / out["wall_s"] * 86400,
-                  "ns_per_day_all_rollouts": n_roll * out["steps_done"] * dt * 1e-6 / out["wall_s"] * 86400,
+    wall_s = max(float(out["wall_s"]), 1e-9)
+    steps_done = max(int(out["steps_done"]), 1)
+    m["speed"] = {"wall_s": out["wall_s"], "s_per_step_batch": out["wall_s"] / steps_done,
+                  "ns_per_day_per_rollout": out["steps_done"] * dt * 1e-6 / wall_s * 86400,
+                  "ns_per_day_all_rollouts": n_roll * out["steps_done"] * dt * 1e-6 / wall_s * 86400,
                   "device": torch.cuda.get_device_name(0) if device.type == "cuda" else str(device)}
 
     # ---- v0 verdict ----

@@ -4,7 +4,6 @@ import importlib
 import json
 from pathlib import Path
 import sys
-import tomllib
 
 import numpy as np
 import pytest
@@ -212,6 +211,11 @@ def test_configs_horizons_lazy_h5py_and_pyproject_packages(monkeypatch):
             sys.modules["equitraj.adapters"] = saved_ad
 
     # 4. pyproject.toml packages both equitraj* and lab*
-    pyproj = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    try:
+        import tomllib
+        pyproj = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    except ModuleNotFoundError:  # Python 3.10
+        from setuptools.config.pyprojecttoml import load_file
+        pyproj = load_file(ROOT / "pyproject.toml")
     includes = pyproj["tool"]["setuptools"]["packages"]["find"]["include"]
     assert "lab" in includes and "lab.*" in includes

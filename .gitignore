@@ -6,7 +6,7 @@ __pycache__/
 .venv/
 
 # Large or generated files: trajectories, checkpoints, logs
-data/
+/data/
 *.h5
 *.hdf5
 *.dcd
