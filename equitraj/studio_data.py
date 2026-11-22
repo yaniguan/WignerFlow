@@ -40,10 +40,14 @@ H    1.984500    0.341100    0.000000
 
 
 def parse_xyz_text(xyz_text: str) -> dict:
-    lines = [ln.rstrip() for ln in xyz_text.strip().splitlines()]
+    lines = [ln.rstrip() for ln in xyz_text.strip().splitlines() if ln.strip() or True]
+    while lines and not lines[0].strip():
+        lines.pop(0)
     if len(lines) < 3:
         raise ValueError("XYZ text must have at least 3 lines (N, comment, coordinates)")
     n_atoms = int(lines[0].strip().split()[0])
+    if n_atoms < 2:
+        raise ValueError(f"XYZ molecule must have at least 2 atoms, got {n_atoms}")
     if len(lines) < 2 + n_atoms:
         raise ValueError(f"XYZ declares {n_atoms} atoms, but only {len(lines) - 2} atom lines were provided")
     elements, coords = [], []
@@ -125,8 +129,13 @@ def run_studio_rollout(
     seed: int = 0,
 ) -> dict:
     """Run a live CPU BAOAB rollout on a preset or custom XYZ molecule for interactive 3D Studio inspection."""
+    if int(n_frames) < 2 or int(substeps) < 1:
+        raise ValueError("n_frames must be >= 2 and substeps >= 1")
+    if float(dt_fs) <= 0.0 or float(temperature_k) <= 0.0 or float(friction_per_ps) < 0.0:
+        raise ValueError("dt_fs and temperature_k must be positive, and friction_per_ps >= 0")
     t0 = time.perf_counter()
     box_l = None
+    mol_ids = None
     if custom_xyz and custom_xyz.strip():
         parsed = parse_xyz_text(custom_xyz)
         title = f"Custom XYZ ({len(parsed['elements'])} atoms · {parsed['comment'][:40]})"
@@ -156,6 +165,7 @@ def run_studio_rollout(
         pdb = parse_pdb(SYSTEMS_DIR / pdb_name)
         ff = parse_openmm_xml(SYSTEMS_DIR / xml_name)
         pos0, elements, masses = pdb["positions"], pdb["elements"], ff["masses"]
+        mol_ids = pdb.get("mol_ids")
         box_l = float(pdb["box"][0, 0]) if pdb["box"] is not None else None
         if box_l is None:
             pos0 = pos0 - pos0.mean(axis=0, keepdims=True)
@@ -167,15 +177,20 @@ def run_studio_rollout(
             excl.add((min(int(a0), int(a2)), max(int(a0), int(a2))))
         topo["excluded_pairs"] = excl
 
+    init_vdw = posebusters_vdw_audit(pos0, elements, excluded_pairs=topo["excluded_pairs"], box_length=box_l)
+    relax_steps = 90 if (box_l is not None or init_vdw["min_vdw_ratio"] < 0.78) else 0
+
     eng = PocketMicroEngine(
         masses, charges, sigma_a, eps_kj,
         bond_pairs=topo["bond_pairs"], bond_r0=topo["bond_r0"], bond_k=topo["bond_k"],
         angle_triplets=topo["angle_triplets"], angle_theta0=topo["angle_theta0"], angle_k=topo["angle_k"],
-        excluded_pairs=topo["excluded_pairs"], box_length=box_l, dielectric=1.5 if box_l is None else 2.0,
+        excluded_pairs=topo["excluded_pairs"], exceptions_14=topo.get("exceptions_14"),
+        box_length=box_l, dielectric=1.5 if box_l is None else 2.0,
     )
     traj_x, traj_v = eng.run(
         pos0, n_frames=int(n_frames), substeps=int(substeps), dt_fs=float(dt_fs),
-        temperature_k=float(temperature_k), friction_per_ps=float(friction_per_ps), seed=int(seed),
+        temperature_k=float(temperature_k), friction_per_ps=float(friction_per_ps),
+        seed=int(seed), relax_steps=relax_steps,
     )
     wall_s = time.perf_counter() - t0
     stride_fs = float(substeps) * float(dt_fs)
@@ -202,22 +217,56 @@ def run_studio_rollout(
     k_tot = 0.5 * (masses[None, :] * (traj_v ** 2).sum(axis=-1)).sum(axis=-1)
     com_leak = float((k_com / np.maximum(k_tot, 1e-15)).max())
 
+    all_finite = np.isfinite(t_mean) and np.isfinite(bond_rms) and np.isfinite(com_leak) and np.isfinite(vdw_last["min_vdw_ratio"])
     verdict = (
-        "REJECT" if (vdw_last["min_vdw_ratio"] < 0.65 or bond_rms > 0.18)
+        "REJECT" if (not all_finite or vdw_last["min_vdw_ratio"] < 0.65 or bond_rms > 0.18)
         else ("GO" if (t_rel_err <= 0.35 and bond_rms <= 0.09 and com_leak < 1e-6) else "HOLD")
     )
 
-    vis_n = min(96, traj_x.shape[1])
-    vis_frames = (traj_x[:, :vis_n] % box_l if box_l is not None else traj_x[:, :vis_n]).round(3).tolist()
-    vis_bonds = [[int(i), int(j)] for i, j in topo["bond_pairs"] if i < vis_n and j < vis_n]
+    if traj_x.shape[1] > 96 and mol_ids is not None:
+        # Select intact molecules: ions (Li+, PF6-) plus closest solvent molecules to atom 0
+        unique_mols = np.unique(mol_ids)
+        mol_groups = {int(m): np.flatnonzero(mol_ids == m) for m in unique_mols}
+        must_mols = [
+            m for m, idxs in mol_groups.items()
+            if any(elements[i] in ("Li", "Na", "K", "P", "F") for i in idxs)
+        ]
+        ref_pt = traj_x[0, 0]
+        other_mols = []
+        for m, idxs in mol_groups.items():
+            if m in must_mols:
+                continue
+            ctr = traj_x[0, idxs].mean(axis=0)
+            dr_m = ctr - ref_pt
+            if box_l is not None:
+                dr_m = dr_m - box_l * np.round(dr_m / box_l)
+            other_mols.append((float(np.linalg.norm(dr_m)), m))
+        other_mols.sort()
+        chosen = []
+        for m in must_mols + [m for _, m in other_mols]:
+            idxs = mol_groups[m].tolist()
+            if len(chosen) + len(idxs) <= 96:
+                chosen.extend(idxs)
+        sel_idx = np.asarray(sorted(chosen), dtype=np.int64)
+    else:
+        sel_idx = np.arange(min(96, traj_x.shape[1]), dtype=np.int64)
+
+    remap = {int(orig): new_i for new_i, orig in enumerate(sel_idx.tolist())}
+    sub_x = traj_x[:, sel_idx]
+    vis_frames = (sub_x % box_l if box_l is not None else sub_x).round(3).tolist()
+    vis_elements = [elements[int(i)] for i in sel_idx.tolist()]
+    vis_bonds = [[remap[int(i)], remap[int(j)]] for i, j in topo["bond_pairs"] if int(i) in remap and int(j) in remap]
 
     xyz_chunks = []
-    for f_i, fr in enumerate(traj_x[::max(1, len(traj_x) // 24)]):
+    stride_idx = max(1, len(traj_x) // 24)
+    for frame_idx in range(0, len(traj_x), stride_idx):
+        fr = traj_x[frame_idx]
         xyz_chunks.append(str(len(elements)))
-        xyz_chunks.append(f"step={f_i} time_ps={(f_i * stride_fs / 1000.0):.4f}")
+        xyz_chunks.append(f"step={frame_idx} time_ps={(frame_idx * stride_fs / 1000.0):.4f}")
         for el, (x, y, z) in zip(elements, fr):
             xyz_chunks.append(f"{el:<2s} {x:11.5f} {y:11.5f} {z:11.5f}")
 
+    safe_t_series = np.where(np.isfinite(t_series), t_series, 0.0)
     return {
         "mode": "rollout",
         "title": title,
@@ -230,19 +279,19 @@ def run_studio_rollout(
             "n_bonds": int(len(topo["bond_pairs"])),
             "n_angles": int(len(topo["angle_triplets"])),
             "T_target_K": round(float(temperature_k), 1),
-            "T_mean_K": round(t_mean, 2),
-            "T_rel_err": round(t_rel_err, 4),
-            "bond_rms_drift_A": round(bond_rms, 4),
-            "min_vdw_ratio": round(vdw_last["min_vdw_ratio"], 3),
+            "T_mean_K": round(float(t_mean) if np.isfinite(t_mean) else 0.0, 2),
+            "T_rel_err": round(float(t_rel_err) if np.isfinite(t_rel_err) else 0.0, 4),
+            "bond_rms_drift_A": round(float(bond_rms) if np.isfinite(bond_rms) else 0.0, 4),
+            "min_vdw_ratio": round(float(vdw_last["min_vdw_ratio"]) if np.isfinite(vdw_last["min_vdw_ratio"]) else 0.0, 3),
             "vdw_clashes": int(vdw_last["n_vdw_clashes"]),
-            "com_kinetic_leakage": float(f"{com_leak:.2e}"),
+            "com_kinetic_leakage": float(f"{com_leak:.2e}") if np.isfinite(com_leak) else 0.0,
         },
         "series": {
             "time_ps": ((np.arange(len(traj_x)) * stride_fs) / 1000.0).round(3).tolist(),
-            "temperature_K": t_series.round(2).tolist(),
+            "temperature_K": safe_t_series.round(2).tolist(),
         },
         "viewer_frames": vis_frames,
-        "viewer_elements": elements[:vis_n],
+        "viewer_elements": vis_elements,
         "viewer_bonds": vis_bonds,
         "viewer_box_A": None if box_l is None else round(box_l, 3),
         "xyz_download": "\n".join(xyz_chunks) + "\n",
