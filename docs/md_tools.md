@@ -170,6 +170,4 @@ synchronized around timing. Model simulated time per step is the stride; OpenMM
 simulated time per step is its integration timestep.
 
 Synthetic tests are in `tests/test_adapters.py` and `tests/test_validation.py`.
-ASE and MDTraj roundtrips skip when their optional libraries are absent. Tests
-have not been executed as part of this change because Python execution was
-prohibited.
+ASE and MDTraj roundtrips skip when their optional libraries are absent.

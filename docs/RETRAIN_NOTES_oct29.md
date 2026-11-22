@@ -26,31 +26,31 @@ Large trajectory arrays remain in `data/argon/`; docs contain no data arrays. Fu
 
 ## Reproduction commands
 
-Working directory `/workspace/repos/WignerFlow`; Python `/workspace/venv311/bin/python`; `PYTHONPATH=.` throughout. The supplied environment exposes eight CPU cores. The commands below were invoked through a timing wrapper; exact argument lists, exit codes and measured wall seconds are in `results/argon/cpu_reduced/commands.jsonl`. The wrapper and exploratory benchmark driver are archived alongside that file (`timed_command.py`, `benchmark_driver.py`). Logs are in the same results directory.
+Run from the repository root with `PYTHONPATH=.` (8 CPU cores). The commands below were invoked through a timing wrapper; exact argument lists, exit codes and measured wall seconds are in `results/argon/cpu_reduced/commands.jsonl`. The wrapper and exploratory benchmark driver are archived alongside that file (`timed_command.py`, `benchmark_driver.py`). Logs are in the same results directory.
 
 ```bash
 OPENMM_CPU_THREADS=8 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/gen_data.py --config configs/data/argon.yaml
+  python scripts/gen_data.py --config configs/data/argon.yaml
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  /workspace/venv311/bin/python results/argon/cpu_reduced/benchmark_driver.py
+  python results/argon/cpu_reduced/benchmark_driver.py
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/analyze_gt.py --data data/argon \
+  python scripts/analyze_gt.py --data data/argon \
   --out results/argon/cpu_reduced/ground_truth --vacf_ps 1 --msd_ps 5 --diff_fit_ps 2 5
 
 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENMM_CPU_THREADS=8 PYTHONPATH=. \
-  /workspace/venv311/bin/python -m equitraj.train \
+  python -m equitraj.train \
   --config configs/argon/B_S3a_cpu_reduced.yaml --device cpu --no_tensorboard
 
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/evaluate.py --run . \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONPATH=. \
+  python scripts/evaluate.py --run . \
   --ckpt checkpoints/argon_flow_v0.pt --data_dir data/argon \
   --steps 100 --seeds 1 --starts 1 --sampling_steps 10 --device cpu --threads 2 \
   --out results/argon/cpu_reduced/v0
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  /workspace/venv311/bin/python -m pytest tests/test_model.py tests/test_release.py -q
+  python -m pytest tests/test_model.py tests/test_release.py -q
 ```
 
 The initial benchmark import failed before any measurements because of missing TensorBoard. The rerun produced completed one-, two-, and four-thread measurements; the eight-thread trial was interrupted with Ctrl-C after producing no completed measurement. Those measured samples are retained in `benchmark.json`. The training and v0 evaluation started near the end of that benchmark; timing samples are exploratory and not a controlled hardware speed comparison.
@@ -68,19 +68,19 @@ The initial v0 attempt used 200 steps, two starts, ten flow steps and OMP/MKL th
 Final-snapshot export and paired comparison commands (queued by `results/argon/cpu_reduced/postprocess.py` after `train/done.json` appears):
 
 ```bash
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/export_ckpt.py \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONPATH=. \
+  python scripts/export_ckpt.py \
   --run results/argon/cpu_reduced/train --ckpt snapshots/step001000.pt \
   --out checkpoints/argon_flow_v1_cpu_reduced.pt --attention-version v1
 
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/evaluate.py --run . \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONPATH=. \
+  python scripts/evaluate.py --run . \
   --ckpt checkpoints/argon_flow_v1_cpu_reduced.pt --data_dir data/argon \
   --steps 100 --seeds 1 --starts 1 --sampling_steps 10 --device cpu --threads 2 \
   --out results/argon/cpu_reduced/v1
 
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/compare_ckpt_equivariance.py \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONPATH=. \
+  python scripts/compare_ckpt_equivariance.py \
   --checkpoints checkpoints/argon_flow_v0.pt checkpoints/argon_flow_v1_cpu_reduced.pt \
   --trials 3 --sampling_steps 10 --threads 2
 ```
@@ -219,8 +219,8 @@ Final checks and report generation:
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  /workspace/venv311/bin/python results/argon/cpu_reduced/verify_artifacts.py
-/workspace/venv311/bin/python results/argon/cpu_reduced/finish_notes.py
+  python results/argon/cpu_reduced/verify_artifacts.py
+python results/argon/cpu_reduced/finish_notes.py
 ```
 
 The integrity check passed: v0 is unchanged, both checksum sidecars match, every v1 tensor equals the final step-1,000 snapshot, and all 24 equivariance measurements and both test evaluations contain finite numbers or explicit nulls. The final snapshot also attained the lowest validation selection score among the four saved evaluations; it had already been chosen for export before test evaluation.

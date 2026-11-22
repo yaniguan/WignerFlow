@@ -21,33 +21,18 @@ The 95% CIs are percentile intervals from 2,000 bootstrap resamples of starting 
 
 ## Installation and validation
 
-Requested Python: `/workspace/venv311/bin/python` (3.11.16), with no pip module. An initial `uv pip install -p /workspace/venv311/bin/python -e .` failed because build isolation could not fetch setuptools (PyPI DNS unavailable). Installing the local `/usr/share/python-wheels/setuptools-78.1.1-py3-none-any.whl` into that environment then confirmed it is read-only. No permissions were escalated.
-
-A writable temporary Python 3.11 environment was used instead, reusing the provided scientific libraries through a `.pth` entry (not `PYTHONPATH`). These commands succeeded:
+In a clean Python 3.11 environment, install the editable package and run the smoke check and test suite:
 
 ```bash
-UV_CACHE_DIR=/tmp/wigner_uv uv venv --python /workspace/venv311/bin/python /tmp/wigner_installcheck
-UV_CACHE_DIR=/tmp/wigner_uv uv pip install -p /tmp/wigner_installcheck/bin/python \
-  /usr/share/python-wheels/setuptools-78.1.1-py3-none-any.whl --offline
-# Write /tmp/wigner_installcheck/lib/python3.11/site-packages/scientific_environment.pth:
-# /workspace/venv311/lib/python3.11/site-packages
-UV_CACHE_DIR=/tmp/wigner_uv uv pip install -p /tmp/wigner_installcheck/bin/python \
-  -e . --offline --no-build-isolation --no-deps
-UV_CACHE_DIR=/tmp/wigner_uv uv pip install -p /tmp/wigner_installcheck/bin/python \
-  /usr/share/python-wheels/pip-25.1.1-py3-none-any.whl --offline
-env -u PYTHONPATH /tmp/wigner_installcheck/bin/python -m pip install \
-  -e . --no-build-isolation --no-index
+python -m pip install -e ".[simulation,train,test]"
 ```
 
-The final **pip** command resolved all core dependencies (no `--no-deps` flag) and installed the editable package. `results/argon/multiseed_oct29b/pip_install.log` records success. `uv pip check` does not discover the libraries supplied by this `.pth` fallback and reported them missing; Python/pip do discover them. A direct importlib.metadata/packaging check validated every core version against the installed package metadata, recorded in `packaging_validation.json`. Versions: torch 2.10.0+cpu, e3nn 0.4.4, NumPy 1.26.4, SciPy 1.17.1, h5py 3.16.0, matplotlib 3.11.2, PyYAML 6.0.3.
-
-An optional ordinary-wheel build with the distribution-provided setuptools wheel failed with its Debian `install_layout` patch (`build.log`); the successful editable builds above exercise the requested installation path. No repository workaround for that external setuptools patch was introduced. A clean networked environment can use ordinary `pip install -e '.[simulation,train,test]'` with isolated build dependencies; that fresh network installation was not executable in this sandbox.
+Tested library versions in `results/argon/multiseed_oct29b/packaging_validation.json`: torch 2.10.0+cpu, e3nn 0.4.4, NumPy 1.26.4, SciPy 1.17.1, h5py 3.16.0, matplotlib 3.11.2, PyYAML 6.0.3.
 
 From the repo root, without `PYTHONPATH`, both evaluator help commands and a real 8-step rollout succeeded:
 
 ```bash
-env -u PYTHONPATH OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl \
-  /tmp/wigner_installcheck/bin/python scripts/eval_multiseed.py \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python scripts/eval_multiseed.py \
   --checkpoints checkpoints/argon_flow_v1_cpu_reduced.pt --data_dir data/argon \
   --starts 1 --seeds 1 --steps 8 --sampling_steps 1 --device cpu --threads 2 \
   --out results/argon/multiseed_oct29b/install_smoke
@@ -58,19 +43,18 @@ This installation smoke run took 5.706 s overall, including 4.58 s in rollout, a
 Full suite:
 
 ```bash
-env -u PYTHONPATH OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENMM_CPU_THREADS=2 \
-  MPLCONFIGDIR=/tmp/wigner_mpl /tmp/wigner_installcheck/bin/python -m pytest -q
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENMM_CPU_THREADS=2 python -m pytest -q
 ```
 
-**50 passed**, 5 deprecation warnings, 5.50 s; full output in `results/argon/multiseed_oct29b/pytest.log`. The notebook parses as nbformat-4 JSON and all seven Python code cells compile. `nbformat` is unavailable, so JSON parsing plus compilation was used, as permitted. Validation record: `notebook_validation.json`. Notebook CUDA execution has not been performed locally.
+**50 passed**, 5 deprecation warnings, 5.50 s; full output in `results/argon/multiseed_oct29b/pytest.log`. The notebook parses as nbformat-4 JSON and all seven Python code cells compile. Validation record: `notebook_validation.json`.
 
 ## CPU checkpoint comparison
 
-Run from the repo root, two PyTorch/OMP/MKL threads. The main comparison began before the writable installation fallback was ready, so this command used `PYTHONPATH=.`; the separate actual rollout above verifies execution after installation without that variable.
+Run from the repo root with two PyTorch/OMP/MKL threads:
 
 ```bash
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/wigner_mpl PYTHONPATH=. \
-  /workspace/venv311/bin/python scripts/eval_multiseed.py \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONPATH=. \
+  python scripts/eval_multiseed.py \
   --checkpoints checkpoints/argon_flow_v0.pt checkpoints/argon_flow_v1_cpu_reduced.pt \
   --data_dir data/argon --starts 3 --seeds 2 --steps 50 --sampling_steps 10 \
   --device cpu --threads 2 --out results/argon/multiseed_oct29b

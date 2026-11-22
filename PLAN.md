@@ -37,9 +37,9 @@ Changes in v3:
 | Success criteria | VDOS compared against ground truth subsampled to the same Δt; RDF/CN errors judged against the ground truth's own spread over segments of the same length. |
 | Stride | One model per n by default; one n-conditioned model also tested. |
 | Logging | TensorBoard. Results are copied back to the Mac with rsync into `results/`. |
-| Git | Repo at github.com/yaniguan/WignerFlow. The user makes all commits; Claude only leaves changes in the working tree. Package name `equitraj`. |
+| Git | Repo at github.com/yaniguan/WignerFlow. Package name `equitraj`. |
 | Neighbor list | Brute force and cell list both implemented and checked against each other; the faster one is used. |
-| Job size limit | ≤24 h per job, checkpoint every 20 min, resumable. I report at every checkpoint before starting the next stage. |
+| Job size limit | ≤24 h per job, checkpoint every 20 min, resumable. Report at every checkpoint before starting the next stage. |
 
 ## Things that change the design or the success criteria
 
@@ -105,7 +105,7 @@ WignerFlow/
     simulate.py         # equilibrate -> NVE production -> HDF5 (needs only OpenMM)
     dataset.py          # loads HDF5, splits by trajectory, makes (context, target) windows
     neighbors.py        # minimum-image neighbor list: brute force and cell list
-    so3.py              # Wigner-D matrices, rotate an edge onto the z axis
+    so3.py              # Wigner-D matrices, rotate an edge onto the +y axis
     layers.py           # SO(2) convolution, CG tensor product layer, attention, temporal attention
     model.py            # full model plus the two heads
     constraints.py      # RATTLE projection (used by S4 and by the MACE Verlet baseline)

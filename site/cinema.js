@@ -495,7 +495,7 @@
 
       ctx.fillStyle = C.accent;
       ctx.font = '700 11.5px Inter, sans-serif';
-      ctx.fillText('1 · ROTATE TO EDGE Z-AXIS:  D⁽ˡ⁾(α, β, γ)', rx + 22, ry + 32);
+      ctx.fillText('1 · ROTATE TO EDGE +Y AXIS:  D⁽ˡ⁾(α, β, γ)', rx + 22, ry + 32);
 
       const lobes = [
         { lbl: 'l = 0 (scalar)', x: rx + 76, col: C.accent, draw: (ox, oy) => { ctx.beginPath(); ctx.arc(ox, oy, 17, 0, Math.PI * 2); ctx.stroke(); } },
