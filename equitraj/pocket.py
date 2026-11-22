@@ -600,6 +600,7 @@ def cluster_nernst_einstein(positions, box_length, cation_indices, anion_indices
             "transference_plus_cne": 0.0,
         }
 
+    pos_unw = unwrap_positions(pos, np.eye(3, dtype=np.float64) * float(box_length)) if box_length is not None else pos
     volume_a3 = float(box_length) ** 3
     lags = np.arange(1, max(3, t_frames // 2))
     t_lags_fs = lags * float(dt_frame_fs)
@@ -621,7 +622,7 @@ def cluster_nernst_einstein(positions, box_length, cation_indices, anion_indices
             # Contact edge exists if mean distance over [t0, t0 + lag] is within primary pair cutoff r_pair
             paired = d_ca[t0:t0 + lag + 1].mean(axis=0) <= r_pair
             visited = np.zeros(n_ions, dtype=bool)
-            disp_ions = pos[t0 + lag, ion_idx] - pos[t0, ion_idx]
+            disp_ions = pos_unw[t0 + lag, ion_idx] - pos_unw[t0, ion_idx]
             for start in range(n_ions):
                 if visited[start]:
                     continue
@@ -658,8 +659,8 @@ def cluster_nernst_einstein(positions, box_length, cation_indices, anion_indices
     _, d_qpq_eff = analysis.diffusion_coefficient(t_lags_fs, m_qpq_cne, t_fit0, t_fit1)
     d_qq_eff = max(0.0, float(d_qq_eff))
 
-    msd_cat = analysis.msd(pos[:, cat], lags) if n_cat > 0 else np.zeros_like(t_lags_fs)
-    msd_an = analysis.msd(pos[:, an], lags) if len(an) > 0 else np.zeros_like(t_lags_fs)
+    msd_cat = analysis.msd(pos_unw[:, cat], lags) if n_cat > 0 else np.zeros_like(t_lags_fs)
+    msd_an = analysis.msd(pos_unw[:, an], lags) if len(an) > 0 else np.zeros_like(t_lags_fs)
     _, d_cat = analysis.diffusion_coefficient(t_lags_fs, msd_cat, t_fit0, t_fit1) if n_cat > 0 else (0.0, 0.0)
     _, d_an = analysis.diffusion_coefficient(t_lags_fs, msd_an, t_fit0, t_fit1) if len(an) > 0 else (0.0, 0.0)
     ne = nernst_einstein_metrics(
@@ -709,6 +710,9 @@ def solvation_hopping_metrics(positions, velocities, box_length, cation_indices,
     # directly measure vehicular cage co-translation!
     disp_cat = pos[t0 + 1:, cat] - pos[t0:-1, cat]  # (T'-1, N_cat, 3)
     disp_oxy = pos[t0 + 1:, oxy] - pos[t0:-1, oxy]  # (T'-1, N_oxy, 3)
+    if box_length is not None:
+        disp_cat = disp_cat - float(box_length) * np.round(disp_cat / float(box_length))
+        disp_oxy = disp_oxy - float(box_length) * np.round(disp_oxy / float(box_length))
     dc_n = disp_cat / np.maximum(np.linalg.norm(disp_cat, axis=-1, keepdims=True), 1e-12)
     do_n = disp_oxy / np.maximum(np.linalg.norm(disp_oxy, axis=-1, keepdims=True), 1e-12)
     cos_mat = np.einsum("tic,tjc->tij", dc_n, do_n)
@@ -799,22 +803,29 @@ def audit_checkpoint_epistemic(model, pos0, vel0, types, box, masses, *, samplin
       2. `flow_epistemic_spread_A`: strictly O(3)-invariant neighbor-distance standard deviation (Å)
          across `n_draws` independent COM-free stochastic flow realizations.
     """
-    m_f32 = model.float().eval()
-    pos_f = pos0.to(dtype=torch.float32)
-    vel_f = vel0.to(dtype=torch.float32)
-    box_f = None if box is None else box.to(dtype=torch.float32)
-    masses_f = masses.to(dtype=torch.float32)
-    types_l = types.to(dtype=torch.long)
+    import copy
+    m_f32 = copy.deepcopy(model).float().eval()
+    dev = next(m_f32.parameters()).device
+    pos_f = pos0.to(device=dev, dtype=torch.float32)
+    vel_f = vel0.to(device=dev, dtype=torch.float32)
+    box_f = None if box is None else box.to(device=dev, dtype=torch.float32)
+    masses_f = masses.to(device=dev, dtype=torch.float32)
+    types_l = types.to(device=dev, dtype=torch.long)
 
     if m_f32.head_type == "regression":
         return {"ode_curvature_delta_A": 0.0, "flow_epistemic_spread_A": 0.0}
 
     cond, graph = m_f32.encode(pos_f, vel_f, types_l, box_f)
     n = int(types_l.shape[0])
+    q_f, _, bh_f = m_f32._resolve_chemistry(n, dev, pos_f.dtype)
+    v_last = m_f32.base_velocity(pos_f, vel_f)
+    cand_fn = m_f32._candidate_graph_builder(
+        pos_f[:, -1], v_last, types_l, box_f, masses_f, graph, q_f, bh_f, None
+    )
     gen = torch.Generator(device=cond.device).manual_seed(int(seed) + 911)
 
     def y_to_dx(y_norm):
-        dx, vn = m_f32.y_to_targets(y_norm, types_l, vel_f[:, -1])
+        dx, vn = m_f32.y_to_targets(y_norm, types_l, v_last, masses=masses_f)
         dx, vn = remove_com(dx, masses_f), remove_com(vn, masses_f)
         if m_f32.prior is not None:
             dx, _ = m_f32.prior(pos_f[:, -1], dx, vn, types_l, box_f, masses_f)
@@ -824,9 +835,9 @@ def audit_checkpoint_epistemic(model, pos0, vel0, types, box, masses, *, samplin
     y0 = m_f32.com_free_noise(1, types_l, masses_f, generator=gen, like=cond)
     tau0 = torch.zeros(n, dtype=cond.dtype, device=cond.device)
     tau1 = torch.ones(n, dtype=cond.dtype, device=cond.device)
-    u0 = m_f32.denoiser(cond, graph, y0, tau0)
+    u0 = m_f32.denoise(cond, graph, y0, tau0, candidate_graph_fn=cand_fn)
     y_euler_1 = y0 + u0
-    u1 = m_f32.denoiser(cond, graph, y_euler_1, tau1)
+    u1 = m_f32.denoise(cond, graph, y_euler_1, tau1, candidate_graph_fn=cand_fn)
     y_heun_1 = y0 + 0.5 * (u0 + u1)
     dx_eul = y_to_dx(y_euler_1)
     dx_heun = y_to_dx(y_heun_1)
@@ -839,7 +850,7 @@ def audit_checkpoint_epistemic(model, pos0, vel0, types, box, masses, *, samplin
         y = y0.clone() if d_idx == 0 else m_f32.com_free_noise(1, types_l, masses_f, generator=gen, like=cond)
         for s_idx in range(n_steps):
             tau = torch.full((n,), s_idx / n_steps, dtype=cond.dtype, device=cond.device)
-            y = y + m_f32.denoiser(cond, graph, y, tau) / n_steps
+            y = y + m_f32.denoise(cond, graph, y, tau, candidate_graph_fn=cand_fn) / n_steps
         xs.append((pos_f[:, -1] + y_to_dx(y))[0])
     x_stack = torch.stack(xs, dim=0)  # (M, N, 3)
 
@@ -867,14 +878,22 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
         reduced = CKPTS_DIR / "argon_flow_v1_cpu_reduced.pt"
         ckpt_path = reduced if reduced.exists() else (CKPTS_DIR / "argon_flow_v0.pt")
     ckpt_path = Path(ckpt_path)
+    if neighbor == "dense":
+        neighbor = "brute"
     t0 = time.perf_counter()
-    ck = torch.load(ckpt_path, map_location=device, weights_only=True)
+    ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     from equitraj.layers import check_attention_version
     check_attention_version(ck, source=ckpt_path)
-    model = EquiTraj(
-        n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"]
-    ).float().to(device).eval()
-    model.load_state_dict(ck["model"])
+    prev_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        model = EquiTraj(
+            n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"]
+        ).float()
+        model.load_state_dict(ck["model"])
+    finally:
+        torch.set_default_dtype(prev_dtype)
+    model = model.to(device).eval()
 
     demo = ck["demo"]
     ref = ck.get("reference", {})
@@ -896,9 +915,13 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     )
     wall_s = time.perf_counter() - t0
     crashed = int(out["crash_step"][0])
-    n_ok = steps if crashed < 0 else max(1, crashed)
+    n_ok = steps if crashed < 0 else max(1, crashed - 1)
     x = out["positions"][:n_ok, 0].numpy()
     v = out["velocities"][:n_ok, 0].numpy()
+    if not (np.isfinite(x).all() and np.isfinite(v).all()):
+        x = demo["pos"][-1:].numpy()
+        v = demo["vel"][-1:].numpy()
+        n_ok = 1
     half = max(0, n_ok // 2)
 
     temp_series = temperature(torch.from_numpy(v), masses).numpy()

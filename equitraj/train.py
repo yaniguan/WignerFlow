@@ -38,6 +38,7 @@ from equitraj.layers import ATTENTION_VERSION
 from equitraj.model import EquiTraj, make_model
 from equitraj.monitor import REASONS
 from equitraj.neighbors import VerletList
+from equitraj.pair_masks import exclusions_from_bonds
 from equitraj.prior import estimate_rmin, overlap_penalty
 from equitraj.rollout import rollout, temperature
 
@@ -116,7 +117,7 @@ class SpikeGuard:
 def atomic_save(obj, path, retries=5, backoff=1.0):
     """Write `obj` to `path` so a vanished output folder does not abort training.
 
-    torch.save goes to a local file under /tmp. That file is then copied to
+    torch.save goes to a local temporary file first. That file is then copied to
     `path`.tmp and renamed onto `path` (same final result as a direct save).
     If the parent folder is missing, recreate it when possible and retry a few
     times with a short wait. A Google Drive unmount removes the MyDrive path
@@ -126,7 +127,7 @@ def atomic_save(obj, path, retries=5, backoff=1.0):
     if retries < 1:
         raise ValueError(f"retries must be >= 1, got {retries}")
     parent = os.path.dirname(path)
-    fd, local = tempfile.mkstemp(prefix="wignerflow_ckpt_", suffix=".pt", dir="/tmp")
+    fd, local = tempfile.mkstemp(prefix="wignerflow_ckpt_", suffix=".pt", dir=tempfile.gettempdir())
     os.close(fd)
     try:
         torch.save(obj, local)
@@ -234,7 +235,7 @@ def _bind_encode_graphs(model, graphs):
 
 def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
                   unroll_weights=None, noise_v_ratio=1.0, noise_type_scale=None, overlap_weight=0.0, overlap_r0=None,
-                  verlet_skin=None):
+                  verlet_skin=None, excluded_pairs=None):
     """Loss for one batch. pos, vel: (B, k + m_max, N, 3); only the first k + m frames are used.
 
     m = 1 is teacher forcing. For m > 1 the model first predicts m-1 frames from its own outputs:
@@ -321,7 +322,7 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
         graphs = None if win_graphs is None else _window_graphs(win_graphs, n)
         dx, _ = model.predict_with_grad(ctx_x, ctx_v, types, box, masses, unroll_sampling_steps, graphs=graphs)
         pred_x.append(ctx_x[:, -1] + dx)
-        pen = torch.stack([overlap_penalty(x, box, types, overlap_r0) for x in pred_x]).mean()
+        pen = torch.stack([overlap_penalty(x, box, types, overlap_r0, excluded_pairs=excluded_pairs) for x in pred_x]).mean()
         loss = loss + overlap_weight * pen
     return loss
 
@@ -333,6 +334,10 @@ def build_loss_options(tc, ds, model, device):
         "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0)),
         "verlet_skin": tc.get("verlet_skin"),
     }
+    bonds = getattr(ds, "bonds", None)
+    excl = exclusions_from_bonds(bonds, len(ds.types), device=device) if bonds is not None and len(bonds) > 0 else None
+    if excl is not None:
+        opts["excluded_pairs"] = excl
     nts = tc.get("noise_type_scale")
     if nts is not None:  # dict element -> scale (missing elements: 1) or list in ds.elements order
         if isinstance(nts, dict):
@@ -340,7 +345,9 @@ def build_loss_options(tc, ds, model, device):
         opts["noise_type_scale"] = torch.tensor(nts, dtype=torch.float32, device=device)
     op = tc.get("overlap_penalty") or {}
     if op.get("weight", 0.0) > 0:
-        rmin = model.prior.rmin if model.prior is not None else estimate_rmin(ds, op.get("percentile", 0.1)).to(device)
+        rmin = (model.prior.rmin if model.prior is not None
+                else estimate_rmin(ds, op.get("percentile", 0.1),
+                                   excluded_pairs=None if excl is None else excl.cpu()).to(device))
         opts["overlap_weight"] = float(op["weight"])
         opts["overlap_r0"] = rmin * float(op.get("rmin_scale", 1.0))
     return opts
@@ -413,8 +420,11 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     vel = torch.stack([it[1][:model.k] for it in items])
     box = torch.stack([it[2] for it in items]) if ds.periodic else None
     every = max(1, n_steps // 50)
+    bonds = getattr(ds, "bonds", None)
+    excl = exclusions_from_bonds(bonds, len(ds.types)) if bonds is not None and len(bonds) > 0 else None
     out = rollout(model, pos, vel, ds.types, box, ds.masses, n_steps,
-                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref)
+                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref,
+                  excluded_pairs=excl)
     crash = out["crash_step"]
     crashed = crash >= 0
     metrics = {"val_crash_frac": crashed.float().mean().item(),
@@ -626,11 +636,12 @@ def main():
     if args.device == "cuda" and not torch.cuda.is_available():
         # fail loudly: a cluster job that silently trains on CPU wastes a day
         raise RuntimeError("CUDA requested but torch.cuda.is_available() is False (CPU-only torch build?)")
-    cfg = yaml.safe_load(open(args.config))
+    with open(args.config, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
     tc, ec = cfg["train"], cfg["eval"]
     out_dir = cfg["out_dir"]
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "config.yaml"), "w") as f:
+    with open(os.path.join(out_dir, "config.yaml"), "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f)
     device = torch.device(args.device)
     seed = int(cfg.get("seed", 0))
@@ -660,7 +671,21 @@ def main():
         generator=loader_seed)
     types, masses = train_ds.types.to(device), train_ds.masses.to(device)
 
-    model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
+    model_cfg = dict(cfg["model"])
+    if model_cfg.get("n_ff_types") == "auto":
+        model_cfg["n_ff_types"] = 0 if train_ds.ff_type_names is None else len(train_ds.ff_type_names)
+    model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **model_cfg).to(device)
+    if getattr(train_ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+        model.set_chemistry(
+            charges=train_ds.charges,
+            ff_types=train_ds.ff_types,
+            bonds=train_ds.bonds,
+            n_atoms=len(train_ds.types),
+        )
+    train_excl = (exclusions_from_bonds(train_ds.bonds, len(train_ds.types), device=device)
+                  if train_ds.bonds is not None and len(train_ds.bonds) > 0 else None)
+    if model.prior is not None and train_excl is not None:
+        model.prior.excluded_pairs = train_excl
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc.get("weight_decay", 0.0))
     step, best, best_stable = 0, math.inf, None
@@ -678,13 +703,17 @@ def main():
             print(f"resumed from step {step} (old checkpoint: re-seeded with seed + step)", flush=True)
     else:
         if model.prior is not None and not model.prior.rmin_fixed:
-            model.prior.rmin.copy_(estimate_rmin(train_ds, model.prior.percentile))
+            model.prior.rmin.copy_(estimate_rmin(train_ds, model.prior.percentile,
+                                                 excluded_pairs=None if train_excl is None else train_excl.cpu()))
         st = compute_stats(train_ds)
         model.dx_std.copy_(st["dx_std"])
         model.v_std.copy_(st["v_std"])
         residual = model.target == "residual"
         model.out_dx_std.copy_(st["res_dx_std"] if residual else st["dx_std"])
         model.out_v_std.copy_(st["res_v_std"] if residual else st["v_std"])
+        if getattr(model, "target_scaling", "element_std") == "mass":
+            model.mass_dx_std.copy_(st["mass_res_dx_std"] if residual else st["mass_dx_std"])
+            model.mass_v_std.copy_(st["mass_res_v_std"] if residual else st["mass_v_std"])
         if tc.get("init_from"):
             # fine-tune: weights and normalisation buffers come from the snapshot; a missing prior buffer
             # keeps the r_min just estimated from the training data
@@ -859,7 +888,10 @@ def main():
     save(ckpt_path)
     if ema is not None:
         atomic_save(ema.state_dict(), ema_path)
-    with open(os.path.join(out_dir, "done.json"), "w") as f:
+    log.close()
+    if hasattr(writer, "close"):
+        writer.close()
+    with open(os.path.join(out_dir, "done.json"), "w", encoding="utf-8") as f:
         json.dump({"step": step, "best_score": best, "hours": (time.time() - t_start) / 3600}, f)
 
 

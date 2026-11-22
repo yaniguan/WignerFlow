@@ -67,7 +67,7 @@ def overlap_penalty(pos, box, types, r0, excluded_pairs=None):
         return pos.sum() * 0
     rr = r0.to(vec.dtype)[types[i], types[j]]
     o = ((rr - _length(vec)) / rr).clamp_min(0)
-    return pos.new_zeros(pos.shape[0]).index_add(0, bi, o * o).mean()
+    return pos.new_zeros(pos.shape[0]).index_add(0, bi, (o * o).to(pos.dtype)).mean()
 
 
 @torch.no_grad()
@@ -157,8 +157,10 @@ class RepulsionPrior(nn.Module):
         mi, mj = masses[i].to(r.dtype), masses[j].to(r.dtype)
         n = pos.shape[1]
         flat = torch.zeros_like(pos).reshape(-1, 3)
-        flat = flat.index_add(0, bi * n + i, (push * mj / (mi + mj))[:, None] * unit)
-        flat = flat.index_add(0, bi * n + j, -(push * mi / (mi + mj))[:, None] * unit)
+        inc_i = ((push * mj / (mi + mj))[:, None] * unit).to(flat.dtype)
+        inc_j = (-(push * mi / (mi + mj))[:, None] * unit).to(flat.dtype)
+        flat = flat.index_add(0, bi * n + i, inc_i)
+        flat = flat.index_add(0, bi * n + j, inc_j)
         return flat.view_as(pos)
 
     def damp(self, pos, vel, box, types, masses):
@@ -171,8 +173,10 @@ class RepulsionPrior(nn.Module):
         mi, mj = masses[i].to(vel.dtype), masses[j].to(vel.dtype)
         n = vel.shape[1]
         flat = vel.reshape(-1, 3)
-        flat = flat.index_add(0, bi * n + i, (approach * mj / (mi + mj))[:, None] * unit)
-        flat = flat.index_add(0, bi * n + j, -(approach * mi / (mi + mj))[:, None] * unit)
+        inc_i = ((approach * mj / (mi + mj))[:, None] * unit).to(flat.dtype)
+        inc_j = (-(approach * mi / (mi + mj))[:, None] * unit).to(flat.dtype)
+        flat = flat.index_add(0, bi * n + i, inc_i)
+        flat = flat.index_add(0, bi * n + j, inc_j)
         return flat.view_as(vel)
 
     def forward(self, pos_last, dx, vel, types, box, masses):

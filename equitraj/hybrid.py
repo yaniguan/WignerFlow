@@ -174,6 +174,9 @@ def predict_with_uncertainty(model, pos, vel, types, box, masses, n_ensembles=4,
         raise ValueError("len(noises) must equal n_ensembles")
 
     cond, graph = model.encode(pos, vel, types, box)
+    q, _, bh = model._resolve_chemistry(n, pos.device, pos.dtype)
+    v_last = model.base_velocity(pos, vel)
+    cand_fn = model._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, None)
     y_kw = {"masses": masses} if getattr(model, "target_scaling", "element_std") == "mass" else {}
     dx_list, v_list = [], []
     for e in range(n_ensembles):
@@ -181,8 +184,8 @@ def predict_with_uncertainty(model, pos, vel, types, box, masses, n_ensembles=4,
              if noises is None else noises[e])
         for i in range(n_steps):
             tau = torch.full((b * n,), i / n_steps, dtype=cond.dtype, device=cond.device)
-            y = y + model.denoiser(cond, graph, y, tau) / n_steps
-        dx_e, v_e = model.y_to_targets(y, types, model.base_velocity(pos, vel), **y_kw)
+            y = y + model.denoise(cond, graph, y, tau, candidate_graph_fn=cand_fn) / n_steps
+        dx_e, v_e = model.y_to_targets(y, types, v_last, **y_kw)
         dx_e, v_e = remove_com(dx_e, masses), remove_com(v_e, masses)
         if model.prior is not None:
             dx_e, v_e = model.prior(pos[:, -1], dx_e, v_e, types, box, masses)

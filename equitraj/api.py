@@ -21,6 +21,7 @@ from pathlib import Path
 
 import torch
 
+from equitraj.layers import check_attention_version
 from equitraj.model import EquiTraj, build_graph, remove_com
 from equitraj.rollout import rollout, temperature
 
@@ -37,12 +38,25 @@ class InputError(ValueError):
     """Bad request: the caller should fix the input."""
 
 
+@contextlib.contextmanager
+def _float32():
+    """The release weights are float32; ignore a float64 default set elsewhere in the process."""
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        yield
+    finally:
+        torch.set_default_dtype(previous)
+
+
 def load_release(path, device="cpu"):
-    ck = torch.load(path, map_location=device, weights_only=True)
+    ck = torch.load(path, map_location="cpu", weights_only=True)
     if ck.get("format") != "wignerflow-v0":
         raise ValueError(f"{path} is not a WignerFlow v0 release checkpoint")
-    model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
-    model.load_state_dict(ck["model"])
+    check_attention_version(ck, source=path)
+    with _float32():
+        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+        model.load_state_dict(ck["model"])
     return model.to(device).eval(), ck
 
 
@@ -89,24 +103,13 @@ class FrameSplitPredictor:
         y = m.com_free_noise(b, types, masses, like=cond) if noise is None else noise
         dt = 1.0 / n_steps
         for i in range(n_steps):  # Euler, as in EquiTraj.predict
-            tau = torch.full((b * n,), i * dt, dtype=cond.dtype)
+            tau = torch.full((b * n,), i * dt, dtype=cond.dtype, device=cond.device)
             y = y + dt * m.denoiser(cond, graph, y, tau)
         dx, v = m.y_to_targets(y, types, vel[:, -1], masses=masses)
         dx, v = remove_com(dx, masses), remove_com(v, masses)
         if m.prior is not None:
             dx, v = m.prior(pos[:, -1], dx, v, types, box, masses)
         return dx, v
-
-
-@contextlib.contextmanager
-def _float32():
-    """The release weights are float32; ignore a float64 default set elsewhere in the process."""
-    previous = torch.get_default_dtype()
-    torch.set_default_dtype(torch.float32)
-    try:
-        yield
-    finally:
-        torch.set_default_dtype(previous)
 
 
 class ArgonPredictor:

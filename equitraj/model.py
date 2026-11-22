@@ -69,16 +69,20 @@ def build_graph_plain(pos, box, cutoff, method="brute_force"):
 
 def remove_com(vec, masses):
     """Remove the mass-weighted mean from per-atom vectors. vec: (B, N, 3), masses: (N,)."""
-    w = masses / masses.sum()
+    m = masses.to(device=vec.device, dtype=vec.dtype)
+    w = m / m.sum()
     return vec - torch.einsum("n,bnd->bd", w, vec)[:, None, :]
 
 
 def timestep_embedding(t, dim):
     """Sinusoidal embedding of the flow time t in [0, 1]: (B,) -> (B, dim)."""
     half = dim // 2
-    freqs = torch.exp(-math.log(1000.0) * torch.arange(half, device=t.device, dtype=t.dtype) / half)
+    freqs = torch.exp(-math.log(1000.0) * torch.arange(half, device=t.device, dtype=t.dtype) / max(half, 1))
     ang = 1000.0 * t[:, None] * freqs[None, :]
-    return torch.cat([torch.sin(ang), torch.cos(ang)], dim=-1)
+    emb = torch.cat([torch.sin(ang), torch.cos(ang)], dim=-1)
+    if dim % 2 == 1:
+        emb = torch.cat([emb, torch.zeros_like(emb[:, :1])], dim=-1)
+    return emb
 
 
 class Denoiser(nn.Module):
@@ -171,7 +175,7 @@ class EquiTraj(nn.Module):
         self.edge_radial = MLP([n_rbf + self.edge_dim, 64, (lmax + 1) * c])
         self.edge_type = nn.Linear(c, c, bias=False)
         self.spatial = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim) for _ in range(n_spatial)])
-        self.temporal = TemporalAttention(lmax, c, heads)
+        self.temporal = TemporalAttention(lmax, c, heads, k_max=max(16, int(k)))
         self.fusion = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim) for _ in range(n_fusion)])
         if head == "regression":
             self.readout = EquivariantLinear(lmax, c, c)

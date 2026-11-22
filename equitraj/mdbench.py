@@ -114,35 +114,35 @@ def load_or_fetch_benchmark_system(
         cdir.mkdir(parents=True, exist_ok=True)
         for cand in (cdir / f"{system_key}.npz", cdir / f"md17_{system_key}_4k.npz"):
             if cand.exists():
-                d = np.load(cand)
-                if "R_train" in d and "R_test" in d:
-                    meta = MD_BENCH_SYSTEMS.get(
-                        system_key, {"theory": "QM-MD", "label": system_key}
-                    )
-                    return {
-                        "system": system_key,
-                        "label": meta["label"],
-                        "theory": meta["theory"],
-                        "z": np.asarray(d["z"], dtype=np.int64),
-                        "R_train": np.ascontiguousarray(d["R_train"], dtype=np.float64),
-                        "F_train": np.ascontiguousarray(d["F_train"], dtype=np.float64),
-                        "R_test": np.ascontiguousarray(d["R_test"], dtype=np.float64),
-                        "F_test": np.ascontiguousarray(d["F_test"], dtype=np.float64),
-                    }
-                if "R" in d:
-                    r_all = np.ascontiguousarray(d["R"], dtype=np.float64)
-                    f_all = np.ascontiguousarray(d["F"], dtype=np.float64)
-                    mid = len(r_all) // 2
-                    return {
-                        "system": system_key,
-                        "label": system_key,
-                        "theory": "QM-MD",
-                        "z": np.asarray(d["z"], dtype=np.int64),
-                        "R_train": r_all[:mid],
-                        "F_train": f_all[:mid],
-                        "R_test": r_all[mid:],
-                        "F_test": f_all[mid:],
-                    }
+                with np.load(cand) as d:
+                    if "R_train" in d and "R_test" in d:
+                        meta = MD_BENCH_SYSTEMS.get(
+                            system_key, {"theory": "QM-MD", "label": system_key}
+                        )
+                        return {
+                            "system": system_key,
+                            "label": meta["label"],
+                            "theory": meta["theory"],
+                            "z": np.asarray(d["z"], dtype=np.int64),
+                            "R_train": np.ascontiguousarray(d["R_train"], dtype=np.float64),
+                            "F_train": np.ascontiguousarray(d["F_train"], dtype=np.float64),
+                            "R_test": np.ascontiguousarray(d["R_test"], dtype=np.float64),
+                            "F_test": np.ascontiguousarray(d["F_test"], dtype=np.float64),
+                        }
+                    if "R" in d:
+                        r_all = np.ascontiguousarray(d["R"], dtype=np.float64)
+                        f_all = np.ascontiguousarray(d["F"], dtype=np.float64)
+                        mid = len(r_all) // 2
+                        return {
+                            "system": system_key,
+                            "label": system_key,
+                            "theory": "QM-MD",
+                            "z": np.asarray(d["z"], dtype=np.int64),
+                            "R_train": r_all[:mid],
+                            "F_train": f_all[:mid],
+                            "R_test": r_all[mid:],
+                            "F_test": f_all[mid:],
+                        }
 
     if system_key not in MD_BENCH_SYSTEMS:
         raise ValueError(f"Unknown benchmark system '{system_key}'.")
@@ -155,18 +155,17 @@ def load_or_fetch_benchmark_system(
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
             tr_name = [n for n in zf.namelist() if "train" in n][0]
             te_name = [n for n in zf.namelist() if "test" in n][0]
-            tr = np.load(io.BytesIO(zf.read(tr_name)))
-            te = np.load(io.BytesIO(zf.read(te_name)))
-            z_arr = np.asarray(tr["z"], dtype=np.int64)
-            r_tr = np.ascontiguousarray(tr["R"], dtype=np.float64)
-            f_tr = np.ascontiguousarray(tr["F"], dtype=np.float64)
-            r_te = np.ascontiguousarray(te["R"], dtype=np.float64)
-            f_te = np.ascontiguousarray(te["F"], dtype=np.float64)
+            with np.load(io.BytesIO(zf.read(tr_name))) as tr, np.load(io.BytesIO(zf.read(te_name))) as te:
+                z_arr = np.asarray(tr["z"], dtype=np.int64)
+                r_tr = np.ascontiguousarray(tr["R"], dtype=np.float64)
+                f_tr = np.ascontiguousarray(tr["F"], dtype=np.float64)
+                r_te = np.ascontiguousarray(te["R"], dtype=np.float64)
+                f_te = np.ascontiguousarray(te["F"], dtype=np.float64)
     else:
-        raw = np.load(io.BytesIO(payload))
-        z_arr = np.asarray(raw["z"], dtype=np.int64)
-        r_all = np.ascontiguousarray(raw["R"], dtype=np.float64)
-        f_all = np.ascontiguousarray(raw["F"], dtype=np.float64)
+        with np.load(io.BytesIO(payload)) as raw:
+            z_arr = np.asarray(raw["z"], dtype=np.int64)
+            r_all = np.ascontiguousarray(raw["R"], dtype=np.float64)
+            f_all = np.ascontiguousarray(raw["F"], dtype=np.float64)
         r_tr, f_tr = r_all[:1000], f_all[:1000]
         r_te, f_te = r_all[2000:3000], f_all[2000:3000]
 

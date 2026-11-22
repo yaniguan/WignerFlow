@@ -49,10 +49,11 @@ class EquiFF(nn.Module):
 
     def forces(self, pos, types, box, create_graph=False):
         """F = -dE/dx in kJ/mol/Å, shape (B, N, 3)."""
-        pos = pos if pos.requires_grad else pos.detach().requires_grad_(True)
-        e = self.atomic_energy(pos, types, box).sum()
-        (g,) = torch.autograd.grad(e, pos, create_graph=create_graph)
-        return -g * self.force_scale
+        with torch.enable_grad():
+            pos = pos if pos.requires_grad else pos.detach().requires_grad_(True)
+            e = self.atomic_energy(pos, types, box).sum()
+            (g,) = torch.autograd.grad(e, pos, create_graph=create_graph)
+            return -g * self.force_scale
 
 
 def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs, save_every=1, min_dist=0.5, t_max=None,
@@ -93,11 +94,12 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
             if t_max is not None:
                 bad |= temperature(v.float(), masses.float(), n_constraints) > t_max
             if bonds is not None:
-                bad |= max_bond_deviation(x.float(), bonds.to(device), bond_r0.to(device)) > max_bond_dev
+                bad |= max_bond_deviation(x.float(), bonds.to(device), bond_r0.to(device), box=box) > max_bond_dev
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)
             if (crash >= 0).all():
                 break
     if device.type == "cuda":
         torch.cuda.synchronize()
-    return {"positions": torch.stack(saved_x), "velocities": torch.stack(saved_v), "crash_step": crash.cpu(),
+    return {"positions": torch.stack(saved_x) if saved_x else None,
+            "velocities": torch.stack(saved_v) if saved_v else None, "crash_step": crash.cpu(),
             "steps_done": step, "wall_s": time.time() - t0}

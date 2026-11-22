@@ -10,7 +10,14 @@ from equitraj.layers import GraphAttention, SO2Linear, envelope, segment_softmax
 from equitraj.model import EquiTraj, build_graph  # noqa: E402
 from equitraj.neighbors import brute_force, cell_list  # noqa: E402
 
-torch.set_default_dtype(torch.float64)
+@pytest.fixture(autouse=True)
+def _float64_for_symmetry():
+    prev = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        yield
+    finally:
+        torch.set_default_dtype(prev)
 
 
 def random_rotation(reflect):

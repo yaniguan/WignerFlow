@@ -125,7 +125,8 @@ def preflight(paths, *, reject_estimated_velocities=False):
 
 class TrajWindows(torch.utils.data.Dataset):
     def __init__(self, data_dir, split, stride_steps, k, m=1, start_every=1, *, reject_estimated_velocities=False):
-        cfg = yaml.safe_load(open(os.path.join(data_dir, "config.yaml")))
+        with open(os.path.join(data_dir, "config.yaml"), encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
         for value in (stride_steps, k, m, start_every):
             if int(value) != value or value < 1:
                 raise ValueError("stride, k, m and start_every must be positive integers")

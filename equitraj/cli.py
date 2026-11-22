@@ -304,9 +304,12 @@ def run_pocket_rollout(
     com_leakage = float((k_com / np.maximum(k_tot, 1e-15)).max())
 
     # Mass-weighted radius of gyration across terminal half (for non-periodic molecules)
-    com_pos = (traj_x[half:] * masses[None, :, None]).sum(axis=1, keepdims=True) / max(m_tot, 1e-12)
-    rel_pos = traj_x[half:] - com_pos
-    rg_a = float(np.sqrt(((masses[None, :] * (rel_pos ** 2).sum(axis=-1)).sum(axis=-1) / max(m_tot, 1e-12)).mean()))
+    if box_l is None:
+        com_pos = (traj_x[half:] * masses[None, :, None]).sum(axis=1, keepdims=True) / max(m_tot, 1e-12)
+        rel_pos = traj_x[half:] - com_pos
+        rg_a = round(float(np.sqrt(((masses[None, :] * (rel_pos ** 2).sum(axis=-1)).sum(axis=-1) / max(m_tot, 1e-12)).mean())), 3)
+    else:
+        rg_a = None
 
     if out_npz is not None:
         out_p = Path(out_npz)
@@ -345,7 +348,7 @@ def run_pocket_rollout(
         "bond_rms_drift_A": round(bond_rms_drift, 4),
         "min_vdw_ratio": round(vdw_terminal["min_vdw_ratio"], 3),
         "vdw_clashes": int(vdw_terminal["n_vdw_clashes"]),
-        "radius_of_gyration_A": round(rg_a, 3),
+        "radius_of_gyration_A": rg_a,
         "com_kinetic_leakage_ratio": float(f"{com_leakage:.2e}"),
     }
     if out_npz is not None:
@@ -504,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ckpt.add_argument("--ckpt", default=None, help="Path to `.pt` checkpoint (defaults to built-in Argon flow ckpt)")
     p_ckpt.add_argument("--steps", type=int, default=24, help="Coarse-stride rollout steps (default: 24)")
     p_ckpt.add_argument("--sampling-steps", type=int, default=3, help="Flow ODE integration steps (default: 3)")
-    p_ckpt.add_argument("--neighbor", default="verlet", choices=("verlet", "dense", "cell"),
+    p_ckpt.add_argument("--neighbor", default="verlet", choices=("verlet", "brute", "cell", "dense"),
                         help="Neighbor graph backend (default: verlet)")
     p_ckpt.add_argument("--thermostat", action="store_true", help="Enable CSVR thermostat during rollout")
     p_ckpt.add_argument("--device", default="cpu", help="Torch device (default: cpu)")

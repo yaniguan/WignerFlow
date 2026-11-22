@@ -215,40 +215,46 @@ def bench_config(n_atoms, k=3, batch=1, head="flow", repeats=3, warmup=1, thread
     is only meaningful in a fresh process (see bench_config_isolated): the high-water mark never resets.
     Times are medians over `repeats` after `warmup` untimed iterations.
     """
+    prev_threads = torch.get_num_threads()
     if threads is not None:
         torch.set_num_threads(threads)
-    dt = getattr(torch, dtype)
-    model = make_model(head, dt, seed=seed, k=k, **model_kwargs)
-    inp = make_liquid(n_atoms, k=k, batch=batch, seed=seed, dtype=dt)
-    g = torch.Generator().manual_seed(seed)
-    dx_t = 0.07 * torch.randn(inp["vel"][:, 0].shape, generator=g, dtype=dt)
-    v_t = ARGON_V_SIGMA * torch.randn(inp["vel"][:, 0].shape, generator=g, dtype=dt)
-    edges_per_frame = count_edges(inp, model.cutoff) / (batch * k)
-    torch.manual_seed(seed)
+    try:
+        dt = getattr(torch, dtype)
+        model = make_model(head, dt, seed=seed, k=k, **model_kwargs)
+        inp = make_liquid(n_atoms, k=k, batch=batch, seed=seed, dtype=dt)
+        g = torch.Generator().manual_seed(seed)
+        dx_t = 0.07 * torch.randn(inp["vel"][:, 0].shape, generator=g, dtype=dt)
+        v_t = ARGON_V_SIGMA * torch.randn(inp["vel"][:, 0].shape, generator=g, dtype=dt)
+        edges_per_frame = count_edges(inp, model.cutoff) / (batch * k)
+        torch.manual_seed(seed)
 
-    rss0 = current_rss_mb()
-    fwd, bwd, pred = [], [], []
-    model.train()
-    for i in range(warmup + repeats):
-        model.zero_grad(set_to_none=True)
-        t0 = time.perf_counter()
-        loss = model.loss(inp["pos"], inp["vel"], inp["types"], inp["box"], inp["masses"], dx_t, v_t)
-        t1 = time.perf_counter()
-        loss.backward()
-        t2 = time.perf_counter()
-        if i >= warmup:
-            fwd.append(t1 - t0)
-            bwd.append(t2 - t1)
-    model.eval()
-    for i in range(warmup + repeats):
-        t0 = time.perf_counter()
-        dx, _ = run_model(model, inp, None, sampling_steps)
-        if i >= warmup:
-            pred.append(time.perf_counter() - t0)
-    peak = peak_rss_mb()
+        rss0 = current_rss_mb()
+        fwd, bwd, pred = [], [], []
+        model.train()
+        for i in range(warmup + repeats):
+            model.zero_grad(set_to_none=True)
+            t0 = time.perf_counter()
+            loss = model.loss(inp["pos"], inp["vel"], inp["types"], inp["box"], inp["masses"], dx_t, v_t)
+            t1 = time.perf_counter()
+            loss.backward()
+            t2 = time.perf_counter()
+            if i >= warmup:
+                fwd.append(t1 - t0)
+                bwd.append(t2 - t1)
+        model.eval()
+        for i in range(warmup + repeats):
+            t0 = time.perf_counter()
+            dx, _ = run_model(model, inp, None, sampling_steps)
+            if i >= warmup:
+                pred.append(time.perf_counter() - t0)
+        peak = peak_rss_mb()
+        used_threads = torch.get_num_threads()
+    finally:
+        if threads is not None:
+            torch.set_num_threads(prev_threads)
     return {
         "n_atoms": n_atoms, "frames": k, "batch": batch, "head": head, "dtype": dtype,
-        "threads": torch.get_num_threads(), "params": sum(p.numel() for p in model.parameters()),
+        "threads": used_threads, "params": sum(p.numel() for p in model.parameters()),
         "edges_per_frame": edges_per_frame, "loss": loss.item(), "finite": bool(torch.isfinite(dx).all()),
         "forward_s": _median(fwd), "backward_s": _median(bwd), "fwd_bwd_s": _median([a + b for a, b in zip(fwd, bwd)]),
         "predict_s": _median(pred), "sampling_steps": sampling_steps,

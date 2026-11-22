@@ -189,13 +189,15 @@ def load_release(path, device="cpu"):
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     import torch
+    from equitraj.layers import check_attention_version
     from equitraj.model import EquiTraj
 
     if hasattr(torch.serialization, "add_safe_globals"):
         torch.serialization.add_safe_globals([slice])
-    ck = torch.load(path, map_location=device, weights_only=True)
+    ck = torch.load(path, map_location="cpu", weights_only=True)
     if ck.get("format") != "wignerflow-v0":
         raise ValueError(f"{path} is not a WignerFlow v0 release checkpoint")
+    check_attention_version(ck, source=path)
     with _float32_default():
         model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
         model.load_state_dict(ck["model"])
@@ -207,7 +209,7 @@ def run_query(query, model_and_ckpt=None):
     plan = plan_query(query)
     if plan["status"] != "planned":
         return plan
-    if not plan["checkpoint_present"]:
+    if model_and_ckpt is None and not plan["checkpoint_present"]:
         return {**plan, "status": "error", "errors": ["checkpoint file missing"]}
     import torch
     from equitraj.rollout import min_pair_distance, rollout, temperature
@@ -230,8 +232,8 @@ def run_query(query, model_and_ckpt=None):
               "T_model_mean_K": None, "T_rel_err": None, "min_pair_distance_A": None,
               "caveats": list(CAVEATS)}
     if n_ok > 0:
-        t_mean = float(temperature(v, ck["masses"]).mean())
-        boxes = None if box is None else box.expand(n_ok, 3, 3)
+        t_mean = float(temperature(v, ck["masses"].cpu()).mean())
+        boxes = None if box is None else box.cpu().expand(n_ok, 3, 3)
         report["T_model_mean_K"] = t_mean
         report["T_rel_err"] = (t_mean - report["T_ref_K"]) / report["T_ref_K"]
         report["min_pair_distance_A"] = float(min_pair_distance(x.double(), boxes).min())
