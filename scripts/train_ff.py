@@ -18,6 +18,7 @@ import torch
 import yaml
 
 from equitraj.forcefield import EquiFF
+from equitraj.layers import ATTENTION_VERSION
 from equitraj.units import NM_TO_A
 
 
@@ -37,18 +38,20 @@ def load_split(data_dir, ids):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
-    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but not available")
-    cfg = yaml.safe_load(open(args.config))
+    with open(args.config, encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
     tc, out_dir = cfg["train"], cfg["out_dir"]
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "config.yaml"), "w") as fh:
+    with open(os.path.join(out_dir, "config.yaml"), "w", encoding="utf-8") as fh:
         yaml.safe_dump(cfg, fh)
     device = torch.device(args.device)
     torch.manual_seed(cfg.get("seed", 0))
-    split = yaml.safe_load(open(os.path.join(cfg["data_dir"], "config.yaml")))["split"]
+    with open(os.path.join(cfg["data_dir"], "config.yaml"), encoding="utf-8") as fh:
+        split = yaml.safe_load(fh)["split"]
     x_tr, f_tr, box, elements = load_split(cfg["data_dir"], split["train"])
     x_va, f_va, _, _ = load_split(cfg["data_dir"], split["val"])
     types_names = sorted(set(elements))
@@ -81,34 +84,35 @@ def main():
         model.train()
         return float(np.sqrt(np.mean(err)))
 
-    log = open(os.path.join(out_dir, "log.jsonl"), "a")
     best, t0, running = math.inf, time.time(), []
-    model.train()
-    for step in range(1, tc["steps"] + 1):
-        idx = torch.randint(0, len(x_tr_t), (tc["batch_size"],))
-        xb, fb = x_tr_t[idx].to(device), f_tr_t[idx].to(device)
-        for g in opt.param_groups:
-            g["lr"] = lr_at(step)
-        pred = model.forces(xb, types, box_t, create_graph=True)
-        loss = ((pred - fb) ** 2).mean() / scale**2
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
-        opt.step()
-        running.append(loss.item())
-        if step % tc.get("eval_every", 2000) == 0 or step == tc["steps"]:
-            rmse = val_rmse()
-            rec = {"step": step, "train_loss": float(np.mean(running)), "val_force_rmse": rmse,
-                   "val_force_rmse_rel": rmse / scale, "elapsed_h": (time.time() - t0) / 3600}
-            running = []
-            log.write(json.dumps(rec) + "\n")
-            log.flush()
-            print(json.dumps(rec), flush=True)
-            if rmse < best:
-                best = rmse
-                torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": types_names},
-                           os.path.join(out_dir, "best.pt"))
-    with open(os.path.join(out_dir, "done.json"), "w") as fh:
+    with open(os.path.join(out_dir, "log.jsonl"), "a", encoding="utf-8") as log:
+        model.train()
+        for step in range(1, tc["steps"] + 1):
+            idx = torch.randint(0, len(x_tr_t), (tc["batch_size"],))
+            xb, fb = x_tr_t[idx].to(device), f_tr_t[idx].to(device)
+            for g in opt.param_groups:
+                g["lr"] = lr_at(step)
+            pred = model.forces(xb, types, box_t, create_graph=True)
+            loss = ((pred - fb) ** 2).mean() / scale**2
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), tc.get("grad_clip", 1.0))
+            opt.step()
+            running.append(loss.item())
+            if step % tc.get("eval_every", 2000) == 0 or step == tc["steps"]:
+                rmse = val_rmse()
+                rec = {"step": step, "train_loss": float(np.mean(running)), "val_force_rmse": rmse,
+                       "val_force_rmse_rel": rmse / scale, "elapsed_h": (time.time() - t0) / 3600}
+                running = []
+                log.write(json.dumps(rec) + "\n")
+                log.flush()
+                print(json.dumps(rec), flush=True)
+                if rmse < best:
+                    best = rmse
+                    torch.save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": types_names,
+                                "attention_version": ATTENTION_VERSION},
+                               os.path.join(out_dir, "best.pt"))
+    with open(os.path.join(out_dir, "done.json"), "w", encoding="utf-8") as fh:
         json.dump({"step": tc["steps"], "best_val_force_rmse": best, "hours": (time.time() - t0) / 3600}, fh)
 
 

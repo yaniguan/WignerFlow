@@ -187,9 +187,17 @@ def main():
     ap.add_argument("--n-fusion", type=int, default=1)
     ap.add_argument("--n-denoiser", type=int, default=1)
     ap.add_argument("--head", choices=["regression", "flow"], default="regression")
-    ap.add_argument("--neighbor-method", choices=["brute_force", "cell_list"], default="brute_force")
+    ap.add_argument("--neighbor-method", choices=["brute", "brute_force", "cell_list"], default="brute_force")
+    ap.add_argument("--out", help="optional path to write JSON benchmark output")
     args = ap.parse_args()
-    print(json.dumps(benchmark(args), indent=2, allow_nan=False))
+    if args.neighbor_method == "brute":
+        args.neighbor_method = "brute_force"
+    text = json.dumps(benchmark(args), indent=2, allow_nan=False)
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text + "\n", encoding="utf-8")
+    print(text)
 
 
 if __name__ == "__main__":

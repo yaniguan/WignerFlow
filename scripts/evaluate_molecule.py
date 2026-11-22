@@ -26,6 +26,7 @@ if ROOT not in sys.path:
 from equitraj.evaluation import first_zero, load_model  # noqa: E402
 
 from equitraj import analysis, plots  # noqa: E402
+from equitraj.pair_masks import exclusions_from_bonds  # noqa: E402
 from equitraj.rollout import rollout, temperature  # noqa: E402
 
 COVALENT_RADIUS = {"H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66}  # Å
@@ -72,7 +73,7 @@ def main():
     ap.add_argument("--max_bond_dev", type=float, default=0.5, help="a rollout crashes when a bond is this fraction off")
     ap.add_argument("--min_dist", type=float, default=0.5, help="a rollout crashes when two atoms are closer than this (Å)")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
     device = torch.device(args.device)
     out_dir = args.out or os.path.join(args.run, "eval_mol")
@@ -80,7 +81,8 @@ def main():
 
     model, cfg, ds, step = load_model(args.run, args.ckpt, device)
     assert not ds.periodic, "evaluate_molecule.py is for molecules in vacuum; use evaluate.py for periodic systems"
-    system = yaml.safe_load(open(os.path.join(cfg["data_dir"], "config.yaml")))["system"]
+    with open(os.path.join(cfg["data_dir"], "config.yaml"), encoding="utf-8") as fh:
+        system = yaml.safe_load(fh)["system"]
     k, f, dt = cfg["k"], ds.f, ds.stride_fs
     n_atoms = len(ds.types)
     elements = [str(e) for e in ds.meta["elements"]]
@@ -89,8 +91,9 @@ def main():
 
     gt_x = [np.asarray(p[::f]) for p in ds.pos]
     gt_v = [np.asarray(v[::f]) for v in ds.vel]
-    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
+    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses, ds.n_constraints).mean().item() for v in gt_v]))
     bonds = find_bonds(gt_x[0][0], elements)
+    excl = exclusions_from_bonds(bonds, n_atoms, max_hops=2)
     r0 = np.concatenate([bond_lengths(x[:2000], bonds) for x in gt_x]).mean(0)  # reference length of each bond
 
     starts = []
@@ -105,7 +108,7 @@ def main():
     torch.manual_seed(0)
     out = rollout(model, pos, vel, ds.types, None, ds.masses, args.steps, sampling_steps=args.sampling_steps,
                   save_every=1, t_max=3 * t_gt, bonds=torch.from_numpy(bonds), bond_r0=torch.from_numpy(r0).float(),
-                  max_bond_dev=args.max_bond_dev, min_dist=args.min_dist)
+                  max_bond_dev=args.max_bond_dev, min_dist=args.min_dist, excluded_pairs=excl)
     x, v, crash = out["positions"].numpy(), out["velocities"].numpy(), out["crash_step"].numpy()
     n_roll, n_done = len(labels), x.shape[0]
     ok = crash < 0
@@ -120,11 +123,12 @@ def main():
                     [("model", surv_t * dt / 1000, [(steps_before >= s).mean() for s in surv_t])],
                     "rollout time (ps)", "fraction not crashed", "Rollout stability", ylim=(0, 1.05))
 
-    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses).numpy().reshape(n_done, n_roll)
+    temp = temperature(torch.from_numpy(v.reshape(-1, n_atoms, 3)), ds.masses, ds.n_constraints).numpy().reshape(n_done, n_roll)
     half = args.steps // 2
     if not ok.any():
         m["note"] = "every rollout crashed; structural and dynamical metrics skipped"
-        json.dump(m, open(os.path.join(out_dir, "metrics.json"), "w"), indent=2)
+        with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as fh:
+            json.dump(m, fh, indent=2)
         print(json.dumps(m, indent=2))
         return
     m["temperature"] = {"T_model_second_half_K": float(temp[half:, ok].mean()),
@@ -205,7 +209,7 @@ def main():
          "bond_std_ratio_0.5_2": 0.5 < m["bonds"]["std_ratio_median"] < 2.0}
     c["all_pass"] = all(c.values())
     m["criteria"] = c
-    with open(os.path.join(out_dir, "metrics.json"), "w") as fh:
+    with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as fh:
         json.dump(m, fh, indent=2)
     print(json.dumps({key: val for key, val in m.items() if key != "stability"}, indent=2))
 

@@ -11,11 +11,13 @@
 #SBATCH -o logs/%x-%j.out
 
 set -uo pipefail
-export MAMBA_ROOT_PREFIX=$HOME/micromamba
-eval "$(~/bin/bin/micromamba shell hook -s bash)"
-micromamba activate ~/envs/wignerflow
-cd ~/WignerFlow
-export PYTHONPATH=$PWD:${PYTHONPATH:-}   # so scripts/*.py can import equitraj
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}"
+MAMBA_EXE="${MAMBA_EXE:-micromamba}"
+eval "$("$MAMBA_EXE" shell hook -s bash)"
+micromamba activate "${WIGNERFLOW_ENV:-$HOME/envs/wignerflow}"
+cd "${REPO_DIR:-$PWD}"
+mkdir -p logs
+export PYTHONPATH="$PWD:${PYTHONPATH:-}"   # so scripts/*.py can import equitraj
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 gpu=0
 for cmd in "$@"; do

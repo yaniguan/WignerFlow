@@ -28,10 +28,16 @@ from equitraj.rollout import rollout, temperature  # noqa: E402
 
 
 def cpu_name():
-    for line in open("/proc/cpuinfo"):
-        if line.startswith("model name"):
-            return line.split(":", 1)[1].strip()
-    return platform.processor()
+    if os.path.exists("/proc/cpuinfo"):
+        with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    return platform.processor() or platform.machine()
+
+
+def _load_avg():
+    return os.getloadavg() if hasattr(os, "getloadavg") else None
 
 
 def fcc_argon(m, mass, temp_k=95.0, stride_fs=50.0, seed=0):
@@ -98,7 +104,7 @@ def main():
     p = ArgonPredictor(args.ckpt, threads=args.threads)
     ck, d = p.ck, p.ck["demo"]
     rep = {"cpu": cpu_name(), "logical_cpus": os.cpu_count(), "threads": args.threads, "torch": torch.__version__,
-           "load_avg_start": os.getloadavg(), "checkpoint": p.name, "latency_ms": {}, "one_step": {}, "rollouts": {}}
+           "load_avg_start": _load_avg(), "checkpoint": p.name, "latency_ms": {}, "one_step": {}, "rollouts": {}}
 
     lat_pos, lat_vel, lat_box = fcc_argon(3, p.mass)
     for s in args.sampling_steps:
@@ -138,12 +144,12 @@ def main():
             rep["rollouts"][key] = {"runs": runs, **{k: float(np.mean([r[k] for r in runs]))
                                          for k in ("T_second_half_K", "rdf_peak_pos_err_A", "rdf_peak_height_rel_err")}}
             print(f"rollout {key}", {k: v for k, v in rep["rollouts"][key].items() if k != "runs"}, flush=True)
-    rep["load_avg_end"] = os.getloadavg()
+    rep["load_avg_end"] = _load_avg()
     text = json.dumps(rep, indent=2)
     print(text)
     if args.out:
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(text + "\n")
 
 
