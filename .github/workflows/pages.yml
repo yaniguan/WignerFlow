@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Publish site/ to gh-pages branch
         run: |
           TMP_DIR="$(mktemp -d)"
