@@ -20,16 +20,25 @@ from equitraj.rollout import rollout, temperature
 
 
 def load_release(path, device):
-    ck = torch.load(path, map_location=device, weights_only=True)
+    ck = torch.load(path, map_location="cpu", weights_only=True)
     assert ck.get("format") == "wignerflow-v0", "not a WignerFlow v0 release checkpoint"
     check_attention_version(ck, source=path)
-    model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+    prev_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+    finally:
+        torch.set_default_dtype(prev_dtype)
     model.load_state_dict(ck["model"])
     return model.to(device).eval(), ck
 
 
 def first_zero(t, c):
-    i = np.argmax(c < 0)
+    if len(c) == 0:
+        return None
+    if c[0] <= 0:
+        return float(t[0]) if c[0] == 0 else None
+    i = int(np.argmax(c < 0))
     if c[i] >= 0:
         return None
     return float(t[i - 1] + (t[i] - t[i - 1]) * c[i - 1] / (c[i - 1] - c[i]))
@@ -59,9 +68,9 @@ def main():
                   sampling_steps=args.sampling_steps, t_max=3 * ref["T_K"])
     crashed = int(out["crash_step"][0])
     x, v = out["positions"][:, 0].numpy(), out["velocities"][:, 0].numpy()
-    n_ok = args.steps if crashed < 0 else crashed
+    n_ok = args.steps if crashed < 0 else max(0, crashed - 1)
     half = n_ok // 2
-    temp = temperature(torch.from_numpy(v[:n_ok]), ck["masses"]).numpy()
+    temp = temperature(torch.from_numpy(v[:n_ok]), ck["masses"]).numpy() if n_ok > 0 else np.empty(0, dtype=np.float32)
     summary = {"checkpoint": os.path.basename(args.ckpt), "train_step": ck["train_step"], "device": str(device),
                "steps": args.steps, "stride_fs": dt, "simulated_ps": args.steps * dt / 1000,
                "crashed_at_step": None if crashed < 0 else crashed, "wall_s": out["wall_s"],
@@ -82,18 +91,19 @@ def main():
     max_lag = min(len(lag), n_ok // 2)
     if max_lag > 5:
         c = analysis.vacf(v[half:n_ok] if n_ok - half > max_lag else v[:n_ok], max_lag)
-        c = c / c[0]
+        c = c / max(abs(float(c[0])), 1e-30)
         z_model, z_ref = first_zero(lag[:max_lag], c), first_zero(lag, np.array(ref["vacf"]))
         summary["vacf_first_zero_fs"] = {"model": z_model, "reference": z_ref}
         plots.line_plot(os.path.join(args.out, "vacf.png"),
                         [("ground truth", lag / 1000, ref["vacf"]), ("model", lag[:max_lag] / 1000, c)],
                         "t (ps)", "C(t) / C(0)", "Velocity autocorrelation", hline=0.0)
-    t_axis = np.arange(1, n_ok + 1) * dt / 1000
-    plots.line_plot(os.path.join(args.out, "temperature.png"),
-                    [("ground truth", t_axis, np.full(n_ok, ref["T_K"])), ("model", t_axis, temp)],
-                    "rollout time (ps)", "T (K)", "Temperature (model only)")
-    np.save(os.path.join(args.out, "positions.npy"), x)
-    with open(os.path.join(args.out, "summary.json"), "w") as fh:
+    if n_ok > 0:
+        t_axis = np.arange(1, n_ok + 1) * dt / 1000
+        plots.line_plot(os.path.join(args.out, "temperature.png"),
+                        [("ground truth", t_axis, np.full(n_ok, ref["T_K"])), ("model", t_axis, temp)],
+                        "rollout time (ps)", "T (K)", "Temperature (model only)")
+    np.save(os.path.join(args.out, "positions.npy"), x[:n_ok])
+    with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
     print(json.dumps(summary, indent=2))
 

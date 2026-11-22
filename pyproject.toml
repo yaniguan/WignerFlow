@@ -11,6 +11,10 @@ dependencies = [
 
 [project.optional-dependencies]
 simulation = ["openmm>=8.1"]
+adapters = ["ase>=3.22", "mdtraj>=1.9"]
+api = ["fastapi>=0.100", "uvicorn>=0.23"]
+chem = ["rdkit>=2023.3"]
+site = ["Pillow>=10"]
 train = ["tensorboard>=2.14"]
 test = ["pytest>=7"]
 

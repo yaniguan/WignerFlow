@@ -15,7 +15,6 @@ Examples:
 """
 
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import sys
@@ -126,121 +125,6 @@ def cmd_batch(args):
     print("-" * 100)
     print("=" * 100)
     _write_json(args.json_out, {"total_wall_s": round(total_s, 3), "reports": reports})
-
-
-_WEB_UI_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PocketMD — WignerFlow pocket calculator</title>
-<style>
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
-  .wrap { max-width: 980px; margin: 28px auto; padding: 0 18px; }
-  .card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-  button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
-  button.sec { background: #334155; }
-  button:hover { opacity: 0.92; }
-  pre { background: #090d16; border: 1px solid #334155; border-radius: 10px; padding: 14px; overflow-x: auto; font-size: 13px; line-height: 1.45; }
-  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 13px; }
-  .GO { background: #065f46; color: #6ee7b7; }
-  .HOLD { background: #78350f; color: #fcd34d; }
-  .REJECT { background: #7f1d1d; color: #fca5a5; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
-    <h2 style="margin:0 0 6px 0;">PocketMD · WignerFlow pocket calculator (live CPU server)</h2>
-    <div style="color:#94a3b8;font-size:14px;">Quick CPU trajectory triage: decide whether a docked pose or electrolyte additive is worth expensive production MD.</div>
-    <div class="row">
-      <button onclick="run('binding','aspirin_cox_stable')">Drug pocket: stable aspirin pose</button>
-      <button class="sec" onclick="run('binding','aspirin_induced_fit')">Drug pocket: induced-fit pose</button>
-      <button class="sec" onclick="run('binding','aspirin_decoy_clash')">Drug pocket: steric-clash decoy</button>
-    </div>
-    <div class="row">
-      <button onclick="run('electrolyte','li_ec_fec_additive')">Electrolyte: EC/DMC + 10% FEC</button>
-      <button class="sec" onclick="run('electrolyte','li_ec_base')">Electrolyte: 1M LiPF6/EC baseline</button>
-      <button class="sec" onclick="run('electrolyte','li_ec_vc_additive')">Electrolyte: high-viscosity VC additive</button>
-      <button class="sec" onclick="run('electrolyte','li_high_salt_agg')">Electrolyte: strong-pairing AGG trap</button>
-      <button onclick="run('checkpoint','argon_flow_v1_cpu_reduced')">WignerFlow neural rollout (CPU)</button>
-    </div>
-  </div>
-  <div class="card">
-    <div id="status">Click a candidate above to run a live MD triage on this CPU...</div>
-    <pre id="receipt">Waiting for calculation...</pre>
-  </div>
-</div>
-<script>
-async function run(mode, preset) {
-  document.getElementById('status').innerHTML = 'Running a fast CPU triage of <b>' + preset + '</b> ...';
-  const r = await fetch('/api/triage', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({mode, preset})
-  });
-  const data = await r.json();
-  document.getElementById('status').innerHTML =
-    '<span class="badge ' + data.report.verdict + '">' + data.report.verdict + '</span> ' +
-    '<b>' + (data.report.title || data.report.name) + '</b> · ' + data.report.wall_s + 's on CPU';
-  document.getElementById('receipt').textContent = data.receipt;
-}
-</script>
-</body>
-</html>
-"""
-
-
-class _PocketHandler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):
-        return  # keep terminal clean
-
-    def _send_json(self, code, payload):
-        raw = json.dumps(payload).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
-
-    def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            raw = _WEB_UI_HTML.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-        elif self.path == "/api/catalog":
-            self._send_json(200, {
-                "binding_presets": BINDING_PRESETS,
-                "electrolyte_presets": ELECTROLYTE_PRESETS,
-                "datasets": pocket.DATASET_CATALOG,
-            })
-        else:
-            self._send_json(404, {"error": "not found"})
-
-    def do_POST(self):
-        if self.path != "/api/triage":
-            self._send_json(404, {"error": "not found"})
-            return
-        length = int(self.headers.get("Content-Length", "0"))
-        body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-        mode = body.get("mode", "binding")
-        preset = body.get("preset")
-        try:
-            if mode == "binding":
-                rep = pocket.triage_binding(preset=preset or "aspirin_cox_stable")
-            elif mode == "electrolyte":
-                rep = pocket.triage_electrolyte(preset=preset or "li_ec_fec_additive")
-            elif mode == "checkpoint":
-                rep = pocket.triage_checkpoint()
-            else:
-                self._send_json(400, {"error": f"unknown mode {mode!r}"})
-                return
-            self._send_json(200, {"report": rep, "receipt": pocket.format_receipt(rep)})
-        except Exception as exc:  # pragma: no cover - defensive HTTP handler
-            self._send_json(500, {"error": str(exc)})
 
 
 def cmd_serve(args):

@@ -6,8 +6,19 @@
 import glob
 import json
 import os
+from pathlib import Path
 
 import yaml
+
+
+def _read_json(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _read_yaml(path):
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
 
 
 def fmt(x, spec=".3g"):
@@ -21,8 +32,8 @@ def fmt(x, spec=".3g"):
 def ground_truth_rows():
     rows = []
     for path in sorted(glob.glob("results/*/ground_truth/metrics.json")):
-        system = path.split("/")[1]
-        m = json.load(open(path))
+        system = Path(path).parts[1]
+        m = _read_json(path)
         pt = m["per_traj"]
         first_pair = next(iter(m["rdf"]))
         rdf = m["rdf"][first_pair]
@@ -36,15 +47,15 @@ def ground_truth_rows():
 def eval_rows():
     rows = []
     for path in sorted(glob.glob("results/*/*/eval*/metrics.json")):
-        parts = path.split("/")
-        m = json.load(open(path))
+        parts = Path(path).parts
+        m = _read_json(path)
         if m.get("split", "test") != "test":
             continue  # validation-set evaluations are only for choosing checkpoints
         v = m.get("v0_verdict", {})
         name = f"{parts[1]}/{parts[2]}" + ("" if parts[3] == "eval" else f" ({parts[3]})") + f", step {m.get('train_step', '?')}"
         st = m["stability"]
         cfg_path = os.path.join(*parts[:3], "config.yaml")
-        cfg = yaml.safe_load(open(cfg_path)) if os.path.exists(cfg_path) else {}
+        cfg = _read_yaml(cfg_path) if os.path.exists(cfg_path) else {}
         target = cfg.get("model", {}).get("target", "?")
         seed = cfg.get("seed", "?")
         t_m = m.get("temperature", {}).get("T_model_second_half_K")
@@ -70,13 +81,15 @@ def stability_figure(path="results/argon/stability_vs_step.png"):
     from equitraj import plots
 
     runs = sorted(glob.glob("results/argon/B_S3a_seed*/log.jsonl"))
-    if not runs:
+    if not runs or not os.path.exists("results/argon/ground_truth/metrics.json"):
         return None
-    t_gt = json.load(open("results/argon/ground_truth/metrics.json"))["T_mean_K"]
+    t_gt = _read_json("results/argon/ground_truth/metrics.json")["T_mean_K"]
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 6.5), sharex=True)
     for k, log in enumerate(runs):
-        name = log.split("/")[2]
-        rows = [json.loads(line) for line in open(log) if '"val_T_end"' in line]
+        name = Path(log).parts[2]
+        with open(log, encoding="utf-8") as fh:
+            parsed = [json.loads(line) for line in fh if '"val_T_end"' in line]
+        rows = [r for r in parsed if r.get("val_T_end") is not None and r.get("val_rdf_l1") is not None]
         step = [r["step"] for r in rows]
         c = plots.SERIES[k % len(plots.SERIES)]
         label = name.replace("B_S3a_", "")
@@ -84,7 +97,7 @@ def stability_figure(path="results/argon/stability_vs_step.png"):
         ax2.plot(step, [r["val_rdf_l1"] for r in rows], color=c, linewidth=2)
         ev = os.path.join(os.path.dirname(log), "eval", "metrics.json")
         if os.path.exists(ev):
-            m = json.load(open(ev))
+            m = _read_json(ev)
             t_test = m.get("temperature", {}).get("T_model_second_half_K")
             if t_test is not None:
                 ax1.scatter([m["train_step"]], [t_test / t_gt], color=c, s=60, zorder=3, edgecolor="black")
@@ -98,6 +111,7 @@ def stability_figure(path="results/argon/stability_vs_step.png"):
     ax2.set_yscale("log")
     plots._style(ax2, "training step", "RDF L1 error", "RDF error of validation rollouts")
     fig.tight_layout()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
@@ -125,7 +139,7 @@ def main():
                   "Each line is one training seed (flow head, residual targets, default `best.pt` selection). Rollouts are 1000 steps on validation "
                   "trajectories, evaluated every 2000 training steps; the grey band is ±5% of the ground-truth temperature. "
                   "Dots are the checkpoints that were tested with 10⁴-step rollouts (dot height = test temperature / truth); an x marks a checkpoint whose 10⁴-step test rollouts all crashed."]
-    with open("RESULTS.md", "w") as f:
+    with open("RESULTS.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print(f"RESULTS.md: {len(rows)} evaluated runs")
 

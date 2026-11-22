@@ -55,8 +55,9 @@ def parse_key_averages(text, top=10):
 def util_series(path):
     """Return a list of GPU utilization % samples from any of the three telemetry formats."""
     if path.endswith('.jsonl'):
-        return [json.loads(l)['utilization_percent'] for l in open(path) if l.strip()]
-    with open(path) as f:
+        with open(path, encoding='utf-8') as fh:
+            return [json.loads(l)['utilization_percent'] for l in fh if l.strip()]
+    with open(path, encoding='utf-8') as f:
         rd = csv.reader(f)
         head = [h.strip() for h in next(rd)]
         idx = next(i for i, h in enumerate(head) if h.startswith('util'))
@@ -71,7 +72,8 @@ def util_series(path):
 
 def trace_gpu_busy(path):
     """Union of GPU kernel/memcpy intervals vs. trace span -> GPU-busy fraction."""
-    d = json.load(open(path))
+    with open(path, encoding='utf-8') as fh:
+        d = json.load(fh)
     ev = [e for e in d['traceEvents'] if e.get('ph') == 'X']
     k = sorted((e['ts'], e['ts'] + e['dur'], e['name']) for e in ev if e.get('cat') in ('kernel', 'gpu_memcpy', 'gpu_memset'))
     if not k:
@@ -122,7 +124,10 @@ def verdict(run):
     if gpu and ka.get('top_cuda'):
         ew = sum(r['self_cuda_ms'] for r in ka['top_cuda'] if r['name'] in ELEMENTWISE)
         if ew / gpu > 0.4 and (u is None or u >= 60):
-            return 'GPU memory-bandwidth bound (elementwise ops)', ['elementwise add_/fill_/copy_/mul = %.0f%% of self CUDA time' % (100 * ew / gpu), 'mean GPU util %.0f%%' % u]
+            msg = ['elementwise add_/fill_/copy_/mul = %.0f%% of self CUDA time' % (100 * ew / gpu)]
+            if u is not None:
+                msg.append('mean GPU util %.0f%%' % u)
+            return 'GPU memory-bandwidth bound (elementwise ops)', msg
     if run.get('trace', {}) and run['trace'].get('busy_frac', 1) < 0.6:
         t = run['trace']
         return 'kernel-launch / small-kernel bound', ['GPU busy %.0f%% of trace span, %d kernels, mean %.0f us' % (100 * t['busy_frac'], t['n_kernels'], t['mean_kernel_us'])]
@@ -138,7 +143,19 @@ def load(raw, name):
     return p if os.path.exists(p) else None
 
 
-DEFAULT_MANIFEST = json.load(open(os.path.join(os.path.dirname(__file__), 'manifest.json'))) if os.path.exists(os.path.join(os.path.dirname(__file__), 'manifest.json')) else {}
+def _default_manifest():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for candidate in (
+        os.path.join(root, 'docs', 'profiling', 'manifest.json'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manifest.json'),
+    ):
+        if os.path.exists(candidate):
+            with open(candidate, encoding='utf-8') as fh:
+                return json.load(fh)
+    return {}
+
+
+DEFAULT_MANIFEST = _default_manifest()
 
 
 def build(raw, manifest):
@@ -146,7 +163,8 @@ def build(raw, manifest):
     for rid, m in manifest.items():
         run = {k: m[k] for k in ('repo', 'label', 'gpu', 'gpu_mem_gb', 'notes') if k in m}
         if m.get('summary') and load(raw, m['summary']):
-            s = json.load(open(load(raw, m['summary'])))
+            with open(load(raw, m['summary']), encoding='utf-8') as fh:
+                s = json.load(fh)
             for path in m.get('summary_path', []):
                 s = s[path]
             run['summary'] = {k: v for k, v in s.items() if not k.endswith('samples')} if isinstance(s, dict) else s
@@ -157,7 +175,8 @@ def build(raw, manifest):
             if 'gpu_utilization_samples' in s:
                 run['gpu_util'] = stats(s['gpu_utilization_samples'])
         if m.get('key_averages') and load(raw, m['key_averages']):
-            run['key_averages'] = parse_key_averages(open(load(raw, m['key_averages'])).read())
+            with open(load(raw, m['key_averages']), encoding='utf-8') as fh:
+                run['key_averages'] = parse_key_averages(fh.read())
         if m.get('gpu_csv') and load(raw, m['gpu_csv']):
             run['gpu_util'] = stats(util_series(load(raw, m['gpu_csv'])))
         if m.get('trace') and load(raw, m['trace']):
@@ -207,19 +226,23 @@ def plot(data, out):
                 fig.tight_layout(); p = os.path.join(out, f'{k}_trace_kernels.png'); fig.savefig(p, dpi=130); plt.close(fig); paths.append(p)
     # cross-repo: GPU util and CPU/GPU time ratio
     runs = [(k, v) for k, v in data.items() if v.get('gpu_util')]
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    ax.bar(range(len(runs)), [v['gpu_util']['mean'] for _, v in runs], color=['#80b1d3' if v['repo'] == 'WignerFlow' else '#fb8072' if v['repo'] == 'ouroboros-ocsr' else '#b3de69' for _, v in runs])
-    ax.set_xticks(range(len(runs))); ax.set_xticklabels([v['label'] for _, v in runs], rotation=40, ha='right', fontsize=7)
-    ax.set_ylabel('mean GPU util % (nvidia-smi)'); ax.axhline(75, ls='--', c='gray'); ax.set_title('GPU utilization by run (blue=WignerFlow, red=ocsr, green=YLM)')
-    fig.tight_layout(); p = os.path.join(out, 'cross_gpu_util.png'); fig.savefig(p, dpi=130); plt.close(fig); paths.append(p)
-    runs = [(k, v) for k, v in data.items() if v.get('key_averages', {}).get('self_cuda_total_ms')]
-    fig, ax = plt.subplots(figsize=(8, 4))
-    x = range(len(runs))
-    ax.bar([i - 0.2 for i in x], [v['key_averages']['self_cpu_total_ms'] / 1e3 for _, v in runs], 0.4, label='self CPU time (s)')
-    ax.bar([i + 0.2 for i in x], [v['key_averages']['self_cuda_total_ms'] / 1e3 for _, v in runs], 0.4, label='self CUDA time (s)')
-    ax.set_xticks(list(x)); ax.set_xticklabels([v['label'] for _, v in runs], rotation=20, ha='right', fontsize=8); ax.legend()
-    ax.set_title('torch.profiler window: host (CPU) vs device (CUDA) time'); fig.tight_layout()
-    p = os.path.join(out, 'cross_cpu_vs_cuda.png'); fig.savefig(p, dpi=130); plt.close(fig); paths.append(p)
+    if runs:
+        fig, ax = plt.subplots(figsize=(10, 4.5))
+        ax.bar(range(len(runs)), [v['gpu_util']['mean'] for _, v in runs], color=['#80b1d3' if v['repo'] == 'WignerFlow' else '#fb8072' if v['repo'] == 'ouroboros-ocsr' else '#b3de69' for _, v in runs])
+        ax.set_xticks(range(len(runs))); ax.set_xticklabels([v['label'] for _, v in runs], rotation=40, ha='right', fontsize=7)
+        ax.set_ylabel('mean GPU util % (nvidia-smi)'); ax.axhline(75, ls='--', c='gray'); ax.set_title('GPU utilization by run (blue=WignerFlow, red=ocsr, green=YLM)')
+        fig.tight_layout(); p = os.path.join(out, 'cross_gpu_util.png'); fig.savefig(p, dpi=130); plt.close(fig); paths.append(p)
+    runs = [(k, v) for k, v in data.items()
+            if v.get('key_averages', {}).get('self_cuda_total_ms') is not None
+            and v.get('key_averages', {}).get('self_cpu_total_ms') is not None]
+    if runs:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        x = range(len(runs))
+        ax.bar([i - 0.2 for i in x], [v['key_averages']['self_cpu_total_ms'] / 1e3 for _, v in runs], 0.4, label='self CPU time (s)')
+        ax.bar([i + 0.2 for i in x], [v['key_averages']['self_cuda_total_ms'] / 1e3 for _, v in runs], 0.4, label='self CUDA time (s)')
+        ax.set_xticks(list(x)); ax.set_xticklabels([v['label'] for _, v in runs], rotation=20, ha='right', fontsize=8); ax.legend()
+        ax.set_title('torch.profiler window: host (CPU) vs device (CUDA) time'); fig.tight_layout()
+        p = os.path.join(out, 'cross_cpu_vs_cuda.png'); fig.savefig(p, dpi=130); plt.close(fig); paths.append(p)
     runs = [(k, v) for k, v in data.items() if v.get('peak_mem_gb')]
     if runs:
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -236,14 +259,19 @@ def main(argv=None):
     ap.add_argument('--raw', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--manifest', default=None)
     a = ap.parse_args(argv)
-    manifest = json.load(open(a.manifest)) if a.manifest else DEFAULT_MANIFEST
+    if a.manifest:
+        with open(a.manifest, encoding='utf-8') as fh:
+            manifest = json.load(fh)
+    else:
+        manifest = _default_manifest()
     data = build(a.raw, manifest)
     for k, v in data.items():
         s = v.get('summary') or {}
         pk = s.get('cuda_peak_bytes') or s.get('peak_mem_bytes') or (s.get('peak_memory') or {}).get('allocated_bytes')
         if pk: v['peak_mem_gb'] = pk / 1e9
     os.makedirs(a.out, exist_ok=True)
-    json.dump(data, open(os.path.join(a.out, 'data.json'), 'w'), indent=1, default=str)
+    with open(os.path.join(a.out, 'data.json'), 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, indent=1, default=str)
     for p in plot(data, os.path.join(a.out, 'charts')):
         print(p)
 

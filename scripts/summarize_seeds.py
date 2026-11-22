@@ -13,6 +13,7 @@ Writes <out>.json and <out>.md (a table that can go into a paper).
 import argparse
 import glob
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -57,21 +58,25 @@ def to_markdown(s, runs):
     return "\n".join(lines) + "\n"
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--glob", required=True, help="metrics.json files, one per seed")
     ap.add_argument("--out", required=True, help="output prefix")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     paths = sorted(glob.glob(args.glob))
     assert paths, f"no files match {args.glob}"
-    metrics = [json.load(open(p)) for p in paths]
-    runs = [p.split("/")[-3] for p in paths]
+    metrics = []
+    for p in paths:
+        with open(p, encoding="utf-8") as fh:
+            metrics.append(json.load(fh))
+    runs = [Path(p).parts[-3] for p in paths]
     s = summarize(metrics)
     s["runs"] = runs
-    with open(args.out + ".json", "w") as fh:
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    with open(args.out + ".json", "w", encoding="utf-8") as fh:
         json.dump(s, fh, indent=2)
     md = to_markdown(s, runs)
-    with open(args.out + ".md", "w") as fh:
+    with open(args.out + ".md", "w", encoding="utf-8") as fh:
         fh.write(md)
     print(md)
 

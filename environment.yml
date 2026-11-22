@@ -14,6 +14,7 @@ dependencies:
   - numpy
   - scipy
   - matplotlib
+  - pillow
   - pyyaml
   - pytest
   - pytorch           # from conda-forge, not pip: pip torch ships its own libomp and crashes next to conda-forge OpenMM

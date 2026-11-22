@@ -14,7 +14,8 @@ if [ -n "${MODULES_INIT:-}" ] && [ -f "$MODULES_INIT" ]; then
 fi
 eval "$(conda shell.bash hook)"
 conda activate "${WIGNERFLOW_ENV:-$HOME/envs/wignerflow}"
-export PYTHONPATH=$PWD:${PYTHONPATH:-}   # so scripts/*.py can import equitraj
+mkdir -p logs
+export PYTHONPATH="$PWD:${PYTHONPATH:-}"   # so scripts/*.py can import equitraj
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
 echo "job $JOB_ID on $(hostname): $*"
 "$@"
