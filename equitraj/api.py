@@ -60,6 +60,24 @@ def load_release(path, device="cpu"):
     return model.to(device).eval(), ck
 
 
+def unwrap_context_frames(pos, box):
+    """Unwrap frame-to-frame periodic jumps in (k, N, 3) or (B, k, N, 3) context coordinates."""
+    if box is None:
+        return pos, False
+    added_b = pos.ndim == 3
+    x = pos[None].clone() if added_b else pos.clone()
+    bx = (box[None] if box.ndim == 2 else box).to(device=x.device, dtype=x.dtype)
+    inv_bx = torch.linalg.inv(bx)
+    unwrapped = False
+    for f in range(1, x.shape[1]):
+        step_d = x[:, f] - x[:, f - 1]
+        jumps = torch.round(step_d @ inv_bx)
+        if bool(jumps.any()):
+            x[:, f:] = x[:, f:] - (jumps @ bx)[:, None]
+            unwrapped = True
+    return (x[0] if added_b else x), unwrapped
+
+
 class FrameSplitPredictor:
     """Same numbers as EquiTraj.predict, but the spatial blocks run one frame at a time.
 
@@ -77,34 +95,47 @@ class FrameSplitPredictor:
     def encode(self, pos, vel, types, box):
         m = self.model
         b, k, n, _ = pos.shape
-        if b != 1:
-            raise ValueError("one system per call")
-        v_norm = vel[0] / m.v_std[types][None, :, None]
-        disp = torch.zeros_like(pos[0])
-        disp[1:] = pos[0, 1:] - pos[0, :-1]
-        d_norm = disp / m.dx_std[types][None, :, None]
+        if b < 1:
+            raise ValueError("batch size must be positive")
+        tb = types.repeat(b)
+        disp = torch.zeros_like(pos)
+        disp[:, 1:] = pos[:, 1:] - pos[:, :-1]
         frames = []
+        graph = None
         for f in range(k):
             graph = build_graph(pos[:, f], box, m.cutoff, m.lmax, m.neighbor_method)
-            x = m.embed(types, v_norm[f], d_norm[f], graph, n)
+            vf = vel[:, f].reshape(b * n, 3) / m.v_std[tb][:, None]
+            df = disp[:, f].reshape(b * n, 3) / m.dx_std[tb][:, None]
+            x = m.embed(tb, vf, df, graph, b * n)
             for blk in m.spatial:
                 x = blk(x, graph)
-            frames.append(x)
-        x = m.temporal(torch.stack(frames)[None])[0]  # (N, S, c) for the newest frame
+            frames.append(x.view(b, n, *x.shape[1:]))
+        x = m.temporal(torch.stack(frames, dim=1)).reshape(b * n, *frames[0].shape[2:])
         for blk in m.fusion:
             x = blk(x, graph)
         return x, graph
 
     @torch.no_grad()
-    def predict(self, pos, vel, types, box, masses, noise=None, n_steps=2):
+    def predict(self, pos, vel, types, box, masses, noise=None, n_steps=2, sampler="euler"):
+        if sampler not in ("euler", "heun"):
+            raise ValueError(f"sampler must be 'euler' or 'heun', got {sampler!r}")
+        if n_steps < 1:
+            raise ValueError("n_steps must be positive")
         m = self.model
         b, _, n, _ = pos.shape
         cond, graph = self.encode(pos, vel, types, box)
         y = m.com_free_noise(b, types, masses, like=cond) if noise is None else noise
         dt = 1.0 / n_steps
-        for i in range(n_steps):  # Euler, as in EquiTraj.predict
-            tau = torch.full((b * n,), i * dt, dtype=cond.dtype, device=cond.device)
-            y = y + dt * m.denoiser(cond, graph, y, tau)
+        for i in range(n_steps):
+            tau0 = torch.full((b * n,), i * dt, dtype=cond.dtype, device=cond.device)
+            v0 = m.denoiser(cond, graph, y, tau0)
+            if sampler == "euler":
+                y = y + dt * v0
+            else:
+                y_pred = y + dt * v0
+                tau1 = torch.full((b * n,), (i + 1) * dt, dtype=cond.dtype, device=cond.device)
+                v1 = m.denoiser(cond, graph, y_pred, tau1)
+                y = y + 0.5 * dt * (v0 + v1)
         dx, v = m.y_to_targets(y, types, vel[:, -1], masses=masses)
         dx, v = remove_com(dx, masses), remove_com(v, masses)
         if m.prior is not None:
@@ -115,9 +146,9 @@ class FrameSplitPredictor:
 class ArgonPredictor:
     """Load once, then call predict() per request."""
 
-    def __init__(self, ckpt=DEFAULT_CKPT, *, threads=1, sampling_steps=2):
-        if threads:
-            torch.set_num_threads(threads)
+    def __init__(self, ckpt=DEFAULT_CKPT, *, threads=None, sampling_steps=2):
+        if threads is not None:
+            torch.set_num_threads(int(threads))
         with _float32():
             self.model, self.ck = load_release(ckpt)
         self.fast = FrameSplitPredictor(self.model)
@@ -187,6 +218,9 @@ class ArgonPredictor:
         types = torch.zeros(n, dtype=torch.long)
         masses = torch.full((n,), self.mass)
         warnings = []
+        pos, did_unwrap = unwrap_context_frames(pos, box)
+        if did_unwrap:
+            warnings.append("unwrapped periodic boundary jumps across input context frames")
         density = n * self.mass * AMU_PER_A3_TO_G_CM3 / float(torch.det(box.double()))
         t_in = float(temperature(vel[-1:], masses))
         if abs(density / AR_DENSITY_G_CM3 - 1) > 0.15:
