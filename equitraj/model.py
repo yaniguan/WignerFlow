@@ -92,17 +92,6 @@ def remove_com(vec, masses, batch=None, n_graphs=None):
     return vec - torch.einsum("n,bnd->bd", w, vec)[:, None, :]
 
 
-def _unwrap_context_disp(disp_step, box):
-    """Wrap frame-to-frame context displacements across periodic boundaries without touching unwrapped steps."""
-    if box is None or disp_step.numel() == 0:
-        return disp_step
-    bx = box[:, None].to(device=disp_step.device, dtype=disp_step.dtype)
-    jumps = torch.round(disp_step @ torch.linalg.inv(bx))
-    if bool(jumps.any()):
-        return disp_step - jumps @ bx
-    return disp_step
-
-
 def timestep_embedding(t, dim):
     """Sinusoidal embedding of the flow time t in [0, 1]: (B,) -> (B, dim)."""
     half = dim // 2
@@ -363,7 +352,7 @@ class EquiTraj(nn.Module):
         if not self.use_velocity:
             v_norm = torch.zeros_like(v_norm)
         disp = torch.zeros_like(pos)
-        disp[:, 1:] = _unwrap_context_disp(pos[:, 1:] - pos[:, :-1], box)  # displacement since the previous frame (0 for the oldest)
+        disp[:, 1:] = pos[:, 1:] - pos[:, :-1]  # displacement since the previous frame (0 for the oldest)
         if s_vec is not None:
             disp = disp / (s_vec / self.stride_fs).view(b, 1, 1, 1)
         d_norm = disp.reshape(-1, 3) / self.dx_std[tf][:, None]

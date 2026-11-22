@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 
 from equitraj.layers import MLP, envelope, gaussian_rbf
-from equitraj.model import EquiTraj, _unwrap_context_disp, build_graph_plain, timestep_embedding
+from equitraj.model import EquiTraj, build_graph_plain, timestep_embedding
 
 
 def segment_softmax(logits, index, n):
@@ -114,7 +114,7 @@ class PlainTraj(EquiTraj):
         if not self.use_velocity:
             v_norm = torch.zeros_like(v_norm)
         disp = torch.zeros_like(pos)
-        disp[:, 1:] = _unwrap_context_disp(pos[:, 1:] - pos[:, :-1], box)
+        disp[:, 1:] = pos[:, 1:] - pos[:, :-1]
         d_norm = disp.reshape(-1, 3) / self.dx_std[tf][:, None]
 
         box_f = None if box is None else box[:, None].expand(b, k, 3, 3).reshape(b * k, 3, 3)

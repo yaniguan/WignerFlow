@@ -61,14 +61,16 @@ def test_lj_potential_batched_per_frame_boxes():
     assert u3.shape == (3,) and torch.isfinite(u3).all()
 
 
-def test_pbc_wrapped_context_frames_and_per_graph_remove_com():
+def test_pbc_lattice_shift_and_per_graph_remove_com():
     box = (torch.eye(3, dtype=torch.float64) * 14.0)[None]
     pos_unw = torch.tensor([[
         [[13.8, 1.0, 1.0], [2.0, 2.0, 2.0]],
         [[14.1, 1.0, 1.0], [2.1, 2.0, 2.0]],
         [[14.4, 1.0, 1.0], [2.2, 2.0, 2.0]],
     ]], dtype=torch.float64)
-    pos_wrap = pos_unw % 14.0
+    # Uniform integer lattice shift of atom 0 across all k frames preserves unwrapped displacements
+    pos_shift = pos_unw.clone()
+    pos_shift[:, :, 0, 0] -= 14.0
     vel = torch.full_like(pos_unw, 0.01)
     types = torch.zeros(2, dtype=torch.long)
     masses = torch.tensor([40.0, 40.0], dtype=torch.float64)
@@ -77,9 +79,9 @@ def test_pbc_wrapped_context_frames_and_per_graph_remove_com():
         m = make_model(n_types=1, k=3, stride_fs=10.0, arch=arch, lmax=1, channels=8, heads=2,
                        n_rbf=8, cutoff=5.0, n_spatial=1, n_fusion=1, n_denoiser=1, head="regression").double().eval()
         dx_u, v_u = m.predict(pos_unw, vel, types, box, masses)
-        dx_w, v_w = m.predict(pos_wrap, vel, types, box, masses)
-        assert torch.allclose(dx_u, dx_w, atol=1e-10)
-        assert torch.allclose(v_u, v_w, atol=1e-10)
+        dx_s, v_s = m.predict(pos_shift, vel, types, box, masses)
+        assert torch.allclose(dx_u, dx_s, atol=1e-10)
+        assert torch.allclose(v_u, v_s, atol=1e-10)
 
     # Missing bonds when max_bond_hops > 0 raises a clear ValueError
     m_bonds = EquiTraj(n_types=1, lmax=1, channels=8, heads=2, n_rbf=8, cutoff=5.0, k=3,
