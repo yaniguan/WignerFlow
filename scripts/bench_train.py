@@ -13,7 +13,7 @@ import torch
 import yaml
 
 from equitraj.dataset import TrajWindows
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.train import training_loss
 
 
@@ -30,8 +30,12 @@ def main():
     for setting in args.settings.split(","):
         c, cut, bs = setting.split(":")
         mc = copy.deepcopy(cfg["model"])
+        if mc.get("n_ff_types") == "auto":
+            mc["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
         mc.update(channels=int(c), cutoff=float(cut))
-        model = EquiTraj(n_types=len(ds.elements), k=cfg["k"], stride_fs=ds.stride_fs, **mc).to(dev)
+        model = make_model(n_types=len(ds.elements), k=cfg["k"], stride_fs=ds.stride_fs, **mc).to(dev)
+        if getattr(ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+            model.set_chemistry(charges=ds.charges, ff_types=ds.ff_types, bonds=ds.bonds, n_atoms=len(ds.types))
         opt = torch.optim.AdamW(model.parameters(), 3e-4)
         items = [ds[i] for i in range(int(bs))]
         pos = torch.stack([i[0] for i in items]).to(dev)

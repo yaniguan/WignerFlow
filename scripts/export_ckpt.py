@@ -30,10 +30,11 @@ def reference_stats(ds, k):
     f, dt = ds.f, ds.stride_fs
     gt_x = [np.asarray(p[::f]) for p in ds.pos]
     gt_v = [np.asarray(v[::f]) for v in ds.vel]
-    box = ds.boxes[0].numpy()
+    box = ds.boxes[0].numpy() if (ds.periodic and len(ds.boxes) > 0) else None
     n = len(ds.types)
     idx = np.arange(n)
-    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
+    n_con = getattr(ds, "n_constraints", 0)
+    t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses, n_con).mean().item() for v in gt_v]))
     r_max = min(10.0, 0.49 * float(np.diag(box).min())) if ds.periodic else 8.0
     g = []
     for x in gt_x:
@@ -41,10 +42,11 @@ def reference_stats(ds, k):
         bx = np.tile(box, (len(frames), 1, 1)) if ds.periodic else None
         r, gi, _ = analysis.rdf(frames, bx, idx, idx, r_max, 200)
         g.append(gi)
-    max_lag = int(2000 / dt)
+    max_lag = max(1, min(min(len(v) for v in gt_v), int(2000 / dt)))
     c = np.mean([analysis.vacf(v, max_lag) for v in gt_v], axis=0)
+    c_norm = (c / c[0]).tolist() if (len(c) > 0 and c[0] != 0) else np.zeros(len(c)).tolist()
     return {"T_K": t_gt, "rdf_r": r.tolist(), "rdf_g": np.mean(g, axis=0).tolist(),
-            "vacf_lag_fs": (np.arange(max_lag) * dt).tolist(), "vacf": (c / c[0]).tolist()}
+            "vacf_lag_fs": (np.arange(len(c)) * dt).tolist(), "vacf": c_norm}
 
 
 def main():
@@ -64,13 +66,16 @@ def main():
     ds = TrajWindows(cfg["data_dir"], "test", cfg["stride_steps"], cfg["k"], m=1)
     k = cfg["k"]
     pos, vel, box = ds[0]  # k context frames + 1 target frame; the target is not exported
+    model_cfg = dict(cfg["model"])
+    if model_cfg.get("n_ff_types") == "auto":
+        model_cfg["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
     payload = {
         "format": "wignerflow-v0",
         "attention_version": attention_version,
-        "name": cfg["name"],
+        "name": cfg.get("name", os.path.basename(os.path.abspath(args.run))),
         "train_step": int(ck["step"]),
         "model": {key: v.cpu() for key, v in ck["model"].items()},
-        "model_cfg": cfg["model"],
+        "model_cfg": model_cfg,
         "k": k,
         "stride_fs": float(ds.stride_fs),
         "stride_steps": cfg["stride_steps"],
@@ -81,6 +86,12 @@ def main():
         "demo": {"pos": pos[:k].clone(), "vel": vel[:k].clone(), "box": box.clone() if ds.periodic else None},
         "reference": reference_stats(ds, k),
     }
+    if getattr(ds, "particle_metadata", None) is not None:
+        payload["chemistry"] = {
+            "charges": None if ds.charges is None else ds.charges.cpu(),
+            "ff_types": None if ds.ff_types is None else ds.ff_types.cpu(),
+            "bonds": None if ds.bonds is None else ds.bonds.cpu(),
+        }
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     torch.save(payload, args.out)
     digest = hashlib.sha256(open(args.out, "rb").read()).hexdigest()

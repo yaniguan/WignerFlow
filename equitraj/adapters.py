@@ -5,11 +5,8 @@ Cells contain lattice vectors as rows. Import one source per trajectory index.
 """
 from pathlib import Path
 
-import h5py
 import numpy as np
 import yaml
-
-from equitraj.trajfile import TrajWriter
 
 # Common MD elements; ASE supplies the full periodic table when installed.
 _MASSES = dict(H=1.008, He=4.003, Li=6.94, B=10.81, C=12.011, N=14.007,
@@ -86,6 +83,8 @@ def _generic(src):
     if Path(src).suffix.lower() == ".npz":
         with np.load(src, allow_pickle=False) as f:
             return {k: f[k] for k in f.files}
+    import h5py
+
     with h5py.File(src, "r") as f:
         data = {k: f[k][:] for k in f if isinstance(f[k], h5py.Dataset)}
         from equitraj.topology import read_metadata
@@ -253,6 +252,8 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     if particle_metadata is not None:
         from equitraj.topology import remap_metadata
         particle_metadata = remap_metadata(particle_metadata, keep)
+    from equitraj.trajfile import TrajWriter
+
     writer = TrajWriter(path, int(keep.sum()), mass[keep], elem[keep], attrs,
                         particle_metadata=particle_metadata)
     try:

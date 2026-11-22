@@ -652,6 +652,12 @@ def main():
                            reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
     val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1,
                          reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
+    if ec.get("rollout_steps", 0) > 0 and ec.get("every", tc["steps"] + 1) <= tc["steps"]:
+        validation_starts(val_ds, cfg["k"], ec["rollout_starts"], ec["rollout_steps"])
+        if ec.get("rollout_steps_select"):
+            validation_starts(
+                val_ds, cfg["k"], ec.get("rollout_starts_select", ec["rollout_starts"]), ec["rollout_steps_select"]
+            )
     workers = tc.get("workers", 4)
     # Own generator, separate from the noise RNG, so a resume can redraw this epoch's order.
     # The loader's generator is only for the worker seed. Without it, each new epoch would
@@ -674,6 +680,7 @@ def main():
     model_cfg = dict(cfg["model"])
     if model_cfg.get("n_ff_types") == "auto":
         model_cfg["n_ff_types"] = 0 if train_ds.ff_type_names is None else len(train_ds.ff_type_names)
+    cfg["model"] = dict(model_cfg)
     model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **model_cfg).to(device)
     if getattr(train_ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
         model.set_chemistry(
