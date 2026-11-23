@@ -1,0 +1,68 @@
+# H100 production retrain of 256-atom liquid argon with v1 GraphAttention (cutoff envelope + zero-logit sink).
+# Replaces the legacy v0.1.0 checkpoint using smooth curriculum m = 1 -> 2 -> 3 -> 4, EMA, and BF16 Tensor Cores.
+data_dir: data/argon_full
+stride_steps: 10
+k: 3
+seed: 1
+model:
+  arch: equi
+  head: flow
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+  neighbor_method: auto
+  target: residual
+  repulsion_prior:
+    enabled: true
+    strength: 0.5
+    rmin_scale: 0.95
+    width: 0.1
+    n_iter: 2
+    damp_velocity: 0.0
+    percentile: 0.1
+train:
+  batch_size: 16
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  lr: 0.0003
+  steps: 40000
+  warmup: 1000
+  rewarmup_steps: 1000
+  grad_clip: 0.5
+  loss_spike_factor: 5.0
+  noise_schedule:
+    - [0, 0.02]
+    - [40000, 0.005]
+  unroll:
+    - [0, 1]
+    - [10000, 2]
+    - [18000, 3]
+    - [26000, 4]
+  backprop: truncated
+  unroll_sampling_steps: 2
+  unroll_loss_weights: [1.0, 1.0, 1.0, 1.0]
+  overlap_penalty:
+    weight: 0.1
+    rmin_scale: 1.0
+  verlet_skin: 1.0
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 20
+  rollout_steps: 1000
+  rollout_starts: 8
+  rollout_steps_select: 2000
+  rollout_starts_select: 8
+  sampling_steps: 10
+name: argon_h100_v1
+out_dir: results/argon/h100_v1

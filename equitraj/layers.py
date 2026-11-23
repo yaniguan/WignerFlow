@@ -118,9 +118,9 @@ class EquivariantLinear(nn.Module):
     def forward(self, x):
         out = []
         for l in range(self.lmax + 1):
-            out.append(x[:, l * l:(l + 1) ** 2, :] @ self.weights[l])
+            out.append(x[:, l * l:(l + 1) ** 2, :] @ self.weights[l].to(x.dtype))
         out = torch.cat(out, dim=1)
-        out[:, 0, :] = out[:, 0, :] + self.bias
+        out[:, 0, :] = out[:, 0, :] + self.bias.to(out.dtype)
         return out
 
 
@@ -130,7 +130,7 @@ class EquivariantRMSNorm(nn.Module):
     eps is added to the mean square. It must not be tiny: when a node's l>0 features are close
     to zero (e.g. an atom with no neighbors), dividing by their RMS amplifies float32 rounding
     noise, and the output stops being equivariant (measured: 4e-3 relative error with eps=1e-6,
-    6e-6 with eps=1e-3).
+    6e-6 with eps=1e-3). Under bf16 autocast, RMS is computed in float32 to keep equivariance.
     """
 
     def __init__(self, lmax, c, eps=1e-3):
@@ -141,11 +141,12 @@ class EquivariantRMSNorm(nn.Module):
         self.scale = nn.Parameter(torch.ones(lmax, c))
 
     def forward(self, x):
-        out = [self.norm0(x[:, 0:1, :])]
+        out = [self.norm0(x[:, 0:1, :]).to(x.dtype)]
+        acc_dtype = torch.float64 if x.dtype == torch.float64 else torch.float32
         for l in range(1, self.lmax + 1):
             xl = x[:, l * l:(l + 1) ** 2, :]
-            rms = torch.sqrt(xl.pow(2).mean(dim=(1, 2), keepdim=True) + self.eps)
-            out.append(xl / rms * self.scale[l - 1])
+            rms = torch.sqrt(xl.to(acc_dtype).pow(2).mean(dim=(1, 2), keepdim=True) + self.eps)
+            out.append((xl.to(acc_dtype) / rms * self.scale[l - 1].to(acc_dtype)).to(x.dtype))
         return torch.cat(out, dim=1)
 
 
@@ -161,7 +162,7 @@ class Gate(nn.Module):
         s = x[:, 0, :]
         out = [F.silu(s)[:, None, :]]
         if self.lmax > 0:
-            g = torch.sigmoid(self.gates(s)).view(x.shape[0], self.lmax, x.shape[-1])
+            g = torch.sigmoid(self.gates(s)).view(x.shape[0], self.lmax, x.shape[-1]).to(x.dtype)
             for l in range(1, self.lmax + 1):
                 out.append(x[:, l * l:(l + 1) ** 2, :] * g[:, l - 1:l, :])
         return torch.cat(out, dim=1)
@@ -235,10 +236,21 @@ class SO2Linear(nn.Module):
         return out
 
 
+_DEGREE_INDEX = {}
+
+
 def per_l_scale(x, scale, lmax):
-    """Multiply every component of degree l by scale[:, l, :] (E, lmax+1, C). Invariant, so allowed in the edge frame."""
-    reps = torch.tensor([2 * l + 1 for l in range(lmax + 1)], device=x.device)
-    return x * torch.repeat_interleave(scale, reps, dim=1)
+    """Multiply every component of degree l by scale[:, l, :] (E, lmax+1, C). Invariant, so allowed in the edge frame.
+
+    Uses a cached degree-index tensor instead of repeat_interleave to avoid extra edge-by-channel
+    allocations and host-device syncs during multi-step unrolled backpropagation.
+    """
+    key = (lmax, x.device)
+    idx = _DEGREE_INDEX.get(key)
+    if idx is None:
+        idx = torch.tensor([l for l in range(lmax + 1) for _ in range(2 * l + 1)], dtype=torch.long, device=x.device)
+        _DEGREE_INDEX[key] = idx
+    return x * scale[:, idx, :].to(x.dtype)
 
 
 def segment_softmax(logits, index, n):
@@ -342,9 +354,10 @@ class TemporalAttention(nn.Module):
         self.norm = EquivariantRMSNorm(lmax, c)
 
     def invariants(self, h):
+        acc_dtype = torch.float64 if h.dtype == torch.float64 else torch.float32
         parts = [h[..., 0, :]]
         for l in range(1, self.lmax + 1):
-            parts.append(torch.linalg.norm(h[..., l * l:(l + 1) ** 2, :], dim=-2))
+            parts.append(torch.linalg.norm(h[..., l * l:(l + 1) ** 2, :].to(acc_dtype), dim=-2).to(h.dtype))
         return torch.cat(parts, dim=-1)
 
     def forward(self, h):
@@ -353,9 +366,9 @@ class TemporalAttention(nn.Module):
         inv = self.invariants(hn)  # (B, k, N, n_inv)
         age = self.age(torch.arange(k - 1, -1, -1, device=h.device))  # frame k-1 is the newest (age 0)
         q = self.query(inv[:, -1]).view(b, n, self.heads, -1)
-        key = (self.key(inv) + age[None, :, None, :]).view(b, k, n, self.heads, -1)
+        key = (self.key(inv) + age[None, :, None, :].to(inv.dtype)).view(b, k, n, self.heads, -1)
         logits = torch.einsum("bnhd,bknhd->bknh", q, key) / math.sqrt(q.shape[-1])
-        w = torch.softmax(logits, dim=1)  # over frames
+        w = torch.softmax(logits.float() if logits.dtype != torch.float64 else logits, dim=1)
         v = self.value(hn.reshape(-1, s, c)).view(b, k, n, s, self.heads, -1)
-        mixed = torch.einsum("bknh,bknshd->bnshd", w, v).reshape(b * n, s, c)
+        mixed = torch.einsum("bknh,bknshd->bnshd", w.to(v.dtype), v).reshape(b * n, s, c)
         return h[:, -1] + self.out(mixed).view(b, n, s, c)

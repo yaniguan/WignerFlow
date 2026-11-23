@@ -12,119 +12,108 @@
 
 # WignerFlow
 
-**Molecular dynamics without an integrator: an equivariant model that jumps a trajectory 50 fs per step.**
+**Autoregressive O(3)-equivariant molecular dynamics without a numerical integrator.**
 
-**Project Website & Interactive 3D Studio:** [https://yaniguan.github.io/WignerFlow/](https://yaniguan.github.io/WignerFlow/)
-
-[![Project Website](https://img.shields.io/badge/project_page-live_3D_studio-b5d88e?style=flat&labelColor=101820)](https://yaniguan.github.io/WignerFlow/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![tests](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml/badge.svg)](https://github.com/yaniguan/WignerFlow/actions/workflows/tests.yml)
-[![Discussions Q&A](https://img.shields.io/badge/discussions-Q%26A-purple.svg)](https://github.com/yaniguan/WignerFlow/discussions/categories/q-a)
 
 </div>
 
-## What it does
+## Overview
 
-WignerFlow generates molecular dynamics trajectories directly. Given the last 3 frames (positions and velocities), an E(3)-equivariant network predicts the frame 50 fs later, so a rollout needs no force field and no numerical integrator. v0 shows the full pipeline on Lennard-Jones argon and tests whether a learned model stays physical for 10⁴ autoregressive steps.
+`WignerFlow` (`import wignerflow` / `import equitraj`) generates molecular dynamics trajectories directly in phase space $(\mathbf{x}, \mathbf{v})$. Given the last $k$ frames, an edge-aligned $SO(2)$ Wigner-$D$ network (`l_max = 2`) with invariant causal temporal attention and residual conditional flow matching advances the trajectory by a coarse time stride (e.g. `20–50 fs`, `10–25x` the MD integration step) without force evaluations or a numerical integrator.
+
+This branch retains **only the lean core research stack**—models, controlled baselines (`PlainTraj`, `TrajCastBaseline`, `EquiFF`), optional inference switches (`S4` RATTLE constraints, `S5` FlashMD-style energy rescaling, `S6` CSVR thermostat), progressive flow distillation, and physical evaluation.
 
 ## Quickstart
 
 ```bash
-git clone https://github.com/yaniguan/WignerFlow.git && cd WignerFlow
-pip install -e .                                   # torch, e3nn, numpy, scipy, h5py, matplotlib
-# argon_flow_v0.pt is tracked in checkpoints/ (and also attached to the v0.1.0 GitHub release)
+git clone -b core/lean-wignerflow https://github.com/yaniguan/WignerFlow.git
+cd WignerFlow
+pip install -e .                                   # torch, e3nn, numpy, scipy, h5py, matplotlib, PyYAML
 (cd checkpoints && sha256sum -c argon_flow_v0.pt.sha256)
 
-python scripts/demo.py --ckpt checkpoints/argon_flow_v0.pt --steps 20 --out demo_out
+# Standalone rollout from bundled 3-frame context (no OpenMM or external HDF5 needed)
+wignerflow demo --ckpt checkpoints/argon_flow_v0.pt --steps 20 --out demo_out
 ```
 
-No OpenMM and no data files needed. The demo rolls out 256 argon atoms from the bundled starting frames and writes `demo_out/summary.json` plus RDF, VACF and temperature plots against the ground truth. 20 steps (1 ps) take about 20 s on a laptop CPU; drop `--steps` for the default (200 on CPU, 1000 on GPU).
-
-### PocketMD: Fast CPU Triage Calculator
-
-Need a quick CPU pre-screen ("Should I send this docked pose or electrolyte additive to expensive production MD?")? Run [`scripts/pocket_md.py`](scripts/pocket_md.py) (full guide in [`docs/POCKET_MD.md`](docs/POCKET_MD.md)):
-
-```bash
-python scripts/pocket_md.py batch                  # screen drug poses + LiPF6 electrolyte additives + checkpoint
-python scripts/pocket_md.py serve --port 8765      # launch local zero-dependency browser calculator UI
-```
-
-## Key features
-
-- **No integrator.** The model alone advances the system, 50 fs per step (25× the 2 fs MD step).
-- **E(3)-equivariant by construction.** eSCN-style SO(2) convolutions with Wigner-D edge alignment (l_max = 2) and invariant-only temporal attention.
-- **Residual targets.** Predicts the change relative to coasting at constant velocity, which stops the system from cooling every step.
-- **Two heads.** Deterministic regression or equivariant conditional flow matching.
-- **Anti-drift training.** Teacher forcing, input noise and unrolled training with a curriculum.
-- **Honest evaluation.** Model-only 10⁴-step rollouts, scored on crashes, temperature, RDF, VACF and diffusion, with every seed reported.
-
-## Results
-
-Argon, 256 atoms, flow head, 15 rollouts × 10⁴ steps (0.5 ns each) per seed, model only, no thermostat.
-
-| Result | Value | Source |
-|---|---|---|
-| Seeds stable for 10⁴ steps (no crash) | **4 of 5** | [`docs/release_v0.md`](docs/release_v0.md) ("How robust is this?"), [`results/argon/B_S3a_seeds.md`](results/argon/B_S3a_seeds.md) |
-| Seeds meeting every v0 criterion | **2 of 5** | same |
-| Released checkpoint: temperature vs truth | −6.0% | [`docs/release_v0.md`](docs/release_v0.md) |
-| Rollout speed, one A100, batch 1 | **25.8 ns/day** (5.97 steps/s) | [`results/profiling/a100_oct29/profile.log`](results/profiling/a100_oct29/profile.log), made by [`scripts/profile_run.py`](scripts/profile_run.py) |
-
-v0 criteria: no crash; temperature within 5%; RDF peak position within 0.05 Å and height within 10%; VACF first zero within 10%; diffusion within 20%. Full tables: [`RESULTS.md`](RESULTS.md).
-
-Note: The v0 table above and `checkpoints/argon_flow_v0.pt` come from tag `v0.1.0` (before the `GraphAttention` cutoff-envelope and zero-logit sink update on `main`). Check out tag `v0.1.0` to reproduce those numbers.
-
-## How it works
+## Core Architecture & Controlled Baselines
 
 ```mermaid
 flowchart LR
-    A["Last 3 frames<br/>positions + velocities"] --> B["Equivariant spatial encoder<br/>SO(2) conv + Wigner-D, l ≤ 2"]
+    A["Last k frames<br/>(x, v) + optional chemistry"] --> B["Spatial encoder<br/>SO(2) conv + Wigner-D, l ≤ 2"]
     B --> C["Causal temporal attention<br/>(invariant weights)"]
-    C --> D["Head: regression or<br/>flow matching"]
-    D --> E["Δx − vΔt, Δv<br/>(residual targets)"]
-    E --> F["Next frame, t + 50 fs"]
-    F -- "autoregressive rollout" --> A
+    C --> D["Head A: Regression<br/>Head B: Flow matching"]
+    D --> E["Residual targets<br/>(Δx − vΔt, v_new − v)"]
+    E --> F["Optional switches (off by default)<br/>S4 RATTLE · S5 Energy · S6 CSVR"]
 ```
 
-External trajectory import, metadata, preflight checks, constraints, validation and pair exclusions: [`docs/md_tools.md`](docs/md_tools.md).
+All models share the same dataset loader, target scaling (`element_std` or `mass`), training curriculum, and evaluation scripts:
 
-## Repo layout
+| Architecture (`model.arch`) | Symmetry & Layer | Conditioning | Default Head | Role |
+| :--- | :--- | :--- | :--- | :--- |
+| `equi` (`EquiTraj`) | $O(3)$ eSCN $SO(2)$ conv + Wigner-$D$ | $k$-frame temporal attention | Conditional flow matching | Main WignerFlow model |
+| `trajcast` (`TrajCastBaseline`) | $O(3)$ `e3nn` Clebsch–Gordan `TensorProduct` | Markovian $1$-frame (`k=1`) | Deterministic regression | Closest-prior-work baseline (Thiemann et al., 2025) |
+| `plain` (`PlainTraj`) | Translation + permutation only (Cartesian) | $k$-frame temporal attention | Flow or regression | Symmetry ablation |
+| `EquiFF` + `verlet_rollout` | Conservative energy gradient $-\nabla_x E$ | $1$-frame | Velocity Verlet | Force-field + integrator baseline |
 
+**Symmetry under periodic boundaries:** In free space—or when rotating atomic coordinates and lattice vectors together $(\mathbf{x}, \mathbf{B}) \mapsto (\mathbf{x}\mathbf{R}^\top, \mathbf{B}\mathbf{R}^\top)$—the network is exact $O(3)$-equivariant (`~1e-14` in FP64). Under a *fixed* cubic periodic box, minimum-image wrapping reduces global continuous rotational symmetry to the octahedral point group $O_h$.
+
+## Measured v0 Results (256-Atom Liquid Argon, 50 fs Stride)
+
+15 rollouts $\times 10^4$ steps (`0.5 ns` each) per seed, **model-only NVE** (`S4=S5=S6=off`):
+
+| Metric | Value | Source |
+| :--- | :--- | :--- |
+| Seeds surviving $10^4$ steps without crash | **4 / 5** | [`RESULTS.md`](RESULTS.md), [`results/argon/B_S3a_seeds.md`](results/argon/B_S3a_seeds.md) |
+| Seeds passing all v0 criteria (`|ΔT|/T < 5%`, RDF, VACF, $D$) | **2 / 5** (`seed3`: `-2.9%`, `seed4`: `-2.4%`) | [`RESULTS.md`](RESULTS.md) |
+| Legacy `v0.1.0` checkpoint (`argon_flow_v0.pt`) `ΔT/T` | `-6.0%` (`+0.1%` with `S6` CSVR) | [`docs/release_v0.md`](docs/release_v0.md) |
+| A100 rollout throughput (`B=1`, `S=10`, eager FP32) | **25.8 ns/day** (`5.97 steps/s`) | [`results/profiling/a100_oct29/profile.log`](results/profiling/a100_oct29/profile.log) |
+
+> **Current status & H100 roadmap:** Publicly committed model rollouts in [`RESULTS.md`](RESULTS.md) cover liquid argon (`v0.1.0` checkpoint predating the `v1` cutoff-envelope sink update). Production H100 configs for `v1` Argon retraining, covalent molecules (`ala2`, `aspirin`, `md17_aspirin` CCSD), `1,008`-atom `Li+/EC/PF6-`, and head-to-head `TrajCastBaseline` runs—along with a bottom-up H100 GPU-hour budget—are in [`configs/`](configs/) and [`docs/H100_COMPUTE_PLAN.md`](docs/H100_COMPUTE_PLAN.md).
+
+## Repository Layout
+
+```text
+equitraj/     Core library (so3, layers, neighbors, model, baselines, forcefield,
+              constraints, thermostat, rollout, fast, distill, dataset, adapters,
+              train, evaluation, multiseed, analysis, profiling)
+wignerflow/   Public package alias (`import wignerflow`) and unified CLI
+configs/      Experiment YAMLs (argon, ala2, aspirin, md17_aspirin, li_ec, nacl)
+scripts/      Thin CLI entry points (demo, evaluate, evaluate_molecule, distill, export_ckpt, ...)
+systems/      Committed OpenMM XML force fields and starting PDB structures
+checkpoints/  Tracked small checkpoints (~8 MB) and SHA-256 checksums
+results/      Ground-truth and rollout metrics.json + plots
+docs/         Technical notes, related work, stability, speed, and H100 compute plan
+tests/        Pytest suite (O(3) & O_h symmetry, PBC, baselines, switches S4-S6, BF16, ...)
 ```
-equitraj/     model, layers, Wigner-D (so3.py), training, rollout, analysis
-scripts/      demo, data generation, evaluation, profiling, checkpoint tools
-configs/      one YAML per experiment
-tests/        pytest suite (equivariance, permutation, PBC, neighbors, ...)
-results/      metrics.json and figures per experiment
-docs/         release notes, stability, speed, related work
-colab/        GPU notebooks (full retrain, stable fine-tune, long rollout)
-checkpoints/  small .pt weights (~8 MB) and SHA-256 checksums
+
+## Common Commands
+
+```bash
+# 1. Train EquiTraj or TrajCastBaseline (supports train.amp=bf16 and model.gradient_checkpointing=true)
+wignerflow train --config configs/ala2/h100_v1.yaml --device cuda
+wignerflow train --config configs/ala2/trajcast_h100.yaml --device cuda
+
+# 2. Evaluate periodic or vacuum-molecule checkpoints (model-only NVE, or with S4 / S6 switches)
+wignerflow evaluate --run results/argon/h100_v1 --ckpt best_stable.pt --steps 10000
+wignerflow evaluate-molecule --run results/ala2/h100_v1 --ckpt best_stable.pt --steps 10000
+wignerflow evaluate-molecule --run results/ala2/h100_v1 --ckpt best_stable.pt --project_constraints
+
+# 3. Distill 10-step flow head -> 4 -> 2 -> 1 steps
+wignerflow distill --teacher four.pt --data train_contexts.pt --teacher-steps 4 --out two.pt
 ```
 
-## Limitations / status
-
-- **v0, argon only.** Li⁺/EC, alanine dipeptide, the stride sweep and the baselines come later ([PLAN.md](PLAN.md)).
-- **Checkpoint choice matters.** Temperature can swing by tens of percent between checkpoints 2000 steps apart; one seed crashes at ~4000 steps.
-- **Not faster than classical MD yet.** OpenMM runs argon faster on a CPU. The payoff would come from replacing ab initio MD.
-- Under periodic boundaries the box breaks global rotation symmetry; equivariance is local only. The model has no Hamiltonian.
-- The full-data stable fine-tune ([docs/ARGON_STABLE_FT.md](docs/ARGON_STABLE_FT.md)) has no final evaluation yet.
-
-Training, data generation and evaluation commands: [docs/release_v0.md](docs/release_v0.md), [RESULTS.md](RESULTS.md) and `scripts/`.
-
-## Citation
+## Citation & License
 
 ```bibtex
 @misc{wignerflow2026,
   title  = {WignerFlow: Autoregressive E(3)-Equivariant Generation of Molecular Dynamics Trajectories},
   author = {Guan, Yani},
   year   = {2026},
-  url    = {https://github.com/yaniguan/WignerFlow},
-  note   = {v0.1.0, work in progress}
+  url    = {https://github.com/yaniguan/WignerFlow}
 }
 ```
-
-Related work (TrajCast, FlashMD, Timewarp, MDGen): [docs/related_work.md](docs/related_work.md).
-
-## License
 
 Apache-2.0. See [LICENSE](LICENSE).

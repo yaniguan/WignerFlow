@@ -327,12 +327,23 @@ def training_loss(model, pos, vel, box, types, masses, m, noise_sigma, backprop,
     return loss
 
 
+def _amp_context(amp_mode, device_type):
+    if amp_mode in (None, "fp32", "float32", False):
+        return nullcontext()
+    if amp_mode in ("bf16", "bfloat16"):
+        if device_type in ("cuda", "cpu"):
+            return torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16)
+        return nullcontext()
+    raise ValueError(f"train.amp must be 'fp32' or 'bf16', got {amp_mode!r}")
+
+
 def build_loss_options(tc, ds, model, device):
     """Build optional keyword arguments for training_loss from the train config."""
     opts = {
         "unroll_weights": tc.get("unroll_loss_weights"),
         "noise_v_ratio": float(tc.get("noise_v_ratio", 1.0)),
         "verlet_skin": tc.get("verlet_skin"),
+        "amp": tc.get("amp", "fp32"),
     }
     bonds = getattr(ds, "bonds", None)
     excl = exclusions_from_bonds(bonds, len(ds.types), device=device) if bonds is not None and len(bonds) > 0 else None
@@ -371,7 +382,7 @@ def micro_batch_size_for(tc, m):
 
 
 def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, backprop, unroll_sampling_steps,
-                         micro_batch_size, timer=None, **loss_opts):
+                         micro_batch_size, timer=None, amp="fp32", **loss_opts):
     """Run training_loss on micro-batches of the batch and call backward on each one.
 
     Every term of training_loss is a mean over the windows of the batch, so each micro-batch loss is
@@ -384,7 +395,7 @@ def accumulate_gradients(model, pos, vel, box, types, masses, m, noise_sigma, ba
     for start in range(0, batch, micro_batch_size):
         end = min(start + micro_batch_size, batch)
         part_box = None if box is None else box[start:end]
-        with (timer.phase("forward") if timer is not None else nullcontext()):
+        with (timer.phase("forward") if timer is not None else nullcontext()), _amp_context(amp, pos.device.type):
             loss = training_loss(model, pos[start:end], vel[start:end], part_box, types, masses, m, noise_sigma,
                                  backprop, unroll_sampling_steps, **loss_opts)
         share = (end - start) / batch
@@ -652,6 +663,12 @@ def main():
                            reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
     val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1,
                          reject_estimated_velocities=tc.get("reject_estimated_velocities", False))
+    if ec.get("rollout_steps", 0) > 0 and ec.get("every", tc["steps"] + 1) <= tc["steps"]:
+        validation_starts(val_ds, cfg["k"], ec["rollout_starts"], ec["rollout_steps"])
+        if ec.get("rollout_steps_select"):
+            validation_starts(
+                val_ds, cfg["k"], ec.get("rollout_starts_select", ec["rollout_starts"]), ec["rollout_steps_select"]
+            )
     workers = tc.get("workers", 4)
     # Own generator, separate from the noise RNG, so a resume can redraw this epoch's order.
     # The loader's generator is only for the worker seed. Without it, each new epoch would
@@ -674,6 +691,7 @@ def main():
     model_cfg = dict(cfg["model"])
     if model_cfg.get("n_ff_types") == "auto":
         model_cfg["n_ff_types"] = 0 if train_ds.ff_type_names is None else len(train_ds.ff_type_names)
+    cfg["model"] = dict(model_cfg)
     model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **model_cfg).to(device)
     if getattr(train_ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
         model.set_chemistry(
@@ -727,6 +745,14 @@ def main():
 
     if tc.get("matmul_precision") is not None:
         print(json.dumps(configure_matmul_precision(tc["matmul_precision"])), flush=True)
+    if device.type == "cuda" and m_max >= 4 and len(train_ds.types) >= 128:
+        vram_gib = torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)
+        if vram_gib < 26.0 and not getattr(model, "gradient_checkpointing", False):
+            print(
+                f"WARNING: CUDA device has {vram_gib:.1f} GiB VRAM (< 26 GiB) with unroll m_max={m_max}. "
+                "Enable model.gradient_checkpointing=true and train.amp='bf16' (or run on A100/H100) to avoid OOM.",
+                flush=True,
+            )
     ema = None
     ema_path = os.path.join(out_dir, "ema.pt")
     if tc.get("ema_decay") is not None and float(tc["ema_decay"]) > 0.0:

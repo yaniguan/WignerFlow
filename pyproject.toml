@@ -1,7 +1,7 @@
 [project]
 name = "equitraj"
-version = "0.0.1"
-description = "Autoregressive E(3)-equivariant trajectory model (proof of concept)"
+version = "0.2.0"
+description = "WignerFlow: autoregressive E(3)-equivariant molecular dynamics without a numerical integrator"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
@@ -12,14 +12,11 @@ dependencies = [
 [project.optional-dependencies]
 simulation = ["openmm>=8.1"]
 adapters = ["ase>=3.22", "mdtraj>=1.9"]
-api = ["fastapi>=0.100", "uvicorn>=0.23"]
-chem = ["rdkit>=2023.3"]
-site = ["Pillow>=10"]
 train = ["tensorboard>=2.14"]
 test = ["pytest>=7"]
 
 [project.scripts]
-wignerflow-pocket = "equitraj.cli:main"
+wignerflow = "equitraj.__main__:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -27,7 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["equitraj", "equitraj.*"]
+include = ["equitraj", "equitraj.*", "wignerflow", "wignerflow.*"]
 namespaces = false
 
 [tool.pytest.ini_options]

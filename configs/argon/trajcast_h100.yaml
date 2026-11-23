@@ -1,0 +1,47 @@
+# Head-to-head TrajCast-style baseline (Thiemann et al., 2025) on 256-atom liquid argon.
+# Markovian 1-frame conditioning + e3nn Clebsch-Gordan TensorProduct MPNN + deterministic regression head.
+data_dir: data/argon_full
+stride_steps: 10
+k: 3
+seed: 1
+model:
+  arch: trajcast
+  head: regression
+  markovian: true
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  use_velocity: true
+  neighbor_method: auto
+  target: residual
+  target_scaling: element_std
+train:
+  batch_size: 16
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  lr: 0.0003
+  steps: 40000
+  warmup: 1000
+  grad_clip: 1.0
+  noise_sigma: 0.0
+  unroll:
+    - [0, 1]
+  backprop: truncated
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 20
+  rollout_steps: 1000
+  rollout_starts: 8
+  rollout_steps_select: 2000
+  rollout_starts_select: 8
+  sampling_steps: 1
+name: argon_trajcast_h100
+out_dir: results/argon/trajcast_h100

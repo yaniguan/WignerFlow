@@ -83,14 +83,17 @@ def edge_wigner(vec, lmax):
 
     to_edge_frame(x) = D^T x  puts the edge along +y;  from_edge_frame(y) = D y  undoes it.
     Built from explicit rotations about y (no matrix exponentials), so it is fast on GPU.
+    Angles and Wigner blocks are always computed in at least float32 so 1e-30 does not underflow under bf16 autocast.
     """
-    alpha, beta = edge_angles(vec)
+    work_dtype = torch.float64 if vec.dtype == torch.float64 else torch.float32
+    v = vec.to(work_dtype)
+    alpha, beta = edge_angles(v)
     s = n_components(lmax)
-    d = torch.zeros(vec.shape[0], s, s, dtype=vec.dtype, device=vec.device)
+    d = torch.zeros(v.shape[0], s, s, dtype=work_dtype, device=v.device)
     d[:, 0, 0] = 1.0  # l = 0 is invariant
     for l in range(1, lmax + 1):
         a, b = l * l, (l + 1) * (l + 1)
-        j = y_to_x(l, vec.dtype, vec.device)
+        j = y_to_x(l, work_dtype, v.device)
         rx = j @ rotation_about_y(l, beta) @ j.T
         d[:, a:b, a:b] = rotation_about_y(l, alpha) @ rx
     return d
@@ -98,12 +101,14 @@ def edge_wigner(vec, lmax):
 
 def to_edge_frame(d, x):
     """x: (E, S, C) in the global frame -> edge frame."""
-    return torch.einsum("eij,eic->ejc", d, x)
+    acc = torch.float64 if x.dtype == torch.float64 else torch.float32
+    return torch.einsum("eij,eic->ejc", d.to(acc), x.to(acc)).to(x.dtype)
 
 
 def from_edge_frame(d, y):
     """y: (E, S, C) in the edge frame -> global frame."""
-    return torch.einsum("eij,ejc->eic", d, y)
+    acc = torch.float64 if y.dtype == torch.float64 else torch.float32
+    return torch.einsum("eij,ejc->eic", d.to(acc), y.to(acc)).to(y.dtype)
 
 
 def rotate(x, rotation, lmax):

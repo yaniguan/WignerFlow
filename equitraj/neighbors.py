@@ -96,6 +96,20 @@ def cell_list(pos, box, cutoff, *, _validate=True):
     return src[keep], dst[keep], dr[keep]
 
 
+def resolve_neighbor_fn(method, n_atoms, auto_threshold=384):
+    """Choose brute_force vs cell_list for `method` in ('brute_force', 'cell_list', 'auto').
+
+    Dense GPU pair matrices win below ~384 atoms; sparse cell search wins on larger boxes (e.g. 1000-atom electrolytes).
+    """
+    if method == "brute_force":
+        return brute_force
+    if method == "cell_list":
+        return cell_list
+    if method == "auto":
+        return cell_list if n_atoms > auto_threshold else brute_force
+    raise ValueError(f"neighbor_method must be 'brute_force', 'cell_list', or 'auto', got {method!r}")
+
+
 class VerletList:
     """Reusable directed pairs at cutoff+skin; displacement checked on every call.
 

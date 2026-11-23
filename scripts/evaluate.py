@@ -12,6 +12,7 @@ Writes <run>/eval/metrics.json and figures, and checks the v0 criteria for argon
 import argparse
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -37,9 +38,9 @@ V0_CRITERIA = {  # argon, model only (no thermostat)
 from equitraj.evaluation import first_zero, load_model
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", required=True)
+    ap.add_argument("--run", default=None, help="training run directory (optional when --ckpt is a file path)")
     ap.add_argument("--ckpt", default="best.pt")
     ap.add_argument("--steps", type=int, default=10000)
     ap.add_argument("--seeds", type=int, default=5)
@@ -51,12 +52,15 @@ def main():
     ap.add_argument("--split", default="test", help="test for reporting; val for choosing among checkpoints")
     ap.add_argument("--data_dir", default=None, help="ground-truth data override; required for release checkpoints")
     ap.add_argument("--threads", type=int, default=None, help="explicit PyTorch CPU thread count")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    if args.run is None and not os.path.isfile(args.ckpt):
+        ap.error("--run is required unless --ckpt points to an existing checkpoint file")
     if args.threads is not None:
         torch.set_num_threads(args.threads)
     device = torch.device(args.device)
     tag = "eval" if args.thermostat_tau_fs <= 0 else f"eval_csvr{int(args.thermostat_tau_fs)}"
-    out_dir = args.out or os.path.join(args.run, tag)
+    default_out = os.path.join(args.run, tag) if args.run is not None else os.path.join("results", f"{tag}_{Path(args.ckpt).stem}")
+    out_dir = args.out or default_out
     os.makedirs(os.path.join(out_dir, "figs"), exist_ok=True)
 
     model, cfg, ds, step = load_model(args.run, args.ckpt, device, args.split, args.data_dir)
@@ -186,16 +190,19 @@ def main():
         )
 
     # ---- short-range error (first 20 steps vs the ground-truth continuation) ----
-    n_short = min(20, args.steps)
-    err = []
-    for j, (t, s, _) in enumerate(labels):
-        ref = gt_x[t][s + k:s + k + n_short]
-        err.append(np.sqrt(((x[:len(ref), j] - ref) ** 2).sum(-1).mean(-1)))
-    err = np.mean(err, axis=0)
-    m["short_range_rmsd_A"] = {"step_1": float(err[0]), "step_10": float(err[min(9, len(err) - 1)]),
-                               "step_20": float(err[-1])}
-    plots.line_plot(os.path.join(out_dir, "figs", "short_error.png"), [("model", np.arange(1, len(err) + 1), err)],
-                    "rollout step", "RMSD to ground truth (Å)", "Short-range error")
+    n_short = min(20, args.steps, n_done)
+    min_ref_len = min((len(gt_x[t]) - (s + k) for t, s, _ in labels), default=0)
+    n_short = max(0, min(n_short, min_ref_len))
+    if n_short > 0:
+        err = []
+        for j, (t, s, _) in enumerate(labels):
+            ref = gt_x[t][s + k:s + k + n_short]
+            err.append(np.sqrt(((x[:n_short, j] - ref) ** 2).sum(-1).mean(-1)))
+        err = np.mean(err, axis=0)
+        m["short_range_rmsd_A"] = {"step_1": float(err[0]), "step_10": float(err[min(9, len(err) - 1)]),
+                                   "step_20": float(err[-1])}
+        plots.line_plot(os.path.join(out_dir, "figs", "short_error.png"), [("model", np.arange(1, len(err) + 1), err)],
+                        "rollout step", "RMSD to ground truth (Å)", "Short-range error")
 
     if not ok.any():
         m["note"] = "every rollout crashed; structural and dynamical metrics skipped"
@@ -230,7 +237,7 @@ def main():
                     "r (Å)", "g(r)", "RDF, second half of rollouts")
 
     # ---- dynamics: VACF / VDOS at the model stride ----
-    max_lag = min(args.steps // 4, int(2000 / dt))
+    max_lag = max(1, min(max(1, args.steps // 4), int(max(1, 2000 / dt)), n_done - half))
     c_model = np.mean([analysis.vacf(v[half:, j], max_lag) for j in np.where(ok)[0]], axis=0)
     c_gt = np.mean([analysis.vacf(vv[:len(vv) // 2 * 2], max_lag) for vv in gt_v], axis=0)
     lag_fs = np.arange(max_lag) * dt
@@ -266,9 +273,11 @@ def main():
                         "t (ps)", "MSD (Å²)", "Mean squared displacement")
 
     # ---- speed ----
-    m["speed"] = {"wall_s": out["wall_s"], "s_per_step_batch": out["wall_s"] / out["steps_done"],
-                  "ns_per_day_per_rollout": out["steps_done"] * dt * 1e-6 / out["wall_s"] * 86400,
-                  "ns_per_day_all_rollouts": n_roll * out["steps_done"] * dt * 1e-6 / out["wall_s"] * 86400,
+    wall_s = max(float(out["wall_s"]), 1e-9)
+    steps_done = max(int(out["steps_done"]), 1)
+    m["speed"] = {"wall_s": out["wall_s"], "s_per_step_batch": out["wall_s"] / steps_done,
+                  "ns_per_day_per_rollout": out["steps_done"] * dt * 1e-6 / wall_s * 86400,
+                  "ns_per_day_all_rollouts": n_roll * out["steps_done"] * dt * 1e-6 / wall_s * 86400,
                   "device": torch.cuda.get_device_name(0) if device.type == "cuda" else str(device)}
 
     # ---- v0 verdict ----

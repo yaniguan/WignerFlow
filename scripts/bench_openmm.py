@@ -25,7 +25,7 @@ def benchmark(args, built=None):
     import openmm.app as app
     import openmm.unit as u
     import torch
-    from equitraj.model import EquiTraj
+    from equitraj.model import EquiTraj, make_model
     from equitraj.simulate import velocity_verlet
 
     if (min(args.steps, args.model_steps, args.dt_fs, args.stride_fs, args.sampling_steps, args.threads) <= 0
@@ -77,7 +77,7 @@ def benchmark(args, built=None):
         else:
             mc, k, stride_fs = dict(ck["model_cfg"]), ck["k"], ck["stride_fs"]
         mc.update(n_types=len(species), k=k, stride_fs=stride_fs)
-        model = EquiTraj(**mc)
+        model = make_model(**mc)
         model.load_state_dict(ck["model"])
     else:
         torch.manual_seed(args.seed)

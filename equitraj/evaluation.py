@@ -22,15 +22,22 @@ def first_zero(t, c):
 
 
 def load_model(run_dir, ckpt, device, split="test", data_dir=None):
-    ckpt_path = os.path.join(run_dir, ckpt)
+    if run_dir is None or (os.path.isabs(ckpt) or os.path.isfile(ckpt)):
+        ckpt_path = ckpt if (run_dir is None or os.path.isfile(ckpt)) else os.path.join(run_dir, ckpt)
+    else:
+        ckpt_path = os.path.join(run_dir, ckpt)
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
     if "cfg" in ck:
         cfg = dict(ck["cfg"])
         step = ck["step"]
+        arch = cfg.get("model", {}).get("arch", "equi")
+        if cfg.get("kind") != "ff" and arch == "equi":
+            check_attention_version(ck, source=ckpt_path)
     else:
         if data_dir is None:
             raise ValueError("Released checkpoints require --data_dir for ground-truth evaluation")
-        check_attention_version(ck, source=ckpt_path)
+        if ck.get("model_cfg", {}).get("arch", "equi") == "equi":
+            check_attention_version(ck, source=ckpt_path)
         cfg = {"model": ck["model_cfg"], "k": ck["k"], "stride_steps": ck["stride_steps"]}
         step = ck["train_step"]
     if data_dir is not None:
@@ -41,11 +48,16 @@ def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     model_cfg = dict(cfg["model"])
     if model_cfg.get("n_ff_types") == "auto":
         model_cfg["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
-    if cfg.get("kind") == "ff":
-        model = EquiFF(n_types=len(ck["elements"]), **model_cfg)
-    else:
-        model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **model_cfg)
-    model.load_state_dict(ck["model"])
+    prev_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        if cfg.get("kind") == "ff":
+            model = EquiFF(n_types=len(ck["elements"]), **model_cfg)
+        else:
+            model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **model_cfg)
+        model.load_state_dict(ck["model"])
+    finally:
+        torch.set_default_dtype(prev_dtype)
     model = model.to(device).eval()
     if getattr(ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
         model.set_chemistry(

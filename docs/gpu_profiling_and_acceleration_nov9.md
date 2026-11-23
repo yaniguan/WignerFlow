@@ -1,10 +1,8 @@
-# GPU Profiling and Acceleration Analysis (WignerFlow, YLM, ouroboros-ocsr)
+# GPU Profiling and Acceleration Analysis (WignerFlow)
 
 Inventory date: 2026-11-09 (America/Los_Angeles)
 
-Reference presentation: [GPU Profiling, Explained (WignerFlow, OCSR, YLM)](https://docs.google.com/presentation/d/1mgss6yPPQWsCfZrW8gNVMuj1fQKeHVpxaVk3TnKSDPk)
-
-Note: No training, profiling jobs, or Colab sessions were started for this note. Numbers that appear in this repository are cited from `results/profiling/a100_oct29/profile.log` and `docs/profiling/data.json`. Numbers that appear only on Google Drive stay labeled as Drive.
+Note: Numbers in this repository are cited from `results/profiling/a100_oct29/profile.log` and `docs/profiling/data.json`. Numbers that appear only on Google Drive stay labeled as Drive.
 
 ---
 
@@ -95,29 +93,5 @@ Do not run any of these changes now. When work resumes later, prioritize the fol
 4. **Neighbor List Caching / Verlet Skin (`14.1%` step time)**:
    - `neighbor_list` is `14.1%` of the full-batch profile step (`results/profiling/a100_oct29/profile.log`). Check whether any other path rebuilds the neighbor graph on every denoiser sub-step (`tau`) when atomic positions are fixed.
    - `EquiTraj.predict_with_grad` already calls `encode` once, before the `n_steps` denoiser loop (`equitraj/model.py`). The conditioning graph is already built outside that loop. Do not add a second hoist. A GPU Verlet list with a skin buffer during validation rollouts is still an open idea. Do not run it now.
-5. **Conservative Mixed Precision (`bfloat16` / `TF32` on A100)**:
-   - Enable `torch.set_float32_matmul_precision("high")` (TF32 on A100 Tensor Cores) or test `bfloat16` autocast strictly inside the `SO(2)` linear/attention layers (`forward` `49.1%` and `backward` `36.2%`), while keeping coordinate updates, pair distances (`val_min_pair_dist`), and loss reductions in `float32` so rollout stability (`val_crash_frac = 0.0`) is preserved.
-
-### B. YLM (`yaniguan/YLM`)
-
-This section is out of scope for the WignerFlow repository. It is kept only so the earlier wrong equivariance sentence is corrected. Do not treat it as a WignerFlow result.
-
-1. **Current State and Missing Profiling Numbers**:
-   - Fine-grained kernel timing and peak VRAM numbers for YLM are not in this repository (high-level comparisons appear in the [GPU Profiling Google Slides deck](https://docs.google.com/presentation/d/1mgss6yPPQWsCfZrW8gNVMuj1fQKeHVpxaVk3TnKSDPk)).
-   - Equivariance error and force MAE are different metrics. `yaniguan/YLM` `docs/results_options_abc.md` says mean force equivariance error is about `2e-6`. The same file lists Option C force MAE as `0.00487`. That file is not in this WignerFlow checkout. Do not quote equivariance as `1e-6`.
-   - The Drive file `YLM_runs/options_bc_test/runs/full_C/results.json` is not in this repository. An earlier draft of this note cited `test force MAE = 0.0048709` from that file and called it an equivariance error. Keep `0.0048709` labeled as that Drive force MAE only. It is not the equivariance error.
-2. **Concrete Next Steps for YLM Profiling and Acceleration**:
-   - **Preserve about `2e-6` equivariance**: Before enabling `TF32` or `bfloat16` on spherical harmonic / tensor product operations (including the optional `0e+2e` tensor readout), benchmark equivariance error directly. Keep spherical harmonics and Clebsch-Gordan / tensor readout contractions in `float32` if reduced precision raises equivariance error above about `2e-6`. Do not use force MAE `0.00487` as that threshold.
-   - **Precompute and cache frozen language embeddings**: For runs using `minilm` (`full_C`) or `matscibert` (`pol_s2` polarizability track), if text descriptions are static per sample and the text encoder is frozen, precompute and cache embeddings so GPU time goes to the geometric backbone.
-   - **Lightweight `summary.json` profiler**: Add the same lightweight step-timer and peak memory summary logger used in WignerFlow (`summary.json` only, without saving large `trace.json` files) to measure forward, backward, and data-loader time shares on `full_C`.
-
-### C. ouroboros-ocsr (`yaniguan/ouroboros-ocsr`)
-
-This section is out of scope for the WignerFlow repository. It is kept as a pointer only. The numbers below are not WignerFlow results.
-
-1. **Current State and Missing Profiling Numbers**:
-   - Detailed step-time and memory numbers for `ouroboros-ocsr` are not yet confirmed from the official file in this folder (experiments were run in the "Ouroboros — A100 experiments" Colab notebook and summarized in the [GPU Profiling Google Slides deck](https://docs.google.com/presentation/d/1mgss6yPPQWsCfZrW8gNVMuj1fQKeHVpxaVk3TnKSDPk)).
-2. **Concrete Next Steps for OCSR Profiling and Acceleration**:
-   - **Pin the small official metric file first**: Before running any new GPU benchmarks, locate the small official metric file on Drive for the `0.540` exact-match result so accuracy comparisons have a pinned baseline without downloading `ouroboros-real-aug-results.zip` (~833 MB).
-   - **Separate training vs. decoding profiling**: In OCSR, CPU-heavy image augmentation ("real-aug") often bottlenecks training GPU utilization, while autoregressive SMILES/structure token generation bottlenecks validation. Log data-loading wait time (`data_ms`), encoder/decoder `forward`/`backward` time, and beam/greedy decoding throughput (molecules/sec) in a small `summary.json`.
-   - **Batched evaluation and `bfloat16` on A100**: Use `bfloat16` mixed precision and KV-caching during evaluation decoding to reduce validation wall time on A100.
+5. **Conservative Mixed Precision (`bfloat16` / `TF32` on A100/H100)**:
+   - Enable `train.matmul_precision: high` (TF32 on Tensor Cores) and `train.amp: bf16` (`equitraj/train.py`), while keeping Wigner-D rotations (`equitraj/so3.py`), RMS norms (`equitraj/layers.py`), coordinate updates, pair distances, and loss reductions in `float32` so equivariance and rollout stability are preserved.

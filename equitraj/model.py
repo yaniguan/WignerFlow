@@ -26,10 +26,11 @@ import math
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from equitraj import so3
 from equitraj.layers import MLP, Block, EquivariantLinear, TemporalAttention, envelope, gaussian_rbf
-from equitraj.neighbors import brute_force, cell_list
+from equitraj.neighbors import resolve_neighbor_fn
 from equitraj.pair_masks import bond_hop_matrix
 from equitraj.prior import RepulsionPrior
 
@@ -40,8 +41,8 @@ def build_graph(pos, box, cutoff, lmax, method="brute_force"):
     pos: (F, N, 3). box: (F, 3, 3) or None. Node index of atom i in frame f is f*N + i.
     Returns a dict with src, dst, vec (points from dst to src), dist, and the edge Wigner-D matrices.
     """
-    fn = cell_list if method == "cell_list" else brute_force
     n = pos.shape[1]
+    fn = resolve_neighbor_fn(method, n)
     srcs, dsts, vecs = [], [], []
     for f in range(pos.shape[0]):
         s, d, v = fn(pos[f], None if box is None else box[f], cutoff)
@@ -55,8 +56,8 @@ def build_graph(pos, box, cutoff, lmax, method="brute_force"):
 
 def build_graph_plain(pos, box, cutoff, method="brute_force"):
     """Same neighbor graph as build_graph but without Wigner matrices (for the non-equivariant baseline)."""
-    fn = cell_list if method == "cell_list" else brute_force
     n = pos.shape[1]
+    fn = resolve_neighbor_fn(method, n)
     srcs, dsts, vecs = [], [], []
     for f in range(pos.shape[0]):
         sr, ds, ve = fn(pos[f], None if box is None else box[f], cutoff)
@@ -67,11 +68,65 @@ def build_graph_plain(pos, box, cutoff, method="brute_force"):
     return {"src": torch.cat(srcs), "dst": torch.cat(dsts), "vec": vec, "dist": torch.linalg.norm(vec, dim=-1)}
 
 
-def remove_com(vec, masses):
-    """Remove the mass-weighted mean from per-atom vectors. vec: (B, N, 3), masses: (N,)."""
+def remove_com(vec, masses, batch=None, n_graphs=None):
+    """Remove the mass-weighted mean from per-atom vectors.
+
+    Standard batched layout: vec (B, N, 3), masses (N,) or (B, N).
+    Pad-free flat layout: vec (M, 3) or (1, M, 3), masses (M,), batch (M,) in [0, G).
+    """
     m = masses.to(device=vec.device, dtype=vec.dtype)
+    if batch is not None:
+        squeezed = vec.ndim == 3 and vec.shape[0] == 1
+        v_flat = vec[0] if squeezed else vec
+        b_idx = batch.to(device=vec.device, dtype=torch.long)
+        g = int(b_idx.max().item()) + 1 if (n_graphs is None and b_idx.numel() > 0) else int(n_graphs or 0)
+        if g == 0:
+            return vec
+        m_sum = torch.zeros(g, dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m).clamp_min(1e-30)
+        p_sum = torch.zeros((g, 3), dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m[:, None] * v_flat)
+        out = v_flat - (p_sum / m_sum[:, None])[b_idx]
+        return out[None] if squeezed else out
+    if m.ndim == 2:
+        w = m / m.sum(dim=1, keepdim=True).clamp_min(1e-30)
+        return vec - torch.einsum("bn,bnd->bd", w, vec)[:, None, :]
     w = m / m.sum()
     return vec - torch.einsum("n,bnd->bd", w, vec)[:, None, :]
+
+
+def angular_momentum(pos, vel, masses):
+    """Total angular momentum L = sum_i m_i (r_i - r_cm) x (v_i - v_cm) in amu * Å^2 / fs. Shape: (B, 3)."""
+    r = pos.double()
+    v = vel.double()
+    m = masses.to(device=r.device, dtype=torch.float64)
+    w = m / m.sum()
+    dr = r - torch.einsum("n,bnd->bd", w, r)[:, None, :]
+    dv = v - torch.einsum("n,bnd->bd", w, v)[:, None, :]
+    return torch.einsum("n,bnd->bd", m, torch.linalg.cross(dr, dv))
+
+
+def remove_angular_momentum(pos, vel, masses):
+    """Project out rigid-body center-of-mass translation and overall rotation for isolated molecules in vacuum.
+
+    pos, vel: (B, N, 3), masses: (N,). Uses the Moore-Penrose pseudoinverse of the inertia tensor so
+    collinear or planar geometries stay numerically stable. Exact O(3)-equivariant projection.
+    """
+    r = pos.double()
+    v = remove_com(vel.double(), masses)
+    if r.shape[1] < 2:
+        return v.to(vel.dtype)
+    m = masses.to(device=r.device, dtype=torch.float64)
+    w = m / m.sum()
+    dr = r - torch.einsum("n,bnd->bd", w, r)[:, None, :]  # (B, N, 3)
+    ang_mom = torch.einsum("n,bnd->bd", m, torch.linalg.cross(dr, v))  # (B, 3)
+    r2 = (dr * dr).sum(dim=-1)  # (B, N)
+    eye = torch.eye(3, dtype=torch.float64, device=r.device)[None]
+    inertia = (
+        torch.einsum("n,bn->b", m, r2)[:, None, None] * eye
+        - torch.einsum("n,bni,bnj->bij", m, dr, dr)
+    )
+    omega = torch.einsum("bij,bj->bi", torch.linalg.pinv(inertia, rcond=1e-10), ang_mom)  # (B, 3)
+    v_clean = v - torch.linalg.cross(omega[:, None, :], dr)
+    return v_clean.to(vel.dtype)
 
 
 def timestep_embedding(t, dim):
@@ -94,9 +149,10 @@ class Denoiser(nn.Module):
     interpolated candidate frame x_t + tau * dx(y_tau).
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity, edge_dim=0):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity, edge_dim=0, gradient_checkpointing=False):
         super().__init__()
         self.c = c
+        self.gradient_checkpointing = bool(gradient_checkpointing)
         self.y_in = nn.Linear(2, c, bias=False)  # 2 input vectors -> c vector channels
         self.scalar_in = MLP([c + 3, c, c])
         self.blocks = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim) for _ in range(n_blocks)])
@@ -107,11 +163,14 @@ class Denoiser(nn.Module):
         if candidate_graph_fn is not None:
             graph = candidate_graph_fn(y_tau, tau_per_node)
         x = cond.clone()
-        x[:, 1:4, :] = x[:, 1:4, :] + self.y_in(y_tau.transpose(1, 2))  # (B*N, 3, c)
+        y_vec = self.y_in(y_tau.transpose(1, 2))
+        x[:, 1:4, :] = x[:, 1:4, :] + y_vec.to(x.dtype)  # (B*N, 3, c)
         inv = torch.stack([y_tau[:, 0].norm(dim=-1), y_tau[:, 1].norm(dim=-1), (y_tau[:, 0] * y_tau[:, 1]).sum(-1)], -1)
-        x[:, 0, :] = x[:, 0, :] + self.scalar_in(torch.cat([timestep_embedding(tau_per_node, self.c), inv], -1))
+        s_add = self.scalar_in(torch.cat([timestep_embedding(tau_per_node, self.c), inv], -1))
+        x[:, 0, :] = x[:, 0, :] + s_add.to(x.dtype)
+        use_ckpt = self.gradient_checkpointing and torch.is_grad_enabled()
         for blk in self.blocks:
-            x = blk(x, graph)
+            x = checkpoint(blk, x, graph, use_reentrant=False) if use_ckpt else blk(x, graph)
         return self.y_out(self.readout(x)[:, 1:4, :]).transpose(1, 2)  # (B*N, 2, 3)
 
 
@@ -120,7 +179,8 @@ class EquiTraj(nn.Module):
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
                  use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
                  repulsion_prior=None, n_ff_types=0, use_charges=False, max_bond_hops=0,
-                 geometry_aware=False, target_scaling="element_std", stride_conditioning=False):
+                 geometry_aware=False, target_scaling="element_std", stride_conditioning=False,
+                 gradient_checkpointing=False):
         super().__init__()
         if isinstance(n_ff_types, bool) or int(n_ff_types) != n_ff_types or n_ff_types < 0:
             raise ValueError("n_ff_types must be a nonnegative integer")
@@ -143,6 +203,8 @@ class EquiTraj(nn.Module):
         self.geometry_aware = bool(geometry_aware)
         self.target_scaling = target_scaling
         self.stride_conditioning = bool(stride_conditioning)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
+        self.m0_idx = [so3.index(l, 0) for l in range(lmax + 1)]
         c = channels
         bond_dim = min(16, c) if self.max_bond_hops > 0 else 0
         self.edge_dim = (1 if self.use_charges else 0) + bond_dim
@@ -181,7 +243,8 @@ class EquiTraj(nn.Module):
             self.readout = EquivariantLinear(lmax, c, c)
             self.y_out = nn.Linear(c, 2, bias=False)
         else:
-            self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity, edge_dim=self.edge_dim)
+            self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity, edge_dim=self.edge_dim,
+                                     gradient_checkpointing=self.gradient_checkpointing)
         # optional short-range repulsion applied to predictions (equitraj/prior.py); when disabled no
         # module or buffer is registered, so state dicts are the same as before
         self.prior = None
@@ -262,7 +325,7 @@ class EquiTraj(nn.Module):
                     raise ValueError("cached bond hops do not match n_atoms")
                 bh = self._chem_bond_hops.to(device=device).clamp_max(self.max_bond_hops)
             else:
-                bh = torch.zeros((n_atoms, n_atoms), dtype=torch.long, device=device)
+                raise ValueError("bonds required when max_bond_hops > 0 (pass bonds=[] for unbonded systems)")
         return q, ft, bh
 
     def _resolve_stride(self, stride_fs, b, dtype, device):
@@ -296,17 +359,19 @@ class EquiTraj(nn.Module):
     def embed(self, types, v_norm, d_norm, graph, n_nodes, *, ff_types=None, charges=None, stride_emb=None):
         """Initial node features (n_nodes, S, c) for all frames."""
         s = so3.n_components(self.lmax)
-        x = torch.zeros(n_nodes, s, self.c, dtype=v_norm.dtype, device=v_norm.device)
         t = self.type_embed(types)
         if self.n_ff_types > 0 and ff_types is not None:
             t = t + self.ff_type_embed(ff_types)
         if self.use_charges and charges is not None:
-            t = t + self.charge_in(charges[:, None])
+            t = t + self.charge_in(charges[:, None]).to(t.dtype)
         if stride_emb is not None:
-            t = t + stride_emb
+            t = t + stride_emb.to(t.dtype)
         inv = torch.stack([v_norm.norm(dim=-1), d_norm.norm(dim=-1), (v_norm * d_norm).sum(-1)], -1)
-        x[:, 0, :] = self.scalar_in(torch.cat([t, inv], -1))
-        x[:, 1:4, :] = self.vec_in(torch.stack([v_norm, d_norm], -1))  # (n, 3, 2) -> (n, 3, c)
+        s0 = self.scalar_in(torch.cat([t, inv.to(t.dtype)], -1))
+        v1 = self.vec_in(torch.stack([v_norm, d_norm], -1))  # (n, 3, 2) -> (n, 3, c)
+        x = torch.zeros(n_nodes, s, self.c, dtype=s0.dtype, device=v_norm.device)
+        x[:, 0, :] = s0
+        x[:, 1:4, :] = v1.to(x.dtype)
 
         # "edge-degree" embedding: each edge adds a learned function of its length on the m=0
         # components in the edge frame, rotated back (= a function of the edge's spherical harmonics)
@@ -315,9 +380,9 @@ class EquiTraj(nn.Module):
         if self.edge_dim > 0 and "edge_attr" in graph:
             rbf = torch.cat([rbf, graph["edge_attr"].to(rbf.dtype)], dim=-1)
         rad = self.edge_radial(rbf).view(e, self.lmax + 1, self.c)
-        rad = rad * self.edge_type(t[graph["src"]])[:, None, :] * envelope(graph["dist"], self.cutoff)[:, None, None]
+        rad = rad * self.edge_type(t[graph["src"]])[:, None, :].to(rad.dtype) * envelope(graph["dist"], self.cutoff)[:, None, None].to(rad.dtype)
         ye = torch.zeros(e, s, self.c, dtype=x.dtype, device=x.device)
-        ye[:, [so3.index(l, 0) for l in range(self.lmax + 1)], :] = rad.to(ye.dtype)
+        ye[:, self.m0_idx, :] = rad.to(ye.dtype)
         agg = torch.zeros_like(x).index_add_(0, graph["dst"], so3.from_edge_frame(graph["wigner"], ye).to(x.dtype))
         return x + agg / 10.0
 
@@ -355,8 +420,9 @@ class EquiTraj(nn.Module):
             charges=None if q is None else q.repeat(b * k),
             stride_emb=stride_emb,
         )
+        use_ckpt = self.gradient_checkpointing and torch.is_grad_enabled()
         for blk in self.spatial:
-            x = blk(x, graph)
+            x = checkpoint(blk, x, graph, use_reentrant=False) if use_ckpt else blk(x, graph)
         x = self.temporal(x.view(b, k, n, *x.shape[1:]))  # (B, N, S, c)
 
         box_last = None if box is None else box
@@ -365,7 +431,7 @@ class EquiTraj(nn.Module):
         graph_last = self._attach_edge_attr(graph_last, n, pos.dtype, charges=q, bond_hops=bh)
         x = x.reshape(b * n, *x.shape[2:])
         for blk in self.fusion:
-            x = blk(x, graph_last)
+            x = checkpoint(blk, x, graph_last, use_reentrant=False) if use_ckpt else blk(x, graph_last)
         return x, graph_last
 
     # ------------------------------------------------------------ heads (overridden by the baseline in baselines.py)
@@ -472,8 +538,10 @@ class EquiTraj(nn.Module):
                                   bonds=bonds, stride_fs=stride_fs)
         v_last = self.base_velocity(pos, vel, stride_fs)
         y = self.targets_to_y(dx_target, v_target, v_last, types, masses=masses, stride_fs=stride_fs)
+        acc = torch.float64 if y.dtype == torch.float64 else torch.float32
         if self.head_type == "regression":
-            return ((self.regress(cond) - y) ** 2).mean()
+            diff = self.regress(cond).to(acc) - y.to(acc)
+            return (diff * diff).mean()
         # flow matching: y_tau = (1 - tau) eps + tau y, target velocity y - eps
         eps = self.com_free_noise(b, types, masses, like=y)
         tau = torch.rand(b, dtype=y.dtype, device=y.device)
@@ -481,7 +549,8 @@ class EquiTraj(nn.Module):
         y_tau = (1 - tau_n)[:, None, None] * eps + tau_n[:, None, None] * y
         cand_fn = self._candidate_graph_builder(pos[:, -1], v_last, types, box, masses, graph, q, bh, stride_fs)
         pred = self.denoise(cond, graph, y_tau, tau_n, candidate_graph_fn=cand_fn)
-        return ((pred - (y - eps)) ** 2).mean()
+        diff = pred.to(acc) - (y - eps).to(acc)
+        return (diff * diff).mean()
 
     # ------------------------------------------------------------ prediction
 
@@ -528,11 +597,17 @@ class EquiTraj(nn.Module):
 
 
 def make_model(n_types, k, stride_fs, **cfg):
-    """Build the model named by cfg["arch"]: "equi" (default, EquiTraj) or "plain" (non-equivariant baseline)."""
+    """Build the model named by cfg["arch"]: "equi" (EquiTraj), "plain" (Cartesian transformer), or "trajcast" (CG MPNN)."""
     cfg = dict(cfg)
     arch = cfg.pop("arch", "equi")
     if arch == "plain":
         from equitraj.baselines import PlainTraj  # noqa: PLC0415
 
         return PlainTraj(n_types=n_types, k=k, stride_fs=stride_fs, **cfg)
+    if arch == "trajcast":
+        from equitraj.baselines import TrajCastBaseline  # noqa: PLC0415
+
+        return TrajCastBaseline(n_types=n_types, k=k, stride_fs=stride_fs, **cfg)
+    if arch != "equi":
+        raise ValueError(f"unknown model arch {arch!r}; expected 'equi', 'plain', or 'trajcast'")
     return EquiTraj(n_types=n_types, k=k, stride_fs=stride_fs, **cfg)
