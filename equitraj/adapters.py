@@ -279,7 +279,13 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     names = np.asarray(data.get("names", [""] * n)).astype(str)
     if names.shape != (n,):
         raise ValueError("names must have one entry per atom")
-    keep = ~((mass < 1) | np.char.startswith(names, "D")) if drop_drude else np.ones(n, bool)
+    is_vsite_name = (
+        np.char.startswith(names, "D")
+        | np.char.startswith(names, "LP")
+        | np.char.startswith(names, "EP")
+        | np.char.startswith(names, "MW")
+    )
+    keep = ~((mass < 1) | is_vsite_name) if drop_drude else np.ones(n, bool)
     if not keep.any():
         raise ValueError("particle filter removed all atoms")
     cell = box if box is not None else data.get("box")

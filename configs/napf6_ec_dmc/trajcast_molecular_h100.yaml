@@ -1,0 +1,49 @@
+# Head-to-head TrajCast-style Markovian CG regression baseline on `best-napf6-ec-dmc-m4a` (610 molecules, 200 fs stride).
+# Tests whether non-Markovian k=3 Wigner flow captures cross-ion Onsager memory (`ionicity = sigma_total / sigma_self`) better than k=1 regression.
+data_dir: data/napf6_ec_dmc_mol200
+stride_steps: 1
+k: 3
+seed: 1
+model:
+  arch: trajcast
+  head: regression
+  markovian: true
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 9.0
+  n_spatial: 2
+  n_fusion: 2
+  use_velocity: true
+  neighbor_method: auto
+  target: residual
+  target_scaling: mass
+  n_ff_types: auto
+  use_charges: true
+train:
+  batch_size: 8
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  lr: 0.0003
+  steps: 30000
+  warmup: 1000
+  grad_clip: 1.0
+  noise_sigma: 0.0
+  unroll:
+    - [0, 1]
+  backprop: truncated
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 16
+  rollout_steps: 500
+  rollout_starts: 4
+  rollout_steps_select: 1000
+  rollout_starts_select: 4
+  sampling_steps: 1
+name: napf6_ec_dmc_trajcast_h100
+out_dir: results/napf6_ec_dmc/trajcast_mol200_seed1

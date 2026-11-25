@@ -62,3 +62,23 @@ Adds full explicit-solvent periodic electrolyte transport (`CN(t)`, residence ti
 - Small-model (`C=64`, `20k` steps) stride & stabilization sweep (`6` runs x `16 h`): **`96 h`**
 - Full `Li+/EC/PF6-` `EquiTraj` (`3` seeds x `46 h`) + `TrajCastBaseline` (`3` seeds x `19 h`) + `PlainTraj` (`1` seed x `28 h`): **`223 h`**
 - **Total Tier 3**: **`~490 H100 GPU-hours`**.
+
+---
+
+## 4. Focused Polarizable Electrolyte Campaign: Beating `02_Na_MD` (`best-napf6-ec-dmc-m4a`) & `ByteFF-pol` (`~22 H100 GPU-hours`)
+
+Target system: `0.8462 m` `NaPF6` in `EC:DMC (50:50 wt%)` at `298.15 K` (`268 EC + 262 DMC + 40 Na+ + 40 PF6- = 610 molecules`, `8,264` total AMOEBA/MU-PFF sites = `6,144` physical atoms + `2,120` massless `LP*` virtual sites, `<L> = 41.51 Å`, `rho = 1.2516 g/cm^3`, experimental `sigma_exp = 8.60 mS/cm`).
+
+### Baseline Bottlenecks to Beat
+- **`MU-PFF` (`OpenMM` on H200)**: `34.7 ns/day` (`dt = 1.0 fs`) / `69.2 ns/day` (`dt = 2.0 fs`), `sigma_total = 7.19 ± 1.92 mS/cm` (`-16.4%` vs `8.60 mS/cm`, `±27%` 3-replica SE); `-lin` retyping overshoots to `10.64 ± 3.31 mS/cm` (`+23.7%`).
+- **`ByteFF-pol`**: `sigma_total = 12.97 mS/cm` (`+50.9%` overestimate).
+
+### Multi-Resolution WignerFlow Budget (`1x–4x H100 SXM5`)
+1. **Short Fine-Stride MD Burst (`DCD_INTERVAL = 200` steps = `200 fs/frame`)**: Run `1.5 ns` continuation bursts (`7,500` frames/replica) from equilibrated `r1`, `r1-npt`, and held-out `r2` (`MIXIT_SEED=12346`): **`~2.5 H100-h`**. *(Default `production3.dcd` saves every `5,000` steps = `5 ps`, which supervises long-lag Onsager slopes directly, while the `200 fs` burst provides smooth velocity/displacement transitions).*
+2. **Import & Fold `2,120` `LP*` Virtual Sites (`wignerflow import-wmi`)**: Folds `LP*` (`-0.22 e`) onto parent ether oxygens (`EC = 0.0000 e`, `DMC = 0.0000 e`, `Na+ = +1 e`, `PF6- = -1 e`) and canonicalizes NPT `L(t)` (`r1, r1-npt -> train`, `r2 -> val/test`): **`< 0.1 h` CPU**.
+3. **`molecular` (`610` nodes, `200 fs`, `cutoff = 9.0 Å`, `~16,200` edges/frame) + `2`-Step Distillation**:
+   - `EquiTraj` (`configs/napf6_ec_dmc/molecular_200fs_h100.yaml`, `30k` steps): **`~11.5 H100-h`** per seed (`~230 ns/day` at `B=1, S=2`; **`>1,060 ns/day` batched `B=16, S=2`**).
+   - `TrajCastBaseline` (`configs/napf6_ec_dmc/trajcast_molecular_h100.yaml`, `30k` steps): **`~4.2 H100-h`**.
+4. **Differentiable Onsager Calibration (`wignerflow calibrate-electrolyte`)**: `400` post-training steps matching collective Einstein–Helfand `<|sum_i q_i dX_i|^2>` to `8.60 mS/cm` while anchored to the frozen `MU-PFF` teacher: **`~0.4 H100-h`**.
+5. **Batched `16 x 10 ns = 160 ns` Onsager Evaluation (`wignerflow evaluate-electrolyte`)**: Shrinks `sigma_total` replica SE from `±1.92 mS/cm` (`n=3`) to `~±0.45 mS/cm` (`B=16`): **`~3.6 H100-h`**.
+- **Focused `best-napf6-ec-dmc-m4a` Total (`1` seed + `TrajCast` + `160 ns` eval)**: **`~22.2 H100 GPU-hours`** (`~5.5 hours` wall-clock on `4x H100`; add `polar_beads` `1,140`-node run for `+14 H100-h` if explicit `Na+-O(carbonyl)` coordination dynamics are also required).

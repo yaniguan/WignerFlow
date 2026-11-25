@@ -17,8 +17,12 @@ __all__ = [
     "TrajCastBaseline",
     "csvr",
     "energy_rescale",
+    "evaluate_electrolyte_transport",
+    "import_wmi_replica",
+    "load_wmi_build_dir",
     "make_model",
     "rollout",
+    "transport_calibration_loss",
 ]
 
 
@@ -44,4 +48,12 @@ def __getattr__(name):
     if name in ("csvr", "energy_rescale"):
         from equitraj import thermostat as _t
         return getattr(_t, name)
+    if name in (
+        "evaluate_electrolyte_transport",
+        "import_wmi_replica",
+        "load_wmi_build_dir",
+        "transport_calibration_loss",
+    ):
+        from equitraj import electrolyte as _e
+        return getattr(_e, name)
     raise AttributeError(f"module 'equitraj' has no attribute {name!r}")
