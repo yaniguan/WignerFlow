@@ -17,7 +17,7 @@ import shutil
 import torch
 
 from equitraj.dataset import TrajWindows
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.rollout import temperature
 from equitraj.train import temperature_aware_score, validation_rollout
 
@@ -45,9 +45,14 @@ def main():
             ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1)
             n_con = ds.n_constraints if cfg["train"].get("constrained_dof", False) else 0  # same opt-in as training
             t_ref = temperature(torch.stack([ds[i][1][0] for i in range(0, len(ds), max(1, len(ds) // 20))]), ds.masses, n_con).mean().item()
-        model = EquiTraj(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **cfg["model"])
+        mc = dict(cfg["model"])
+        if mc.get("n_ff_types") == "auto":
+            mc["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
+        model = make_model(n_types=len(ck["elements"]), k=cfg["k"], stride_fs=ds.stride_fs, **mc)
         model.load_state_dict(ck["model"])
         model.to(device).eval()
+        if getattr(ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+            model.set_chemistry(charges=ds.charges, ff_types=ds.ff_types, bonds=ds.bonds, n_atoms=len(ds.types))
         torch.manual_seed(0)
         m = validation_rollout(model, ds, args.starts, args.steps, args.sampling_steps, device, t_ref, n_constraints=n_con)
         m.update(step=ck["step"], file=name, score=temperature_aware_score(m, args.t_weight))

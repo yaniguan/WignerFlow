@@ -1,2 +1,0 @@
-{"system": "argon", "n_steps": 2, "sampling_steps": 2, "seed": 0, "device": "cpu",
- "question": "Does the argon surrogate stay physical for a short rollout?"}

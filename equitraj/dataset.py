@@ -39,8 +39,18 @@ def npy_cache(h5_path):
             out.flush()
             del out
             os.replace(paths[key] + ".tmp", paths[key])
+        cells_nm = f["box"][:]
+        if cells_nm.shape[0] > 1 and not np.allclose(cells_nm, cells_nm[0], rtol=1e-6, atol=1e-8):
+            vols = np.abs(np.linalg.det(cells_nm))
+            mean_edge_a = float(np.mean(vols) ** (1.0 / 3.0)) * NM_TO_A
+            box_mean = np.eye(3, dtype=np.float32) * mean_edge_a
+            boxes_all = (cells_nm * NM_TO_A).astype(np.float32)
+        else:
+            box_mean = (cells_nm[0] * NM_TO_A).astype(np.float32)
+            boxes_all = None
         meta = {
-            "box": f["box"][0] * NM_TO_A,
+            "box": box_mean,
+            "boxes": boxes_all,
             "masses": f["masses"][:],
             "elements": np.array([e.decode() for e in f["elements"][:]]),
             "save_every": int(f.attrs["save_every"]),
@@ -52,7 +62,7 @@ def npy_cache(h5_path):
     return paths
 
 
-def preflight(paths, *, reject_estimated_velocities=False):
+def preflight(paths, *, reject_estimated_velocities=False, allow_variable_box=False):
     """Check HDF5 files before using caches or making training windows.
 
     Check element order. Optional atom_ids or particle_names also let us check
@@ -85,8 +95,12 @@ def preflight(paths, *, reject_estimated_velocities=False):
             if not np.isfinite(first).all() or (periodic and abs(np.linalg.det(first)) < 1e-12):
                 raise ValueError(f"{path}: invalid periodic cell")
             for start in range(0, len(x), 10000):
-                if not np.allclose(cells[start:start + 10000], first, rtol=1e-6, atol=1e-8):
+                blk_cells = cells[start:start + 10000]
+                if not allow_variable_box and not np.allclose(blk_cells, first, rtol=1e-6, atol=1e-8):
                     raise ValueError(f"{path}: time-varying cell unsupported")
+                if allow_variable_box:
+                    if not np.isfinite(blk_cells).all() or (periodic and np.any(np.abs(np.linalg.det(blk_cells)) < 1e-12)):
+                        raise ValueError(f"{path}: invalid time-varying periodic cell")
                 if not np.isfinite(x[start:start + 10000]).all() or not np.isfinite(v[start:start + 10000]).all():
                     raise ValueError(f"{path}: nonfinite coordinates or velocities")
             if reject_estimated_velocities and f.attrs.get("velocities_estimated", False):
@@ -133,16 +147,20 @@ class TrajWindows(torch.utils.data.Dataset):
         self.traj_ids = cfg["split"][split]
         if not self.traj_ids:
             raise ValueError(f"empty split: {split}")
+        self.allow_variable_box = bool(cfg.get("allow_variable_box", False))
         ids = sorted({i for values in cfg["split"].values() for i in values})
         preflight([os.path.join(data_dir, f"traj_{i:03d}.h5") for i in ids],
-                  reject_estimated_velocities=reject_estimated_velocities)
-        self.pos, self.vel, self.boxes = [], [], []
+                  reject_estimated_velocities=reject_estimated_velocities,
+                  allow_variable_box=self.allow_variable_box)
+        self.pos, self.vel, self.boxes, self.frame_boxes = [], [], [], []
         for i in self.traj_ids:
             paths = npy_cache(os.path.join(data_dir, f"traj_{i:03d}.h5"))
             self.pos.append(np.load(paths["pos"], mmap_mode="r"))
             self.vel.append(np.load(paths["vel"], mmap_mode="r"))
             meta = np.load(paths["meta"], allow_pickle=True).item()
             self.boxes.append(torch.tensor(meta["box"], dtype=torch.float32))  # NPT gives each trajectory its own box
+            fb = meta.get("boxes") if self.allow_variable_box else None
+            self.frame_boxes.append(None if fb is None else torch.tensor(fb, dtype=torch.float32))
         self.meta = meta
         self.periodic = meta["periodic"]
         self.n_constraints = int(meta.get("n_constraints", 0))  # caches written before this field have none
@@ -181,7 +199,8 @@ class TrajWindows(torch.utils.data.Dataset):
         frames = slice(s, s + (self.k + self.m) * self.f, self.f)
         pos = torch.from_numpy(np.array(self.pos[t][frames]))
         vel = torch.from_numpy(np.array(self.vel[t][frames]))
-        return pos, vel, self.boxes[t]
+        box = self.boxes[t] if self.frame_boxes[t] is None else self.frame_boxes[t][s + (self.k - 1) * self.f]
+        return pos, vel, box
 
 
 def compute_stats(ds, n_samples=2000, seed=0):

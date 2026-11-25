@@ -1,0 +1,67 @@
+# All-physical-atom WignerFlow model for `best-napf6-ec-dmc-m4a` (8,264 sites -> 6,144 physical atoms, 2,120 LP* folded, 20 fs stride).
+# Uses sparse cell_list neighbors, gradient checkpointing, and BF16 Tensor Cores for short-burst atomistic RDF / coordination refinement.
+data_dir: data/napf6_ec_dmc_atom20
+stride_steps: 1
+k: 3
+seed: 1
+model:
+  arch: equi
+  head: flow
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 5.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+  neighbor_method: auto
+  gradient_checkpointing: true
+  target: residual
+  target_scaling: mass
+  n_ff_types: auto
+  use_charges: true
+  max_bond_hops: 3
+  repulsion_prior:
+    enabled: true
+    strength: 0.5
+    rmin_scale: 0.92
+    width: 0.10
+    n_iter: 2
+    percentile: 0.2
+train:
+  batch_size: 2
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  constrained_dof: true
+  lr: 0.0002
+  steps: 20000
+  warmup: 1000
+  rewarmup_steps: 600
+  grad_clip: 0.5
+  loss_spike_factor: 5.0
+  noise_schedule:
+    - [0, 0.02]
+    - [20000, 0.005]
+  unroll:
+    - [0, 1]
+    - [8000, 2]
+  backprop: truncated
+  unroll_sampling_steps: 2
+  verlet_skin: 0.8
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 8
+  rollout_steps: 250
+  rollout_starts: 2
+  rollout_steps_select: 500
+  rollout_starts_select: 2
+  sampling_steps: 4
+name: napf6_ec_dmc_atom20_h100
+out_dir: results/napf6_ec_dmc/atom20_seed1

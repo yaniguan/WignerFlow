@@ -1,0 +1,50 @@
+# Head-to-head TrajCast baseline on alanine dipeptide in vacuum (22 atoms, 20 fs stride).
+data_dir: data/ala2
+stride_steps: 10
+k: 3
+seed: 1
+model:
+  arch: trajcast
+  head: regression
+  markovian: true
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  use_velocity: true
+  neighbor_method: auto
+  target: residual
+  target_scaling: mass
+  n_ff_types: auto
+  use_charges: true
+  max_bond_hops: 3
+train:
+  batch_size: 16
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  constrained_dof: true
+  lr: 0.0003
+  steps: 40000
+  warmup: 1000
+  grad_clip: 1.0
+  noise_sigma: 0.0
+  unroll:
+    - [0, 1]
+  backprop: truncated
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 20
+  rollout_steps: 1000
+  rollout_starts: 6
+  rollout_steps_select: 2000
+  rollout_starts_select: 6
+  sampling_steps: 1
+name: ala2_trajcast_h100
+out_dir: results/ala2/trajcast_h100

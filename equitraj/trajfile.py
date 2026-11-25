@@ -38,7 +38,8 @@ class TrajWriter:
             self.f.create_dataset(name, shape=(0,), maxshape=(None,), dtype="f8")
         self.f.create_dataset("box", shape=(0, 3, 3), maxshape=(None, 3, 3), dtype="f4")
         self.f.create_dataset("masses", data=np.asarray(masses, dtype="f8"))
-        self.f.create_dataset("elements", data=np.asarray(elements, dtype="S3"))
+        max_el = max((len(str(e).encode("ascii")) for e in elements), default=3)
+        self.f.create_dataset("elements", data=np.asarray(elements, dtype=f"S{max(3, max_el)}"))
         for k, v in attrs.items():
             self.f.attrs[k] = v
         self.f.attrs["force_every"] = force_every

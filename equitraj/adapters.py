@@ -5,11 +5,8 @@ Cells contain lattice vectors as rows. Import one source per trajectory index.
 """
 from pathlib import Path
 
-import h5py
 import numpy as np
 import yaml
-
-from equitraj.trajfile import TrajWriter
 
 # Common MD elements; ASE supplies the full periodic table when installed.
 _MASSES = dict(H=1.008, He=4.003, Li=6.94, B=10.81, C=12.011, N=14.007,
@@ -17,6 +14,14 @@ _MASSES = dict(H=1.008, He=4.003, Li=6.94, B=10.81, C=12.011, N=14.007,
                Al=26.982, Si=28.085, P=30.974, S=32.06, Cl=35.45,
                Ar=39.948, K=39.098, Ca=40.078, Fe=55.845, Zn=65.38,
                Br=79.904, I=126.904)
+_Z_TO_SYMBOL = {
+    1: "H", 2: "He", 3: "Li", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F",
+    10: "Ne", 11: "Na", 12: "Mg", 13: "Al", 14: "Si", 15: "P", 16: "S",
+    17: "Cl", 18: "Ar", 19: "K", 20: "Ca", 26: "Fe", 30: "Zn", 35: "Br", 53: "I",
+}
+_COVALENT_RADII_A = dict(H=0.31, Li=1.28, B=0.84, C=0.76, N=0.71, O=0.66, F=0.57,
+                         Si=1.11, P=1.07, S=1.05, Cl=1.02, Br=1.20, I=1.39)
+KCAL_TO_KJ = 4.184
 
 
 def infer_elements(masses):
@@ -86,6 +91,8 @@ def _generic(src):
     if Path(src).suffix.lower() == ".npz":
         with np.load(src, allow_pickle=False) as f:
             return {k: f[k] for k in f.files}
+    import h5py
+
     with h5py.File(src, "r") as f:
         data = {k: f[k][:] for k in f if isinstance(f[k], h5py.Dataset)}
         from equitraj.topology import read_metadata
@@ -94,7 +101,72 @@ def _generic(src):
         return data
 
 
+def _infer_covalent_metadata(pos_angstrom, elements, charges=None):
+    """Infer covalent bonds and atom coordination types (`C_3`, `O_1`, ...) from first-frame geometry."""
+    n = len(elements)
+    rad = np.array([_COVALENT_RADII_A.get(str(e), 0.75) for e in elements], dtype=float)
+    d = np.linalg.norm(pos_angstrom[:, None, :] - pos_angstrom[None, :, :], axis=-1)
+    ii, jj = np.where(np.triu((d > 0.25) & (d <= 1.25 * (rad[:, None] + rad[None, :])), k=1))
+    bonds = [[int(i), int(j)] for i, j in zip(ii, jj)]
+    deg = np.zeros(n, dtype=int)
+    for i, j in bonds:
+        deg[i] += 1
+        deg[j] += 1
+    ff_types = [f"{elements[i]}_{deg[i]}" for i in range(n)]
+    q = [0.0] * n if charges is None else [float(c) for c in charges]
+    return {
+        "version": 1,
+        "units": {"charge": "e", "distance": "nm"},
+        "charges": q,
+        "ff_types": ff_types,
+        "molecule_ids": [0] * n,
+        "original_indices": list(range(n)),
+        "bonds": bonds,
+        "constraints": [],
+        "drude_parent_map": [],
+    }
+
+
+def _read_md17(src):
+    """Read public sGDML / rMD17 / MD22 `.npz` quantum MD archives (`R`/`coords` in Å, `z` nuclear charges, `E`, `F`)."""
+    with np.load(src, allow_pickle=False) as f:
+        keys = set(f.files)
+        pos_key = "R" if "R" in keys else ("coords" if "coords" in keys else None)
+        z_key = "z" if "z" in keys else ("nuclear_charges" if "nuclear_charges" in keys else None)
+        if pos_key is None or z_key is None:
+            raise ValueError(f"MD17/rMD17 archive {src} must contain ('R' or 'coords') and ('z' or 'nuclear_charges')")
+        pos = np.asarray(f[pos_key], dtype=float)
+        z = np.asarray(f[z_key], dtype=int).reshape(-1)
+        elems = []
+        for zi in z:
+            if int(zi) in _Z_TO_SYMBOL:
+                elems.append(_Z_TO_SYMBOL[int(zi)])
+            else:
+                from ase.data import chemical_symbols
+                elems.append(chemical_symbols[int(zi)])
+        pe = None
+        if "E" in keys:
+            pe = np.asarray(f["E"], dtype=float).reshape(-1) * KCAL_TO_KJ
+        elif "energies" in keys:
+            pe = np.asarray(f["energies"], dtype=float).reshape(-1) * KCAL_TO_KJ
+        forces = None
+        if "F" in keys:
+            # kcal/(mol * Å) -> kJ/(mol * nm) = * 4.184 * 10 = * 41.84
+            forces = np.asarray(f["F"], dtype=float) * (KCAL_TO_KJ * 10.0)
+        elif "forces" in keys:
+            forces = np.asarray(f["forces"], dtype=float) * (KCAL_TO_KJ * 10.0)
+        meta = _infer_covalent_metadata(pos[0], elems)
+        out = {"positions": pos, "elements": elems, "particle_metadata": meta}
+        if pe is not None:
+            out["potential_energy"] = pe
+        if forces is not None:
+            out["forces"] = forces
+        return out, "angstrom", "angstrom/fs"
+
+
 def _read(src, topology, fmt):
+    if fmt == "md17":
+        return _read_md17(src)
     if fmt == "mdtraj":
         import mdtraj as md
         tr = md.load(str(src), top=str(topology) if topology else None)
@@ -175,8 +247,8 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     suffix = Path(src).suffix.lower()
     fmt = format or ("mdtraj" if suffix in (".dcd", ".xtc", ".trr") else
                      "generic" if suffix in (".npz", ".h5", ".hdf5") else "ase")
-    if fmt not in ("mdtraj", "ase", "generic"):
-        raise ValueError("format must be mdtraj, ase, or generic")
+    if fmt not in ("mdtraj", "ase", "generic", "md17"):
+        raise ValueError("format must be mdtraj, ase, generic, or md17")
     data, native_unit, native_vunit = _read(src, topology, fmt)
     unit = unit or native_unit
     scales = {"angstrom": 0.1, "A": 0.1, "Å": 0.1, "nm": 1.0}
@@ -207,7 +279,13 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     names = np.asarray(data.get("names", [""] * n)).astype(str)
     if names.shape != (n,):
         raise ValueError("names must have one entry per atom")
-    keep = ~((mass < 1) | np.char.startswith(names, "D")) if drop_drude else np.ones(n, bool)
+    is_vsite_name = (
+        np.char.startswith(names, "D")
+        | np.char.startswith(names, "LP")
+        | np.char.startswith(names, "EP")
+        | np.char.startswith(names, "MW")
+    )
+    keep = ~((mass < 1) | is_vsite_name) if drop_drude else np.ones(n, bool)
     if not keep.any():
         raise ValueError("particle filter removed all atoms")
     cell = box if box is not None else data.get("box")
@@ -253,12 +331,22 @@ def import_trajectory(src, out_dir, *, topology=None, format=None, unit=None,
     if particle_metadata is not None:
         from equitraj.topology import remap_metadata
         particle_metadata = remap_metadata(particle_metadata, keep)
+    from equitraj.trajfile import TrajWriter
+
+    pe_arr = data.get("potential_energy")
+    if pe_arr is not None:
+        pe_arr = np.asarray(pe_arr, dtype=float).reshape(len(x))
+    forces_arr = data.get("forces")
+    if forces_arr is not None:
+        forces_arr = np.asarray(forces_arr, dtype=float)[:, keep]
     writer = TrajWriter(path, int(keep.sum()), mass[keep], elem[keep], attrs,
                         particle_metadata=particle_metadata)
     try:
         for t in range(len(x)):
             ke = 0.5 * np.sum(mass[keep, None] * v[t] ** 2)
-            writer.add(x[t], v[t], np.full_like(x[t], np.nan), np.nan, ke, cells[t],
+            pe_t = np.nan if pe_arr is None else float(pe_arr[t])
+            f_t = np.full_like(x[t], np.nan) if forces_arr is None else forces_arr[t]
+            writer.add(x[t], v[t], f_t, pe_t, ke, cells[t],
                        t * dt_fs * save_every / 1000)
         writer.flush()
         writer.f.attrs["complete"] = True

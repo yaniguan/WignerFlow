@@ -1,0 +1,72 @@
+# Condensed-phase electrolyte benchmark: 1,008-atom Li+/EC/PF6- periodic box at 313 K (20 fs stride).
+# Uses sparse cell_list neighbors (auto > 384 atoms), gradient checkpointing, and BF16 Tensor Cores on H100-80GB.
+data_dir: data/li_ec_pf6
+stride_steps: 2
+k: 3
+seed: 1
+model:
+  arch: equi
+  head: flow
+  lmax: 2
+  channels: 96
+  heads: 8
+  n_rbf: 32
+  cutoff: 5.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+  neighbor_method: auto
+  gradient_checkpointing: true
+  target: residual
+  target_scaling: mass
+  n_ff_types: auto
+  use_charges: true
+  max_bond_hops: 3
+  repulsion_prior:
+    enabled: true
+    strength: 0.5
+    rmin_scale: 0.92
+    width: 0.1
+    n_iter: 2
+    percentile: 0.2
+train:
+  batch_size: 4
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  constrained_dof: true
+  lr: 0.0002
+  steps: 40000
+  warmup: 1500
+  rewarmup_steps: 1000
+  grad_clip: 0.5
+  loss_spike_factor: 5.0
+  noise_schedule:
+    - [0, 0.02]
+    - [40000, 0.005]
+  unroll:
+    - [0, 1]
+    - [12000, 2]
+    - [24000, 4]
+  backprop: truncated
+  unroll_sampling_steps: 2
+  unroll_loss_weights: [1.0, 1.0, 1.0, 1.0]
+  overlap_penalty:
+    weight: 0.1
+    rmin_scale: 0.95
+  verlet_skin: 0.8
+  workers: 4
+  start_every: 1
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 16
+  rollout_steps: 1000
+  rollout_starts: 4
+  rollout_steps_select: 2000
+  rollout_starts_select: 4
+  sampling_steps: 10
+name: li_ec_h100_v1
+out_dir: results/li_ec_pf6/h100_v1

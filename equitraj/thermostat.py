@@ -1,8 +1,8 @@
-"""Inference-time switch S6: CSVR thermostat (Bussi, Donadio, Parrinello 2007), TrajCast style.
+"""Inference-time stabilization switches (off by default in model-only NVE rollouts):
+  - S5 `energy_rescale`: FlashMD-style velocity rescaling to conserve a reference energy U_ref(x) + K(v) = E_target.
+  - S6 `csvr`: Bussi-Donadio-Parrinello (2007) canonical stochastic velocity rescaling thermostat, TrajCast style.
 
-Applied to the model's predicted velocities after every rollout step. It is NOT part of the model;
-any result that uses it is labeled as such. It answers: "is the model stable once its
-kinetic-energy drift is corrected?"
+Neither is part of the neural model; any rollout using S5 or S6 is explicitly labeled as such.
 """
 
 import math
@@ -10,6 +10,27 @@ import math
 import torch
 
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
+
+
+def energy_rescale(vel, masses, u_current, e_target, max_scale=2.0):
+    """FlashMD-style momentum rescaling (switch S5): scale `vel` (B, N, 3) so U_current + K(alpha * vel) = E_target.
+
+    When U_current >= E_target (for example during a brief steric spike where no real velocity scale can
+    restore E_target), kinetic energy is damped smoothly rather than inverted, and `scale` is clamped to
+    [1 / max_scale, max_scale] so a single noisy frame cannot inject unphysical momentum.
+    Returns (vel_scaled, scale_per_system).
+    """
+    if max_scale < 1.0:
+        raise ValueError(f"max_scale must be >= 1.0, got {max_scale}")
+    v = vel.double()
+    m = masses.to(device=v.device, dtype=torch.float64)
+    u = torch.as_tensor(u_current, device=v.device, dtype=torch.float64)
+    e0 = torch.as_tensor(e_target, device=v.device, dtype=torch.float64)
+    k = 0.5 * torch.einsum("n,bnd->b", m, v ** 2) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
+    k_des = (e0 - u).clamp_min(0.0)
+    raw = torch.where(k > 1e-30, torch.sqrt(k_des / k.clamp_min(1e-30)), torch.ones_like(k))
+    scale = raw.clamp(min=1.0 / max_scale, max=max_scale)
+    return (v * scale[:, None, None]).to(vel.dtype), scale.float()
 
 
 def csvr(vel, masses, t_target, tau_fs, dt_fs, dof, generator=None):

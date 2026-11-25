@@ -20,10 +20,12 @@ R_CUT = 8.5  # Å
 
 
 def lj_potential(pos, box):
-    """Potential energy (kJ/mol) of each frame. pos: (F, N, 3) in Å, box: (3, 3) in Å."""
+    """Potential energy (kJ/mol) of each frame. pos: (F, N, 3) in Å, box: (3, 3) or (F, 3, 3) in Å."""
     pos = pos.double()
     n = pos.shape[1]
     bx = box.to(device=pos.device, dtype=torch.float64)
+    if bx.ndim == 3:
+        bx = bx[:, None]
     dr = minimum_image(pos[:, :, None, :] - pos[:, None, :, :], bx)
     eye = torch.eye(n, dtype=torch.float64, device=pos.device) * 1e9
     r = torch.linalg.norm(dr, dim=-1) + eye

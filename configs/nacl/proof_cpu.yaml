@@ -8,5 +8,5 @@ model: {head: flow, lmax: 2, channels: 16, heads: 2, n_rbf: 8, cutoff: 6.0, n_sp
 train: {batch_size: 4, lr: 1.0e-3, steps: 600, warmup: 50, noise_sigma: 0.01, unroll: [[0, 1], [300, 3]],
         unroll_loss_weights: [0.5, 1.0, 1.5], overlap_penalty: {weight: 0.1, rmin_scale: 1.0},
         backprop: truncated, workers: 0, start_every: 5}
-eval: {every: 200, val_batches: 4, rollout_steps: 200, rollout_starts: 2, sampling_steps: 2, rollout_steps_select: 500, rollout_starts_select: 2}
+eval: {every: 200, val_batches: 4, rollout_steps: 100, rollout_starts: 2, sampling_steps: 2, rollout_steps_select: 140, rollout_starts_select: 2}
 out_dir: results/nacl/proof_cpu

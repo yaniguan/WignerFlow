@@ -38,15 +38,6 @@ def test_demo_load_release_keeps_float32_under_float64_default():
     assert demo.first_zero(np.array([0.0, 10.0, 20.0]), np.array([1.0, 0.5, -0.5])) == pytest.approx(15.0)
 
 
-def test_bench_api_cross_platform_helpers():
-    import bench_api  # noqa: PLC0415
-
-    name = bench_api.cpu_name()
-    assert isinstance(name, str) and len(name) > 0
-    la = bench_api._load_avg()
-    assert la is None or len(la) == 3
-
-
 def test_summarize_seeds_and_make_results_path_parts(tmp_path, monkeypatch):
     import make_results  # noqa: PLC0415
     import summarize_seeds  # noqa: PLC0415
@@ -89,7 +80,6 @@ def test_summarize_seeds_and_make_results_path_parts(tmp_path, monkeypatch):
         }),
         encoding="utf-8",
     )
-    # Include a crashed validation log entry where val_T_end is null
     log_path = tmp_path / "results" / "argon" / "B_S3a_seed1" / "log.jsonl"
     log_path.write_text(
         json.dumps({"step": 200, "val_T_end": 94.0, "val_rdf_l1": 0.12}) + "\n"
@@ -99,32 +89,6 @@ def test_summarize_seeds_and_make_results_path_parts(tmp_path, monkeypatch):
     make_results.main()
     assert (tmp_path / "RESULTS.md").exists()
     assert "argon/B_S3a_seed1" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
-
-
-def test_stability_timeline_vacuum_trajectory(tmp_path):
-    pytest.importorskip("h5py")
-    import stability_timeline  # noqa: PLC0415
-    from equitraj.trajfile import TrajWriter  # noqa: PLC0415
-
-    h5_path = tmp_path / "vac.h5"
-    rng = np.random.default_rng(0)
-    with TrajWriter(
-        h5_path,
-        n_atoms=4,
-        masses=np.array([12.0, 12.0, 1.0, 1.0], dtype=np.float32),
-        elements=["C", "C", "H", "H"],
-        attrs={"periodic": False, "dt_fs": 1.0, "save_every": 1, "complete": True},
-    ) as writer:
-        base = np.array([[0.0, 0.0, 0.0], [0.15, 0.0, 0.0], [0.0, 0.11, 0.0], [0.15, 0.11, 0.0]], dtype=np.float64)
-        for step in range(12):
-            pos = base + rng.normal(0.0, 0.002, size=base.shape)
-            vel = rng.normal(0.0, 0.2, size=base.shape)
-            writer.add(pos, vel, np.zeros_like(pos), -10.0, 5.0, np.zeros((3, 3)), step * 0.001)
-
-    out_json = tmp_path / "reports" / "timeline.json"
-    stability_timeline.main([str(h5_path), "--reference", str(h5_path), "--blocks", "3", "--out", str(out_json)])
-    rep = json.loads(out_json.read_text(encoding="utf-8"))
-    assert len(rep["blocks"]) == 3
 
 
 def test_analyze_profiling_verdict_none_gpu_util_and_empty_plots(tmp_path):

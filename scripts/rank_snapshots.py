@@ -19,7 +19,7 @@ import torch
 import yaml
 
 from equitraj.dataset import TrajWindows
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.prior import estimate_rmin
 from equitraj.rollout import temperature
 from equitraj.train import load_init_weights, selection_score, validation_rollout
@@ -54,6 +54,8 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    if not args.snapshots and not args.run_dir:
+        ap.error("provide either --snapshots or --run_dir")
     cfg = yaml.safe_load(open(args.config))
     snaps = list(args.snapshots or []) or candidates_from_log(args.run_dir, args.top)
     if not snaps:
@@ -62,11 +64,16 @@ def main():
     train_ds = TrajWindows(cfg["data_dir"], "train", cfg["stride_steps"], cfg["k"], m=1, start_every=100)
     val_ds = TrajWindows(cfg["data_dir"], "val", cfg["stride_steps"], cfg["k"], m=1)
     t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]),
-                        val_ds.masses).mean().item()
+                        val_ds.masses, val_ds.n_constraints).mean().item()
     rmin = None
     rows = []
+    mc = dict(cfg["model"])
+    if mc.get("n_ff_types") == "auto":
+        mc["n_ff_types"] = 0 if train_ds.ff_type_names is None else len(train_ds.ff_type_names)
     for snap in snaps:
-        model = EquiTraj(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **cfg["model"]).to(device)
+        model = make_model(n_types=len(train_ds.elements), k=cfg["k"], stride_fs=train_ds.stride_fs, **mc).to(device)
+        if getattr(val_ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+            model.set_chemistry(charges=val_ds.charges, ff_types=val_ds.ff_types, bonds=val_ds.bonds, n_atoms=len(val_ds.types))
         missing, src_step = load_init_weights(model, snap, device)
         if model.prior is not None and any(k.startswith("prior.") for k in missing) and not model.prior.rmin_fixed:
             if rmin is None:

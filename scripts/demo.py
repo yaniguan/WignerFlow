@@ -15,22 +15,32 @@ import torch
 
 from equitraj import analysis, plots
 from equitraj.layers import check_attention_version
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.rollout import rollout, temperature
 
 
 def load_release(path, device):
     ck = torch.load(path, map_location="cpu", weights_only=True)
     assert ck.get("format") == "wignerflow-v0", "not a WignerFlow v0 release checkpoint"
-    check_attention_version(ck, source=path)
+    if ck.get("model_cfg", {}).get("arch", "equi") == "equi":
+        check_attention_version(ck, source=path)
     prev_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.float32)
     try:
-        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+        model = make_model(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
     finally:
         torch.set_default_dtype(prev_dtype)
     model.load_state_dict(ck["model"])
-    return model.to(device).eval(), ck
+    model = model.to(device).eval()
+    chem = ck.get("chemistry")
+    if isinstance(chem, dict) and hasattr(model, "set_chemistry"):
+        model.set_chemistry(
+            charges=chem.get("charges"),
+            ff_types=chem.get("ff_types"),
+            bonds=chem.get("bonds"),
+            n_atoms=len(ck["types"]),
+        )
+    return model, ck
 
 
 def first_zero(t, c):

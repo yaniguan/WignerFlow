@@ -1,0 +1,68 @@
+# Ab initio MD benchmark: CCSD quantum MD trajectory of aspirin (21 atoms, dt = 0.5 fs, 10 fs model stride = 20x step).
+# Import public sGDML archive first with `equitraj.adapters.import_trajectory(..., format="md17", dt_fs=0.5)`.
+data_dir: data/md17_aspirin
+stride_steps: 20
+k: 3
+seed: 1
+model:
+  arch: equi
+  head: flow
+  lmax: 2
+  channels: 64
+  heads: 8
+  n_rbf: 32
+  cutoff: 6.0
+  n_spatial: 2
+  n_fusion: 2
+  n_denoiser: 2
+  parity: true
+  use_velocity: true
+  neighbor_method: auto
+  target: residual
+  target_scaling: mass
+  n_ff_types: auto
+  max_bond_hops: 3
+  repulsion_prior:
+    enabled: true
+    strength: 0.4
+    rmin_scale: 0.90
+    width: 0.08
+    n_iter: 2
+    percentile: 0.5
+train:
+  batch_size: 16
+  amp: bf16
+  matmul_precision: high
+  ema_decay: 0.999
+  lr: 0.0003
+  steps: 40000
+  warmup: 1000
+  rewarmup_steps: 1000
+  grad_clip: 0.5
+  loss_spike_factor: 5.0
+  noise_schedule:
+    - [0, 0.015]
+    - [40000, 0.005]
+  unroll:
+    - [0, 1]
+    - [10000, 2]
+    - [20000, 4]
+  backprop: truncated
+  unroll_sampling_steps: 2
+  unroll_loss_weights: [1.0, 1.0, 1.0, 1.0]
+  overlap_penalty:
+    weight: 0.1
+    rmin_scale: 0.95
+  workers: 4
+  start_every: 2
+  ckpt_minutes: 15
+eval:
+  every: 2000
+  val_batches: 20
+  rollout_steps: 1000
+  rollout_starts: 4
+  rollout_steps_select: 2000
+  rollout_starts_select: 4
+  sampling_steps: 10
+name: md17_aspirin_h100_v1
+out_dir: results/md17_aspirin/h100_v1

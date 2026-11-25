@@ -31,6 +31,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[simulation,adapters,api,site,test]" httpx
+          pip install -e ".[simulation,adapters,train,test]"
       - name: pytest (CPU; GPU-only tests skip themselves)
         run: python -m pytest -q

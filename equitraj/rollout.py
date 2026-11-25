@@ -8,9 +8,10 @@ import time
 
 import torch
 
+from equitraj.model import remove_angular_momentum
 from equitraj.neighbors import minimum_image
 from equitraj.pair_masks import exclusion_mask
-from equitraj.thermostat import csvr
+from equitraj.thermostat import csvr, energy_rescale
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB
 
 
@@ -18,6 +19,8 @@ def temperature(vel, masses, n_constraints=0):
     """Instantaneous temperature (K) per system. vel: (B, N, 3) Å/fs."""
     ke = 0.5 * torch.einsum("n,bnd->b", masses.double(), vel.double() ** 2) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
     dof = 3 * vel.shape[1] - n_constraints - 3
+    if dof <= 0:
+        return torch.zeros_like(ke)
     return 2 * ke / (dof * KB)
 
 
@@ -35,9 +38,12 @@ def min_pair_distance(pos, box, excluded_pairs=None):
 
 def max_bond_deviation(pos, bonds, r0, box=None):
     """Largest relative bond-length deviation |r - r0| / r0 per system. bonds: (n_bonds, 2)."""
+    if bonds is None or bonds.numel() == 0:
+        return pos.new_zeros(pos.shape[0])
     dr = pos[:, bonds[:, 0]] - pos[:, bonds[:, 1]]
     if box is not None:
-        dr = minimum_image(dr, box[:, None].to(dr.dtype))
+        bx = box[None] if box.ndim == 2 else box
+        dr = minimum_image(dr, bx.to(dr.dtype))
     r = torch.linalg.norm(dr, dim=-1)
     return ((r - r0) / r0).abs().max(dim=1).values
 
@@ -47,7 +53,7 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
             thermostat=None, energy_fn=None, history=20, monitor=None, predictor=None,
             constraint_projector=None, excluded_pairs=None, *, generator=None, return_state=False,
-            step_offset=0):
+            step_offset=0, check_on_last=True, conserve_energy=False, zero_angular_momentum=False):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
@@ -81,12 +87,21 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     v = vel.to(device, torch.float32)
     types, masses = types.to(device), masses.to(device)
     box = None if box is None else box.to(device)
+    if conserve_energy and energy_fn is None:
+        raise ValueError("conserve_energy=True (switch S5) requires energy_fn(pos, box)")
+    if zero_angular_momentum and box is not None:
+        raise ValueError("zero_angular_momentum=True is only valid for isolated systems in vacuum (box=None)")
     if monitor is None:
         monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
                                    bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
                                    history=history, stride_fs=getattr(model, "stride_fs", 1.0),
                                    excluded_pairs=excluded_pairs)
     projection_diagnostics = []
+    e_target = None
+    if conserve_energy:
+        k0 = 0.5 * torch.einsum("n,bnd->b", masses.double(), v[:, -1].double() ** 2) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
+        u0 = energy_fn(x[:, -1].float(), box).to(device=device, dtype=torch.float64)
+        e_target = u0 + k0
     n_constraints = 0 if constraint_projector is None else constraint_projector.n_constraints
     if constraint_projector is not None:
         monitor.n_constraints = n_constraints
@@ -108,12 +123,17 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
         if constraint_projector is not None:
             x_new, v_new, stats = constraint_projector(x_new, v_new, masses, box)
             projection_diagnostics.append({"step": global_step, **stats})
+        if zero_angular_momentum:
+            v_new = remove_angular_momentum(x_new, v_new, masses)
+        if conserve_energy:
+            u_now = energy_fn(x_new.float(), box)
+            v_new, _ = energy_rescale(v_new, masses, u_now, e_target)
         x = torch.cat([x[:, 1:], x_new[:, None]], dim=1)
         v = torch.cat([v[:, 1:], v_new[:, None]], dim=1)
         if global_step % save_every == 0:
             saved_x.append(x_new.float().cpu())
             saved_v.append(v_new.cpu())
-        if global_step % check_every == 0 or step == n_steps:
+        if global_step % check_every == 0 or (check_on_last and step == n_steps):
             bad = monitor.check(global_step, x_new, v_new)
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, global_step), crash)
             if (crash >= 0).all():
