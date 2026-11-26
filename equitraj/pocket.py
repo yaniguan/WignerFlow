@@ -116,7 +116,7 @@ DATASET_CATALOG = [
         "domain": "checkpoint",
         "title": "MD17 / rMD17 & Liquid Argon Coarse-Stride Benchmark Trajectories (Fu et al. TMLR 2023)",
         "url": "http://www.quantum-machine.org/gdml/#datasets",
-        "import_hint": "python scripts/train.py --data data/argon --head flow --stride 25",
+        "import_hint": "python -m equitraj.train --config configs/argon/B_S1.yaml",
         "pain_point": "Audit 50-fs neural checkpoints for RDF L1, COM leakage, and flow epistemic spread on CPU.",
     },
 ]

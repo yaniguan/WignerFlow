@@ -1,6 +1,6 @@
 """Training loop: teacher forcing (S1), input noise (S2), unrolled training (S3a truncated, S3b full).
 
-    python -m equitraj.train --config configs/argon/flow_s1_n10.yaml
+    python -m equitraj.train --config configs/argon/B_S1.yaml
 
 Resumable: a checkpoint is written every `ckpt_minutes` and at every evaluation; rerunning the
 same command continues from it. ckpt.pt stores the model, optimizer, step, best scores, the
