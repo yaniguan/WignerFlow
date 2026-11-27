@@ -56,7 +56,7 @@ def chunked_rollout(model, pos, vel, types, box, masses, total_steps, chunk_step
     """
     if min(total_steps, chunk_steps, save_every) < 1:
         raise ValueError("total_steps, chunk_steps, and save_every must be positive")
-    for disallowed in ("generator", "return_state", "step_offset"):
+    for disallowed in ("generator", "return_state", "step_offset", "check_on_last"):
         if disallowed in rollout_kwargs:
             raise ValueError(f"chunked_rollout manages {disallowed!r} internally")
 
@@ -78,6 +78,7 @@ def chunked_rollout(model, pos, vel, types, box, masses, total_steps, chunk_step
         saved_v = [] if saved["velocities"] is None else [saved["velocities"]]
         crash = saved["crash_step"].clone()
         wall_s = float(saved.get("wall_s", 0.0))
+        saved_mon = saved.get("monitor_state")
     else:
         cur_pos, cur_vel, cur_box = pos, vel, box
         steps_done = 0
@@ -85,19 +86,48 @@ def chunked_rollout(model, pos, vel, types, box, masses, total_steps, chunk_step
         saved_x, saved_v = [], []
         crash = torch.full((pos.shape[0],), -1, dtype=torch.long)
         wall_s = 0.0
+        saved_mon = None
+
+    caller_monitor = rollout_kwargs.get("monitor")
+    if caller_monitor is None:
+        mon = StabilityMonitor(
+            types.to(device),
+            masses.to(device),
+            box=None if cur_box is None else cur_box.to(device),
+            min_dist=rollout_kwargs.get("min_dist", 0.5),
+            t_max=rollout_kwargs.get("t_max"),
+            bonds=rollout_kwargs.get("bonds"),
+            bond_r0=rollout_kwargs.get("bond_r0"),
+            max_bond_dev=rollout_kwargs.get("max_bond_dev", 0.5),
+            energy_fn=rollout_kwargs.get("energy_fn"),
+            history=rollout_kwargs.get("history", 20),
+            stride_fs=getattr(model, "stride_fs", 1.0),
+            excluded_pairs=rollout_kwargs.get("excluded_pairs"),
+        )
+        if saved_mon is not None:
+            mon.crash_step = None if saved_mon["crash_step"] is None else saved_mon["crash_step"].clone()
+            mon.crashes = list(saved_mon["crashes"]) if saved_mon["crashes"] is not None else None
+            mon._steps = list(saved_mon["steps"])
+            mon._series = {k: list(v) for k, v in saved_mon["series"].items()}
+            mon._hist.clear()
+            for item in saved_mon["hist"]:
+                mon._hist.append((int(item[0]), dict(item[1])))
+        chunk_kwargs = {**rollout_kwargs, "monitor": mon}
+    else:
+        mon = caller_monitor
+        chunk_kwargs = dict(rollout_kwargs)
 
     chunks_run = 0
-    last_diag = None
     while steps_done < total_steps and not (crash >= 0).all():
         n_this = min(chunk_steps, total_steps - steps_done)
+        is_final_chunk = (steps_done + n_this) >= total_steps
         out = rollout(
             model, cur_pos, cur_vel, types, cur_box, masses, n_this,
             save_every=save_every, generator=gen, return_state=True,
-            step_offset=steps_done, **rollout_kwargs,
+            step_offset=steps_done, check_on_last=is_final_chunk, **chunk_kwargs,
         )
         chunks_run += 1
         wall_s += out["wall_s"]
-        last_diag = out["diagnostics"]
         if out["positions"] is not None:
             saved_x.append(out["positions"])
             saved_v.append(out["velocities"])
@@ -110,12 +140,20 @@ def chunked_rollout(model, pos, vel, types, box, masses, total_steps, chunk_step
 
         full_pos = torch.cat(saved_x, dim=0) if saved_x else None
         full_vel = torch.cat(saved_v, dim=0) if saved_v else None
+        mon_state = {
+            "crash_step": None if mon.crash_step is None else mon.crash_step.clone(),
+            "crashes": None if mon.crashes is None else list(mon.crashes),
+            "steps": list(mon._steps),
+            "series": {k: [t.clone() for t in v] for k, v in mon._series.items()},
+            "hist": [[int(st_i), {k: t.clone() for k, t in d.items()}] for st_i, d in mon._hist],
+        }
         ckpt_state = {
             **st,
             "positions": full_pos,
             "velocities": full_vel,
             "crash_step": crash.clone(),
             "wall_s": wall_s,
+            "monitor_state": mon_state,
         }
         if state_path is not None:
             save_rollout_state(ckpt_state, state_path)
@@ -124,6 +162,7 @@ def chunked_rollout(model, pos, vel, types, box, masses, total_steps, chunk_step
 
     positions = torch.cat(saved_x, dim=0) if saved_x else None
     velocities = torch.cat(saved_v, dim=0) if saved_v else None
+    last_diag = mon.diagnostics()
     return {
         "positions": positions,
         "velocities": velocities,
@@ -334,7 +373,7 @@ class HybridRollout:
                     reasons[idx] = "temperature"
         if finite.any() and self.bonds is not None and self.bond_r0 is not None:
             bdev = max_bond_deviation(
-                x_cand, self.bonds.to(x_cand.device), self.bond_r0.to(x_cand.device, x_cand.dtype)
+                x_cand, self.bonds.to(x_cand.device), self.bond_r0.to(x_cand.device, x_cand.dtype), box=box
             )
             for idx in torch.nonzero(finite & (bdev > self.max_bond_dev), as_tuple=False).flatten().tolist():
                 if reasons[idx] is None:

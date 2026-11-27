@@ -34,6 +34,7 @@ def rdf(positions, box, idx_a, idx_b, r_max, n_bins=200):
     """
     idx_a, idx_b = np.asarray(idx_a), np.asarray(idx_b)
     same = np.array_equal(idx_a, idx_b)
+    non_self = idx_a[:, None] != idx_b[None, :]
     edges = np.linspace(0.0, r_max, n_bins + 1)
     hist = np.zeros(n_bins)
     volume = 0.0
@@ -41,20 +42,22 @@ def rdf(positions, box, idx_a, idx_b, r_max, n_bins=200):
         lengths = None if box is None else box_lengths(box[t])
         dr = positions[t, idx_a][:, None, :] - positions[t, idx_b][None, :, :]
         d = np.linalg.norm(minimum_image(dr, lengths), axis=-1)
-        if same:
-            d = d[~np.eye(len(idx_a), dtype=bool)]  # drop i == j
+        d = d[non_self]
         hist += np.histogram(d, bins=edges)[0]
         volume += np.prod(lengths) if lengths is not None else np.nan
     n_frames = len(positions)
     r = 0.5 * (edges[1:] + edges[:-1])
     if box is None:
         # No volume in vacuum, so no g(r): return the pair-distance density p(r), which integrates to 1.
-        return r, hist / (hist.sum() * (edges[1] - edges[0])), np.nan
-    volume /= n_frames
-    n_b = len(idx_b) - 1 if same else len(idx_b)
-    rho_b = n_b / volume
+        denom = hist.sum() * (edges[1] - edges[0])
+        return r, (hist / denom if denom > 0 else np.zeros_like(hist)), np.nan
+    volume /= max(1, n_frames)
+    n_overlap = int((~non_self).sum())
+    n_pairs_per_a = (len(idx_a) * len(idx_b) - n_overlap) / max(1, len(idx_a))
+    rho_b = (len(idx_b) - 1 if same else n_pairs_per_a) / volume
     shell = 4.0 / 3.0 * np.pi * (edges[1:] ** 3 - edges[:-1] ** 3)
-    g = hist / (n_frames * len(idx_a) * rho_b * shell)
+    denom = n_frames * len(idx_a) * rho_b * shell
+    g = np.divide(hist, denom, out=np.zeros_like(hist), where=denom > 0)
     return r, g, rho_b
 
 
@@ -101,6 +104,9 @@ def vacf(velocities, max_lag, masses=None):
     """
     v = velocities if masses is None else velocities * np.sqrt(masses)[None, :, None]
     n, n_atoms, _ = v.shape
+    max_lag = max(0, min(int(max_lag), n))
+    if max_lag == 0 or n == 0 or n_atoms == 0:
+        return np.zeros(0, dtype=np.float64)
     f = np.fft.rfft(v.reshape(n, -1), n=2 * n, axis=0)
     ac = np.fft.irfft(f * np.conj(f), axis=0)[:max_lag]
     ac = ac.sum(axis=1) / n_atoms  # sum over xyz, mean over atoms -> <v.v>
@@ -128,10 +134,18 @@ def msd(positions, lags):
 
     positions must be unwrapped: (n_times, n_atoms, 3).
     """
+    n = len(positions)
     out = np.zeros(len(lags))
     for k, lag in enumerate(lags):
-        d = positions[lag:] - positions[:-lag] if lag > 0 else np.zeros_like(positions)
-        out[k] = np.mean(np.sum(d**2, axis=-1))
+        lag_i = int(lag)
+        if lag_i <= 0 or n == 0:
+            out[k] = 0.0
+        elif lag_i >= n:
+            d = positions[-1:] - positions[:1]
+            out[k] = float(np.mean(np.sum(d**2, axis=-1)))
+        else:
+            d = positions[lag_i:] - positions[:-lag_i]
+            out[k] = float(np.mean(np.sum(d**2, axis=-1)))
     return out
 
 

@@ -929,37 +929,44 @@ def analyze_top15_funnel_candidates(
     goldilocks_hits = [
         r for r in reports if r["solvation_regime"] == "GOLDILOCKS_FAST_CHARGE_ANION_SEI"
     ]
-    best_dual = max(
-        reports,
-        key=lambda r: 0.55 * r["fast_charge_sei_readiness_100"] + 1.15 * r["sigma_253K_mS_cm"],
-    )
+    if reports:
+        best_dual = max(
+            reports,
+            key=lambda r: 0.55 * r["fast_charge_sei_readiness_100"] + 1.15 * r["sigma_253K_mS_cm"],
+        )
+        top_champ = {
+            "rank": best_dual["rank"],
+            "formula": best_dual["formula"],
+            "sigma_298K_mS_cm": best_dual["sigma_298K_mS_cm"],
+            "sigma_253K_mS_cm": best_dual["sigma_253K_mS_cm"],
+            "cip_frac": best_dual["cip_frac"],
+            "fast_charge_sei_readiness_100": best_dual["fast_charge_sei_readiness_100"],
+        }
+        top15_stats = {
+            "mean_cip_frac": round(float(np.mean([r["cip_frac"] for r in reports])), 4),
+            "mean_ssip_frac": round(float(np.mean([r["ssip_frac"] for r in reports])), 4),
+            "mean_agg_network_frac": round(float(np.mean([r["agg_network_frac"] for r in reports])), 4),
+            "max_percolation_p_inf": round(float(np.max([r["percolation_p_inf"] for r in reports])), 4),
+            "mean_tau_exchange_ps": round(float(np.mean([r["tau_exchange_ps"] for r in reports])), 2),
+            "n_goldilocks_fast_charge_sei": len(goldilocks_hits),
+            "top_dual_conductivity_sei_champion": top_champ,
+        }
+    else:
+        top15_stats = {
+            "mean_cip_frac": 0.0,
+            "mean_ssip_frac": 0.0,
+            "mean_agg_network_frac": 0.0,
+            "max_percolation_p_inf": 0.0,
+            "mean_tau_exchange_ps": 0.0,
+            "n_goldilocks_fast_charge_sei": 0,
+            "top_dual_conductivity_sei_champion": None,
+        }
 
     summary = {
         "n_candidates_analyzed": len(reports),
         "wall_time_total_s": round(time.perf_counter() - t0, 3),
         "commercial_baseline": asdict(base_rep),
-        "top15_summary": {
-            "mean_cip_frac": round(float(np.mean([r["cip_frac"] for r in reports])), 4),
-            "mean_ssip_frac": round(float(np.mean([r["ssip_frac"] for r in reports])), 4),
-            "mean_agg_network_frac": round(
-                float(np.mean([r["agg_network_frac"] for r in reports])), 4
-            ),
-            "max_percolation_p_inf": round(
-                float(np.max([r["percolation_p_inf"] for r in reports])), 4
-            ),
-            "mean_tau_exchange_ps": round(
-                float(np.mean([r["tau_exchange_ps"] for r in reports])), 2
-            ),
-            "n_goldilocks_fast_charge_sei": len(goldilocks_hits),
-            "top_dual_conductivity_sei_champion": {
-                "rank": best_dual["rank"],
-                "formula": best_dual["formula"],
-                "sigma_298K_mS_cm": best_dual["sigma_298K_mS_cm"],
-                "sigma_253K_mS_cm": best_dual["sigma_253K_mS_cm"],
-                "cip_frac": best_dual["cip_frac"],
-                "fast_charge_sei_readiness_100": best_dual["fast_charge_sei_readiness_100"],
-            },
-        },
+        "top15_summary": top15_stats,
         "candidates": reports,
     }
     return summary, rdf_curves

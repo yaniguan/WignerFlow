@@ -23,7 +23,8 @@ def segment_softmax(logits, index, n):
     """Softmax of logits (E, H) over the edges that share the same index (destination node)."""
     mx = torch.full((n, logits.shape[1]), -float("inf"), dtype=logits.dtype, device=logits.device)
     mx = mx.scatter_reduce(0, index[:, None].expand_as(logits), logits, "amax", include_self=True)
-    ex = torch.exp(logits - mx[index])
+    mx_safe = torch.where(torch.isfinite(mx), mx, torch.zeros_like(mx))
+    ex = torch.where(torch.isfinite(logits), torch.exp(logits - mx_safe[index]), torch.zeros_like(logits))
     den = torch.zeros((n, logits.shape[1]), dtype=logits.dtype, device=logits.device).index_add_(0, index, ex)
     return ex / (den[index] + 1e-12)
 
@@ -32,7 +33,8 @@ def smooth_segment_softmax(logits, env, index, n):
     """Envelope-weighted softmax with a unit sink so weights go smoothly to 0 at the cutoff."""
     mx = torch.zeros((n, logits.shape[1]), dtype=logits.dtype, device=logits.device)
     mx = mx.scatter_reduce(0, index[:, None].expand_as(logits), logits, "amax", include_self=True)
-    w = env[:, None] * torch.exp(logits - mx[index])
+    ex = torch.where(torch.isfinite(logits), torch.exp(logits - mx[index]), torch.zeros_like(logits))
+    w = env[:, None] * ex
     den = torch.exp(-mx) + torch.zeros_like(mx).index_add_(0, index, w)
     return w / den[index]
 
@@ -57,6 +59,7 @@ class PlainBlock(nn.Module):
         k = (self.k(h)[src] + self.ek(e)).view(-1, self.heads, hd)
         v = (self.v(h)[src] + self.ev(e)).view(-1, self.heads, hd)
         logits = (q * k).sum(-1) / math.sqrt(hd)
+        logits = logits.masked_fill((d >= self.cutoff)[:, None], -float("inf"))
         if self.smooth:
             alpha = smooth_segment_softmax(logits, envelope(d, self.cutoff), dst, h.shape[0])
             msg = (alpha[..., None] * v).reshape(-1, self.c)
@@ -70,7 +73,7 @@ class PlainBlock(nn.Module):
 class PlainTraj(EquiTraj):
     def __init__(self, n_types, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3, n_spatial=2, n_fusion=2, n_denoiser=2,
                  head="flow", use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
-                 lmax=None, parity=None, smooth_attention=False):
+                 lmax=None, parity=None, smooth_attention=False, **_unused):
         nn.Module.__init__(self)  # not EquiTraj.__init__: none of the equivariant modules are wanted
         self.lmax, self.c, self.cutoff, self.k, self.n_rbf = 0, channels, cutoff, k, n_rbf
         self.head_type, self.use_velocity, self.neighbor_method = head, use_velocity, neighbor_method

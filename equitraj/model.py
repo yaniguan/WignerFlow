@@ -67,9 +67,27 @@ def build_graph_plain(pos, box, cutoff, method="brute_force"):
     return {"src": torch.cat(srcs), "dst": torch.cat(dsts), "vec": vec, "dist": torch.linalg.norm(vec, dim=-1)}
 
 
-def remove_com(vec, masses):
-    """Remove the mass-weighted mean from per-atom vectors. vec: (B, N, 3), masses: (N,)."""
+def remove_com(vec, masses, batch=None, n_graphs=None):
+    """Remove the mass-weighted mean from per-atom vectors.
+
+    Standard batched layout: vec (B, N, 3), masses (N,) or (B, N).
+    Pad-free flat layout: vec (M, 3) or (1, M, 3), masses (M,), batch (M,) in [0, G).
+    """
     m = masses.to(device=vec.device, dtype=vec.dtype)
+    if batch is not None:
+        squeezed = vec.ndim == 3 and vec.shape[0] == 1
+        v_flat = vec[0] if squeezed else vec
+        b_idx = batch.to(device=vec.device, dtype=torch.long)
+        g = int(b_idx.max().item()) + 1 if (n_graphs is None and b_idx.numel() > 0) else int(n_graphs or 0)
+        if g == 0:
+            return vec
+        m_sum = torch.zeros(g, dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m).clamp_min(1e-30)
+        p_sum = torch.zeros((g, 3), dtype=vec.dtype, device=vec.device).index_add_(0, b_idx, m[:, None] * v_flat)
+        out = v_flat - (p_sum / m_sum[:, None])[b_idx]
+        return out[None] if squeezed else out
+    if m.ndim == 2:
+        w = m / m.sum(dim=1, keepdim=True).clamp_min(1e-30)
+        return vec - torch.einsum("bn,bnd->bd", w, vec)[:, None, :]
     w = m / m.sum()
     return vec - torch.einsum("n,bnd->bd", w, vec)[:, None, :]
 
@@ -262,7 +280,7 @@ class EquiTraj(nn.Module):
                     raise ValueError("cached bond hops do not match n_atoms")
                 bh = self._chem_bond_hops.to(device=device).clamp_max(self.max_bond_hops)
             else:
-                bh = torch.zeros((n_atoms, n_atoms), dtype=torch.long, device=device)
+                raise ValueError("bonds required when max_bond_hops > 0 (pass bonds=[] for unbonded systems)")
         return q, ft, bh
 
     def _resolve_stride(self, stride_fs, b, dtype, device):

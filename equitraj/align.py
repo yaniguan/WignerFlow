@@ -589,9 +589,12 @@ def extract_rollout_transport_observables(positions: np.ndarray, velocities: np.
     box_mat = np.eye(3, dtype=np.float64) * float(box_length)
     x_unw = unwrap_positions(x_raw, box_mat)
     t_len = len(x_unw)
-    lags = np.arange(1, max(3, t_len // 2 + 1))
+    if t_len < 2:
+        lags = np.array([0, 1], dtype=np.int64)
+    else:
+        lags = np.arange(1, max(3, min(t_len, t_len // 2 + 2)))
     t_lags = lags * float(dt_fs)
-    t0_fit = float(t_lags[min(1, len(t_lags) - 1)])
+    t0_fit = float(t_lags[0]) if len(t_lags) <= 2 else float(t_lags[1])
     t1_fit = float(t_lags[-1])
 
     msd_cat = analysis.msd(x_unw[:, cat], lags)
@@ -737,6 +740,8 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
             dx_pred, v_pred = aligned.predict_with_grad(
                 ctx_x, ctx_v, types, box, masses, n_steps=sampling_steps, sampler="euler",
                 charges=charges if aligned.use_charges else None,
+                ff_types=win.get("ff_types") if aligned.n_ff_types > 0 else None,
+                bonds=win.get("bonds") if aligned.max_bond_hops > 0 else None,
             )
             x_next = ctx_x[:, -1] + dx_pred
             dx_true = target_x[None] - ctx_x[:, -1]
@@ -765,8 +770,9 @@ def posttrain_equitraj_transport(model: nn.Module, windows: list[dict], *, steps
             # Soft short-range steric overlap penalty (excluding self & bonded 1-2/1-3 pairs)
             dr = x_next[0, :, None, :] - x_next[0, None, :, :]
             if box is not None:
-                l_box = torch.diagonal(box[0])[None, None, :]
-                dr = dr - l_box * torch.round(dr / l_box)
+                from equitraj.neighbors import minimum_image as _min_img
+
+                dr = _min_img(dr, box[0].to(dr.dtype))
             dist = torch.sqrt((dr ** 2).sum(dim=-1) + 1e-8)
             pen = F.relu(r_overlap_a - dist.masked_fill(skip_mask, 10.0))
             loss_ov = loss_ov + (pen ** 2).mean()
@@ -842,7 +848,7 @@ def _pack_feature_tensor(records: list[dict], traj_obs: list[dict | None] | None
             chi_hop,
             box_l,
         ])
-    return torch.tensor(rows, dtype=torch.float32)
+    return torch.tensor(rows, dtype=torch.float32).reshape(len(rows), 16)
 
 
 class _SinglePhysicsHead(nn.Module):
@@ -927,13 +933,16 @@ class CALiSolTransportAligner(nn.Module):
         self.heads = nn.ModuleList([_SinglePhysicsHead(hidden=hidden) for _ in range(n_heads)])
 
     def forward_tensored(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if x.shape[0] == 0:
+            return x.new_zeros(0), x.new_zeros(0)
         preds = torch.stack([h(x) for h in self.heads], dim=0)  # (K, B)
         return preds.mean(dim=0), preds.std(dim=0, unbiased=False)
 
     @torch.no_grad()
     def predict_records(self, records: list[dict], traj_obs: list[dict | None] | None = None) -> dict:
         self.eval()
-        x = _pack_feature_tensor(records, traj_obs)
+        dev = next(self.parameters()).device
+        x = _pack_feature_tensor(records, traj_obs).to(dev)
         mean_s, std_s = self.forward_tensored(x)
         return {
             "sigma_pred_mS_cm": mean_s.cpu().numpy(),
