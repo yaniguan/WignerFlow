@@ -20,6 +20,8 @@ test = ["pytest>=7"]
 
 [project.scripts]
 wignerflow-pocket = "equitraj.cli:main"
+wignerflow-surrogate = "lab.surrogate_query:main"
+wignerflow-distill-plan = "lab.distill_edge:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -27,8 +29,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["equitraj", "equitraj.*"]
+include = ["equitraj", "equitraj.*", "lab", "lab.*"]
 namespaces = false
+
+[tool.setuptools.package-data]
+lab = ["configs/*.json", "fixtures/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

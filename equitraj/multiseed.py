@@ -68,14 +68,15 @@ def reference(ds, steps):
     c = np.mean([analysis.vacf(vv[:len(vv)//2*2], lag) for vv in v], axis=0)
     zero = first_zero(np.arange(lag)*dt, c / c[0])
     d = analysis.diffusion_coefficient(t_lag, np.mean([analysis.msd(xx, lags) for xx in x], axis=0), *fit)[1] if ds.periodic else None
-    return dict(x=x, v=v, T=float(np.mean([temperature(torch.from_numpy(vv[::10].copy()), ds.masses).mean().item() for vv in v])),
+    n_con = getattr(ds, "n_constraints", 0)
+    return dict(x=x, v=v, T=float(np.mean([temperature(torch.from_numpy(vv[::10].copy()), ds.masses, n_con).mean().item() for vv in v])),
                 lag=lag, lags=lags, fit=fit, zero=zero, D=d, r=r, g=np.mean(gs, axis=0), rmax=rmax)
 
 
 def physical_metrics(x, v, ds, box, ref):
     """Same second-half T/RDF/VACF and full-rollout MSD convention as evaluate.py."""
     half = len(x)//2
-    temp = temperature(torch.from_numpy(v[half:].copy()), ds.masses).mean().item()
+    temp = temperature(torch.from_numpy(v[half:].copy()), ds.masses, getattr(ds, "n_constraints", 0)).mean().item()
     idx = np.arange(len(ds.types))
     frames = x[half::max(1, len(x)//400)]
     r, g, _ = analysis.rdf(frames, np.tile(box, (len(frames), 1, 1)) if ds.periodic else None,

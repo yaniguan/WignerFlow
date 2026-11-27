@@ -26,7 +26,7 @@ import torch
 import yaml
 
 from equitraj.dataset import TrajWindows, compute_stats
-from equitraj.model import EquiTraj
+from equitraj.model import make_model
 from equitraj.prior import estimate_rmin
 from equitraj.profiling import GpuSampler, profile_training, rollout_speed, torch_profile, write_summary
 from equitraj.train import (accumulate_gradients, build_loss_options, micro_batch_size_for, noise_sigma_at,
@@ -103,10 +103,18 @@ def main():
     sampler = GpuSampler(os.path.join(out_dir, "gpu_samples.csv"), args.gpu_interval).start()
     t_start = time.time()
     try:
+        if cfg.get("kind") == "ff":
+            raise ValueError("profile_run.py profiles trajectory models (EquiTraj/PlainTraj), not EquiFF force-field configs")
         ck, k, mc, source = load_model(args, cfg)
-        m = args.m if args.m is not None else tc["unroll"][-1][1]
+        unroll_sched = tc.get("unroll", [[0, 1]])
+        m = args.m if args.m is not None else unroll_sched[-1][1]
         ds = TrajWindows(cfg["data_dir"], args.split, cfg["stride_steps"], k, m=m, start_every=tc.get("start_every", 1))
-        model = EquiTraj(n_types=len(ds.elements), k=k, stride_fs=ds.stride_fs, **mc)
+        mc = dict(mc)
+        if mc.get("n_ff_types") == "auto":
+            mc["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
+        model = make_model(n_types=len(ds.elements), k=k, stride_fs=ds.stride_fs, **mc)
+        if getattr(ds, "particle_metadata", None) is not None and hasattr(model, "set_chemistry"):
+            model.set_chemistry(charges=ds.charges, ff_types=ds.ff_types, bonds=ds.bonds, n_atoms=len(ds.types))
         if ck is not None:
             if list(ck["elements"]) != list(ds.elements):
                 raise ValueError(f"checkpoint elements {list(ck['elements'])} != dataset elements {ds.elements}")
