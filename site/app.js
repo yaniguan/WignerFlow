@@ -115,7 +115,14 @@
 
   async function fetchJSON(url, opts) {
     const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`${url} failed (${res.status})`);
+    if (!res.ok) {
+      let detail = `${url} failed (${res.status})`;
+      try {
+        const errObj = await res.json();
+        if (errObj && errObj.error) detail = errObj.error;
+      } catch { /* ignore non-JSON error body */ }
+      throw new Error(detail);
+    }
     return res.json();
   }
 
@@ -307,13 +314,15 @@
 
     const jsonEl = document.getElementById('cpu-api-json');
     if (jsonEl) {
-      const base = cpuState.liveSample || api.sample_response || {};
+      const snapKey = `${cpuState.atoms}_${cpuState.steps}_${cpuState.therm}`;
+      const base = cpuState.liveSample || (api.samples && api.samples[snapKey]) || api.sample_response || {};
+      const thermVal = cpuState.therm === '95' ? 95.0 : null;
       const shown = {
         ...base,
         n_atoms: cpuState.atoms,
-        thermostat_K: cpuState.therm === '95' ? 95.0 : null,
+        thermostat_K: thermVal,
         measured_bench_p50_ms: cur ? cur.wall_p50_ms : base.latency_ms,
-        model: { ...(base.model || {}), sampling_steps: cpuState.steps },
+        model: { ...(base.model || {}), sampling_steps: cpuState.steps, thermostat_K: thermVal },
       };
       jsonEl.textContent = JSON.stringify(shown, null, 2);
     }
@@ -689,7 +698,7 @@
         const cip = Number(r.cip);
         const agg = Number((Number(r.agg_i) + Number(r.agg_net)).toFixed(1));
         return `<tr>
-          <td><strong>#${r.rank}</strong></td>
+          <td><strong>${r.rank}</strong></td>
           <td>${r.formula}</td>
           <td class="teal"><strong>${Number(r.sigma_298).toFixed(2)}</strong> mS/cm</td>
           <td>${Number(r.sigma_253).toFixed(2)} mS/cm</td>
@@ -786,15 +795,17 @@
     const m = rep.metrics;
     const svgHost = document.getElementById('roll-temp-svg');
     const pts = rep.series.time_ps.map((t, i) => [t, rep.series.temperature_K[i]]);
+    const finiteT = (rep.series.temperature_K || []).filter(Number.isFinite);
+    const yTop = Math.max(450, m.T_target_K * 1.65, ...(finiteT.length ? [Math.max(...finiteT) * 1.1] : []));
     window.WignerCharts.renderPublicationSVG(svgHost, null, {
       title: 'Instantaneous kinetic temperature along trajectory',
       height: 310,
       xLabel: 'Simulated time (ps)',
       yLabel: 'Temperature (K)',
       xRange: [0, Math.max(0.05, rep.series.time_ps[rep.series.time_ps.length - 1] || 1)],
-      yRange: [0, Math.max(450, m.T_target_K * 1.65)],
+      yRange: [0, yTop],
       xTicks: [0, Number(((rep.series.time_ps[rep.series.time_ps.length - 1] || 1) * 0.5).toFixed(2)), Number((rep.series.time_ps[rep.series.time_ps.length - 1] || 1).toFixed(2))],
-      yTicks: [0, Math.round(m.T_target_K * 0.5), Math.round(m.T_target_K), Math.round(m.T_target_K * 1.5)],
+      yTicks: [0, Math.round(yTop * 0.33), Math.round(yTop * 0.67), Math.round(yTop * 0.95)],
       padR: 72,
       hline: { y: m.T_target_K, color: P.blue, dash: '5 4' },
       series: [{ name: 'T(t)', shortName: 'T', color: P.accent, highlight: true, points: pts, endLabel: `${m.T_mean_K} K` }],
@@ -964,6 +975,8 @@
           });
         }
         renderCpuApiSandbox();
+      } catch (err) {
+        console.warn('CPU API request error:', err);
       } finally {
         btn.textContent = 'Run 1-Step Predict';
       }
@@ -992,6 +1005,8 @@
         } else {
           renderLabSandbox();
         }
+      } catch (err) {
+        console.warn('Surrogate query error:', err);
       } finally {
         btn.textContent = 'Execute Query';
       }
@@ -1043,7 +1058,7 @@
       document.getElementById('lbl-eg').textContent = `${g}°`;
       document.getElementById('comp-angles').value = `${a}, ${b}, ${g}`;
       if (compViewer) {
-        compViewer.rotY = -0.55 + ((a - 37) * Math.PI) / 180;
+        compViewer.rotY = -0.55 + ((a - 37) * Math.PI) / 180 + ((g - 118) * Math.PI) / 360;
         compViewer.rotX = Math.max(-1.4, Math.min(1.4, 0.34 + ((b - 64) * Math.PI) / 360));
         compViewer.render();
       }
@@ -1062,16 +1077,25 @@
       LIVE_API = false;
       badge.classList.add('static');
       badgeTxt.textContent = 'Interactive WebGL2 · GitHub Pages Edition';
+      ['roll-frames', 'roll-temp', 'bind-replicas'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.disabled = true;
+          el.title = 'Live parameter customization requires running python scripts/wignerflow_studio.py locally.';
+        }
+      });
     }
 
     const compSnaps = defaults.compliance_snapshots || {};
     const rollSnaps = defaults.rollout_snapshots || { aspirin: defaults.rollout_aspirin };
 
     function pickStaticCompliance(targetId, faultId, precision) {
+      const isArgon = targetId.startsWith('argon_');
+      const familyFallback = isArgon ? `argon_flow_v1__${faultId}` : `aspirin_hetero_o3__${faultId}`;
       return (
         compSnaps[`${targetId}__${faultId}__${precision}`] ||
         compSnaps[`${targetId}__${faultId}`] ||
-        compSnaps[`aspirin_hetero_o3__${faultId}`] ||
+        compSnaps[familyFallback] ||
         compSnaps[`${targetId}__none`] ||
         compSnaps['aspirin_hetero_o3__none__float64']
       );
@@ -1114,6 +1138,8 @@
         } else {
           renderComplianceReport(pickStaticCompliance(payload.target_id, payload.fault, payload.precision));
         }
+      } catch (err) {
+        console.warn('Compliance audit error:', err);
       } finally {
         btn.textContent = 'Run Audit';
       }
@@ -1121,6 +1147,7 @@
     document.getElementById('btn-run-compliance').addEventListener('click', triggerCompliance);
     fltSel.addEventListener('change', triggerCompliance);
     tgtSel.addEventListener('change', triggerCompliance);
+    document.getElementById('comp-precision')?.addEventListener('change', triggerCompliance);
 
     document.getElementById('roll-preset').addEventListener('change', e => {
       const isCustom = e.target.value === 'custom';
@@ -1149,8 +1176,16 @@
             }),
           });
           renderRolloutReport(rep);
+          const note = document.getElementById('roll-custom-note');
+          if (note && preset === 'custom') note.style.display = 'none';
         } else {
           renderRolloutReport(rollSnaps[preset === 'custom' ? 'ethanol' : preset] || rollSnaps.aspirin);
+        }
+      } catch (err) {
+        const note = document.getElementById('roll-custom-note');
+        if (note) {
+          note.style.display = 'block';
+          note.textContent = `Rollout error: ${err.message || err}`;
         }
       } finally {
         btn.textContent = 'Simulate';
@@ -1198,6 +1233,8 @@
         } else {
           renderBindingTriage(defaults.binding_snapshots[preset] || defaults.binding_snapshots.aspirin_cox_stable);
         }
+      } catch (err) {
+        document.getElementById('bind-receipt').textContent = `Error: ${err.message || err}`;
       } finally {
         btn.textContent = 'Screen Pose';
       }
@@ -1218,6 +1255,8 @@
         } else {
           renderElectrolyteTriage(defaults.electrolyte_snapshots[preset] || defaults.electrolyte_snapshots.li_ec_fec_additive);
         }
+      } catch (err) {
+        document.getElementById('elec-receipt').textContent = `Error: ${err.message || err}`;
       } finally {
         btn.textContent = 'Run Speciation';
       }

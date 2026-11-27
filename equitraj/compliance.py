@@ -278,8 +278,14 @@ def _load_audit_system(target_id: str, precision: str = "float32", seed: int = 0
 
         pos0 = torch.as_tensor(pdb["positions"] - pdb["positions"].mean(axis=0), dtype=dtype)
         gen = torch.Generator().manual_seed(seed + 17)
-        v_std_th = torch.sqrt((KB * 300.0 / AMU_A2_PER_FS2_TO_KJ_PER_MOL) / masses)
-        v_last = remove_com((torch.randn(pos0.shape, generator=gen, dtype=dtype) * v_std_th[:, None])[None], masses)[0]
+        masses64 = masses.double()
+        v_std_th = torch.sqrt((KB * 300.0 / AMU_A2_PER_FS2_TO_KJ_PER_MOL) / masses64)
+        v_raw64 = remove_com((torch.randn(pos0.shape, generator=gen, dtype=torch.float64) * v_std_th[:, None])[None], masses64)[0]
+        ke_cur = 0.5 * float((masses64[:, None] * (v_raw64 ** 2)).sum().item()) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
+        ke_target = 0.5 * max(1, 3 * len(masses64) - 3) * KB * 300.0
+        if ke_cur > 0:
+            v_raw64 = v_raw64 * math.sqrt(ke_target / ke_cur)
+        v_last = v_raw64.to(dtype=dtype)
         dt = 0.5
         pos_hist = torch.stack([pos0 - 2.0 * dt * v_last, pos0 - 1.0 * dt * v_last, pos0], dim=0)[None]
         vel_hist = torch.stack([v_last, v_last, v_last], dim=0)[None]
@@ -500,8 +506,11 @@ def _run_compliance_audit(
     g4_status = "PASS" if err_sn <= g4_pass else ("WARN" if err_sn <= g4_warn else "FAIL")
 
     # ------------------------------------------------------------------ G5: PBC Lattice Wrap & C^2 Cutoff
+    if precision not in ("float32", "float64"):
+        raise ValueError(f"Unsupported precision {precision!r}; choose 'float32' or 'float64'")
     pbc_box = box if box is not None else torch.diag(torch.tensor([20.0, 20.0, 20.0], dtype=dtype))[None]
-    l_min = float(torch.diagonal(pbc_box[0]).abs().min().item())
+    inv_norms = torch.linalg.norm(torch.linalg.inv(pbc_box[0].double()), dim=0)
+    l_min = float((1.0 / inv_norms.max().clamp_min(1e-12)).item())
     nyquist_ratio = l_min / float(model.cutoff)
     int_shifts = torch.randint(-2, 3, (1, 1, n_alg, 3), generator=perm_gen, dtype=dtype)
     lattice_disp = int_shifts @ pbc_box[0]
@@ -532,9 +541,14 @@ def _run_compliance_audit(
     masses_r = ctx["masses_full"].float()
 
     if fault == "F8_steric_clash_no_prior":
-        # Place atom 1 at a severe 0.52 * 2*r_vdW overlap relative to atom 0
-        r_vdw0 = _VDW_RADIUS_A.get(ctx["elements_full"][0], 1.70)
-        pos_r0[0, -1, 1] = pos_r0[0, -1, 0] + torch.tensor([1.04 * r_vdw0, 0.0, 0.0])
+        # Pick the first non-bonded partner j relative to atom 0 so PoseBusters sees a real steric clash
+        excl_set = ctx.get("excluded_pairs") or set()
+        clash_j = next(
+            (j for j in range(1, len(types_r)) if (0, j) not in excl_set and (j, 0) not in excl_set),
+            min(1, len(types_r) - 1),
+        )
+        r_vdw_sum = _VDW_RADIUS_A.get(ctx["elements_full"][0], 1.70) + _VDW_RADIUS_A.get(ctx["elements_full"][clash_j], 1.70)
+        pos_r0[0, -1, clash_j] = pos_r0[0, -1, 0] + torch.tensor([0.52 * r_vdw_sum, 0.0, 0.0])
     elif fault == "F10_ood_bond_stretch":
         # Severe local strain / compression spike on atom 0 to trigger OOD ODE curvature & flow spread
         pos_r0[0, -1, 0] = pos_r0[0, -1, 1] + torch.tensor([1.35, 0.15, -0.10])
@@ -557,17 +571,34 @@ def _run_compliance_audit(
         x_traj = torch.stack(xs_list, dim=0)[:, 0].numpy()
         v_traj = torch.stack(vs_list, dim=0)[:, 0].numpy()
         crashed_step = -1
+        crash_reason = None
     else:
         fast_pred = FastRollout(model_roll, sampling_steps=sampling_steps, neighbor="verlet") if box_r0 is not None else None
+        excl_mask = None
+        if ctx.get("excluded_pairs"):
+            n_full = len(types_r)
+            excl_mask = torch.zeros((n_full, n_full), dtype=torch.bool)
+            for i_ex, j_ex in ctx["excluded_pairs"]:
+                if 0 <= i_ex < n_full and 0 <= j_ex < n_full:
+                    excl_mask[i_ex, j_ex] = True
+                    excl_mask[j_ex, i_ex] = True
         out = rollout(
             model_roll, pos_r0, vel_r0, types_r, box_r0, masses_r, r_steps,
-            sampling_steps=sampling_steps, t_max=5.0 * ctx["t_ref_K"], predictor=fast_pred,
+            sampling_steps=sampling_steps, check_every=1, t_max=5.0 * ctx["t_ref_K"],
+            predictor=fast_pred, excluded_pairs=excl_mask,
         )
         crashed_step = int(out["crash_step"][0])
-        n_ok = r_steps if crashed_step < 0 else max(1, crashed_step - 1)
-        x_traj = out["positions"][:n_ok, 0].numpy()
-        v_traj = out["velocities"][:n_ok, 0].numpy()
+        crash_reason = out["diagnostics"]["crash_reason"][0] if crashed_step >= 0 else None
+        n_ok = r_steps if crashed_step < 0 else max(0, crashed_step - 1)
+        if n_ok > 0:
+            x_traj = out["positions"][:n_ok, 0].numpy()
+            v_traj = out["velocities"][:n_ok, 0].numpy()
+        else:
+            x_traj = pos_r0[0, -1:].numpy()
+            v_traj = vel_r0[0, -1:].numpy()
         if not (np.isfinite(x_traj).all() and np.isfinite(v_traj).all()):
+            crashed_step = 1 if crashed_step < 0 else crashed_step
+            crash_reason = crash_reason or "nan"
             x_traj = pos_r0[0, -1:].numpy()
             v_traj = vel_r0[0, -1:].numpy()
 
@@ -683,13 +714,16 @@ def _run_compliance_audit(
     else:
         max_bond_dev = 0.0
 
-    g8_status = (
-        "PASS" if (min_vdw >= 0.72 and max_bond_dev <= 0.35)
-        else ("WARN" if (min_vdw >= 0.65 and max_bond_dev <= 0.50) else "FAIL")
-    )
+    if crashed_step >= 0 and crash_reason in ("nan", "overlap", "bond"):
+        g8_status = "FAIL"
+    else:
+        g8_status = (
+            "PASS" if (min_vdw >= 0.72 and max_bond_dev <= 0.35)
+            else ("WARN" if (min_vdw >= 0.65 and max_bond_dev <= 0.50) else "FAIL")
+        )
 
     # ------------------------------------------------------------------ G9: Ensemble Structural & Thermal Fidelity
-    survival_frac = 1.0 if crashed_step < 0 else (crashed_step / float(r_steps))
+    survival_frac = 1.0 if crashed_step < 0 else (max(0, crashed_step - 1) / float(r_steps))
     t_rel_err = abs(t_all_mean - ctx["t_ref_K"]) / max(ctx["t_ref_K"], 1e-6)
     rdf_l1 = None
     r_grid, g_curve, g_ref_curve = [], [], []
@@ -707,10 +741,13 @@ def _run_compliance_audit(
             rdf_l1 = float(analysis.rdf_l1(r_arr, g_arr, g_ref))
             g_ref_curve = g_ref.round(4).tolist()
 
-    g9_status = (
-        "PASS" if (survival_frac >= 1.0 and t_rel_err <= 0.30 and (rdf_l1 is None or rdf_l1 <= 0.90))
-        else ("WARN" if (survival_frac >= 0.85 and t_rel_err <= 0.50) else "FAIL")
-    )
+    if crashed_step >= 0:
+        g9_status = "FAIL"
+    else:
+        g9_status = (
+            "PASS" if (survival_frac >= 1.0 and t_rel_err <= 0.30 and (rdf_l1 is None or rdf_l1 <= 0.90))
+            else ("WARN" if (survival_frac >= 0.85 and t_rel_err <= 0.50) else "FAIL")
+        )
 
     # ------------------------------------------------------------------ G10: Dual Epistemic & Flow Straightness
     cond_f, graph_f = model_roll.encode(pos_r0, vel_r0, types_r, box_r0)
@@ -761,8 +798,9 @@ def _run_compliance_audit(
     if src_e.numel() > 0:
         dr_e = stack_x[:, dst_e] - stack_x[:, src_e]
         if box_r0 is not None:
-            l_diag = torch.diagonal(box_r0[0])[None, None, :]
-            dr_e = dr_e - l_diag * torch.round(dr_e / l_diag)
+            from equitraj.neighbors import minimum_image as _min_img
+
+            dr_e = _min_img(dr_e, box_r0[0].to(dr_e.dtype))
         flow_spread_a = float(torch.linalg.norm(dr_e, dim=-1).std(dim=0, unbiased=False).mean().item())
     else:
         flow_spread_a = 0.0

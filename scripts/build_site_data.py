@@ -496,16 +496,22 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     comp_snaps: dict[str, dict] = {}
-    comp_snaps["aspirin_hetero_o3__none__float64"] = _slim_compliance(
-        run_compliance_audit(
-            target_id="aspirin_hetero_o3", fault="none", precision="float64", euler_deg=(37.0, 64.0, 118.0), rollout_steps=12
+    for prec in ("float32", "float64"):
+        comp_snaps[f"aspirin_hetero_o3__none__{prec}"] = _slim_compliance(
+            run_compliance_audit(
+                target_id="aspirin_hetero_o3", fault="none", precision=prec, euler_deg=(37.0, 64.0, 118.0), rollout_steps=12
+            )
         )
-    )
     for f in FAULT_CATALOG:
         fid = f["id"]
         comp_snaps[f"aspirin_hetero_o3__{fid}"] = _slim_compliance(
             run_compliance_audit(
                 target_id="aspirin_hetero_o3", fault=fid, precision="float32", euler_deg=(37.0, 64.0, 118.0), rollout_steps=12
+            )
+        )
+        comp_snaps[f"argon_flow_v1__{fid}"] = _slim_compliance(
+            run_compliance_audit(
+                target_id="argon_flow_v1", fault=fid, precision="float32", euler_deg=(37.0, 64.0, 118.0), rollout_steps=12
             )
         )
     for tid in ("argon_flow_v1", "argon_flow_v0", "aspirin_chiral_so3"):

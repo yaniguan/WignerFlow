@@ -85,6 +85,8 @@ _ETHANOL_POS_A = np.array([
 def parse_xyz(xyz_path: str | Path) -> dict:
     """Parse a standard single-frame `.xyz` coordinate file (Å) into elements, masses, and positions."""
     lines = [ln.rstrip() for ln in Path(xyz_path).read_text(encoding="utf-8").splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
     non_empty = [ln for ln in lines if ln.strip()]
     if len(non_empty) < 3:
         raise ValueError(f"XYZ file {xyz_path} has too few lines")
@@ -92,6 +94,8 @@ def parse_xyz(xyz_path: str | Path) -> dict:
         n_atoms = int(lines[0].strip().split()[0])
     except ValueError as exc:
         raise ValueError(f"First line of XYZ file {xyz_path} must be atom count") from exc
+    if n_atoms < 2:
+        raise ValueError(f"XYZ file {xyz_path} must contain at least 2 atoms, got {n_atoms}")
     if len(lines) < 2 + n_atoms:
         raise ValueError(f"XYZ file {xyz_path} declares {n_atoms} atoms but has fewer coordinate lines")
 
@@ -223,7 +227,9 @@ def run_pocket_rollout(
         title = f"Custom PDB Rollout ({Path(pdb_path).name})"
         pos0, elements, masses = pdb["positions"], pdb["elements"], pdb["masses"]
         box_l = float(pdb["box"][0, 0]) if pdb["box"] is not None else None
-        if xml_path is not None and Path(xml_path).exists():
+        if xml_path is not None:
+            if not Path(xml_path).is_file():
+                raise FileNotFoundError(f"OpenMM XML file not found: {xml_path}")
             ff = parse_openmm_xml(xml_path)
             masses = ff["masses"]
             charges, sigma_a, eps_kj = ff["charges"], ff["sigma_a"], ff["eps_kj"]
@@ -261,15 +267,20 @@ def run_pocket_rollout(
         else:
             raise ValueError(f"Unknown rollout preset {preset!r}; choose from {ROLLOUT_PRESETS}")
 
+    init_vdw = posebusters_vdw_audit(pos0, elements, excluded_pairs=topo["excluded_pairs"], box_length=box_l)
+    relax_steps = 90 if (box_l is not None or init_vdw["min_vdw_ratio"] < 0.78) else 0
+
     engine = PocketMicroEngine(
         masses, charges, sigma_a, eps_kj,
         bond_pairs=topo["bond_pairs"], bond_r0=topo["bond_r0"], bond_k=topo["bond_k"],
         angle_triplets=topo["angle_triplets"], angle_theta0=topo["angle_theta0"], angle_k=topo["angle_k"],
-        excluded_pairs=topo["excluded_pairs"], box_length=box_l, dielectric=1.5 if box_l is None else 2.0,
+        excluded_pairs=topo["excluded_pairs"], exceptions_14=topo.get("exceptions_14"),
+        box_length=box_l, dielectric=1.5 if box_l is None else 2.0,
     )
     traj_x, traj_v = engine.run(
         pos0, n_frames=n_frames, substeps=substeps, dt_fs=dt_fs,
-        temperature_k=temperature_k, friction_per_ps=friction_per_ps, seed=seed,
+        temperature_k=temperature_k, friction_per_ps=friction_per_ps,
+        seed=seed, relax_steps=relax_steps,
     )
     wall_s = time.perf_counter() - t0
 
@@ -553,6 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cat.add_argument("--domain", default="all", choices=("all", "binding", "electrolyte", "checkpoint"),
                        help="Filter datasets by application domain")
     p_cat.add_argument("--json", action="store_true", help="Emit catalog as JSON")
+    p_cat.add_argument("--out", default=None, help="Optional file path to save catalog text or JSON")
 
     return parser
 
@@ -634,12 +646,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.domain == "all" or d["domain"] == args.domain
         ]
         if args.json:
-            print(json.dumps(items, indent=2))
+            text = json.dumps(items, indent=2)
         else:
+            lines = []
             for item in items:
-                print(f"[{item['domain'].upper():<11s}] {item['id']} — {item['title']}")
-                print(f"              URL   : {item['url']}")
-                print(f"              Import: {item['import_hint']}")
+                lines.append(f"[{item['domain'].upper():<11s}] {item['id']} — {item['title']}")
+                lines.append(f"              URL   : {item['url']}")
+                lines.append(f"              Import: {item['import_hint']}")
+            text = "\n".join(lines)
+        print(text)
+        if args.out:
+            out_file = Path(args.out)
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(text + "\n", encoding="utf-8")
         return 0
 
     parser.print_help()

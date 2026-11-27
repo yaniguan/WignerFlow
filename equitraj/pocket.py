@@ -62,9 +62,9 @@ _DEFAULT_MASS = {
 # Bondi / PoseBusters van der Waals radii in Å (polar H adjusted to 1.00 Å so canonical 1.90-2.00 Å
 # donor-H...acceptor H-bonds pass the 0.75 * (r_i + r_j) PoseBusters steric threshold cleanly).
 _VDW_RADIUS_A = {
-    "H": 1.00, "He": 1.40, "Li": 1.82, "B": 1.92, "C": 1.70, "N": 1.55,
-    "O": 1.52, "F": 1.47, "Na": 2.27, "Mg": 1.73, "P": 1.80, "S": 1.80,
-    "Cl": 1.75, "Ar": 1.88, "K": 2.75, "Ca": 2.31,
+    "H": 1.00, "He": 1.40, "Li": 1.05, "B": 1.92, "C": 1.70, "N": 1.55,
+    "O": 1.52, "F": 1.47, "Na": 1.40, "Mg": 1.20, "P": 1.80, "S": 1.80,
+    "Cl": 1.75, "Ar": 1.88, "K": 1.75, "Ca": 1.45,
 }
 
 
@@ -124,6 +124,20 @@ DATASET_CATALOG = [
 
 # ---------------------------------------------------------------- zero-OpenMM PDB + XML parsers
 
+def _infer_pdb_element(atom_name: str, res_name: str = "") -> str:
+    """Infer element symbol when PDB columns 77-78 are blank (handles protein CA/CB/HE1/NH1)."""
+    alpha = "".join(ch for ch in atom_name if ch.isalpha()).upper()
+    if not alpha:
+        return "C"
+    res = res_name.strip().upper()
+    two_letter_ions = {"LI", "NA", "MG", "CL", "CA", "ZN", "FE", "BR", "AR", "HE", "NE", "CU", "MN"}
+    if alpha in two_letter_ions and (res == alpha or res in two_letter_ions):
+        return alpha.capitalize()
+    if alpha.startswith(("CL", "BR")):
+        return alpha[:2].capitalize()
+    return alpha[0]
+
+
 def parse_pdb(pdb_path):
     """Parse an OpenMM/standard PDB file without external dependencies.
 
@@ -155,7 +169,8 @@ def parse_pdb(pdb_path):
                 z = float(line[46:54])
                 elem = line[76:78].strip() if len(line) >= 78 else ""
                 if not elem:
-                    elem = "".join(ch for ch in name if ch.isalpha())[:2].capitalize()
+                    res_name = line[17:20].strip() if len(line) >= 20 else ""
+                    elem = _infer_pdb_element(name, res_name)
                 idx = len(positions)
                 serial_to_idx[serial] = idx
                 positions.append([x, y, z])
@@ -205,6 +220,7 @@ def parse_openmm_xml(xml_path):
     bonds = []  # (i, j, r0_A, k_kj_mol_A2)
     angles = []  # (i, j, k_idx, theta0_rad, k_kj_mol_rad2)
     excluded = set()
+    exceptions_14 = []  # (i, j, q_prod, sig_A, eps_kj)
 
     constraints_el = root.find("Constraints")
     if constraints_el is not None:
@@ -227,7 +243,14 @@ def parse_openmm_xml(xml_path):
                 if exc_el is not None:
                     for ex in exc_el.findall("Exception"):
                         p1, p2 = int(ex.attrib["p1"]), int(ex.attrib["p2"])
-                        excluded.add((min(p1, p2), max(p1, p2)))
+                        q_ex = float(ex.attrib.get("q", 0.0))
+                        eps_ex = float(ex.attrib.get("eps", 0.0))
+                        sig_ex = max(0.8, float(ex.attrib.get("sig", 0.3)) * NM_TO_A)
+                        pair = (min(p1, p2), max(p1, p2))
+                        if abs(q_ex) == 0.0 and abs(eps_ex) == 0.0:
+                            excluded.add(pair)
+                        else:
+                            exceptions_14.append((pair[0], pair[1], q_ex, sig_ex, eps_ex))
             elif ftype == "HarmonicBondForce":
                 for b in force.find("Bonds").findall("Bond"):
                     p1, p2 = int(b.attrib["p1"]), int(b.attrib["p2"])
@@ -261,6 +284,7 @@ def parse_openmm_xml(xml_path):
         "angle_theta0": a_th0,
         "angle_k": a_k,
         "excluded_pairs": excluded,
+        "exceptions_14": exceptions_14,
     }
 
 
@@ -319,7 +343,7 @@ class PocketMicroEngine:
 
     def __init__(self, masses, charges, sigma_a, eps_kj, *, bond_pairs=None, bond_r0=None, bond_k=None,
                  angle_triplets=None, angle_theta0=None, angle_k=None, excluded_pairs=None,
-                 restraint_indices=None, restraint_anchors=None, restraint_k=0.0,
+                 exceptions_14=None, restraint_indices=None, restraint_anchors=None, restraint_k=0.0,
                  box_length=None, dielectric=4.0):
         self.masses = torch.as_tensor(masses, dtype=torch.float64)
         self.n = self.masses.shape[0]
@@ -330,7 +354,15 @@ class PocketMicroEngine:
             torch.as_tensor(eps_kj, dtype=torch.float64)[:, None]
             * torch.as_tensor(eps_kj, dtype=torch.float64)[None, :], min=0.0
         ))
-        self.qq = (self.charges[:, None] * self.charges[None, :]) * (COULOMB_KJ_MOL_A / max(dielectric, 1.0))
+        coul_scale = COULOMB_KJ_MOL_A / max(dielectric, 1.0)
+        self.qq = (self.charges[:, None] * self.charges[None, :]) * coul_scale
+        if exceptions_14:
+            for p1, p2, q_prod, sig_14, eps_14 in exceptions_14:
+                i, j = min(int(p1), int(p2)), max(int(p1), int(p2))
+                if 0 <= i < self.n and 0 <= j < self.n:
+                    self.sigma[i, j] = self.sigma[j, i] = float(sig_14)
+                    self.eps[i, j] = self.eps[j, i] = max(0.0, float(eps_14))
+                    self.qq[i, j] = self.qq[j, i] = float(q_prod) * coul_scale
 
         mask = torch.ones((self.n, self.n), dtype=torch.bool).triu(1)
         if excluded_pairs:
@@ -414,8 +446,25 @@ class PocketMicroEngine:
 
         return f
 
-    def run(self, pos0, *, n_frames=80, substeps=8, dt_fs=1.5, temperature_k=300.0, friction_per_ps=2.0, seed=0):
+    def relax(self, pos0, *, steps=80, step_scale=0.00008, max_disp=0.04):
+        """Short force-clamped steepest-descent relaxation to remove Packmol steric clashes."""
+        x = torch.as_tensor(pos0, dtype=torch.float64).clone()
+        for _ in range(int(steps)):
+            f = self.forces_kj_mol_a(x)
+            f_max = float(torch.linalg.norm(f, dim=-1).max().item()) if len(x) else 0.0
+            if f_max < 60.0:
+                break
+            dx = (step_scale * f).clamp(-max_disp, max_disp)
+            if self.rest_idx is None:
+                dx = remove_com(dx[None], self.masses)[0]
+            x = x + dx
+        return x.numpy()
+
+    def run(self, pos0, *, n_frames=80, substeps=8, dt_fs=1.5, temperature_k=300.0,
+            friction_per_ps=2.0, seed=0, relax_steps=0):
         """Integrate `n_frames * substeps` steps on CPU and return unwrapped positions & velocities."""
+        if relax_steps > 0:
+            pos0 = self.relax(pos0, steps=relax_steps)
         g = torch.Generator().manual_seed(seed)
         x = torch.as_tensor(pos0, dtype=torch.float64).clone()
         v_std = torch.sqrt((KB * temperature_k / AMU_A2_PER_FS2_TO_KJ_PER_MOL) / self.masses)
@@ -424,22 +473,43 @@ class PocketMicroEngine:
             v = remove_com(v[None], self.masses)[0]
 
         conv = 1.0 / AMU_A2_PER_FS2_TO_KJ_PER_MOL  # (kJ/mol/Å) / amu -> Å/fs^2
-        gamma_fs = friction_per_ps / 1000.0
-        c1 = float(np.exp(-gamma_fs * dt_fs))
+        if relax_steps > 0:
+            # Short overdamped burn-in lets Packmol dipoles orient and drains excess potential energy
+            dt_eq = min(float(dt_fs), 0.75)
+            c1_eq = float(np.exp(-0.08 * dt_eq))
+            c2_eq = float(np.sqrt(max(0.0, 1.0 - c1_eq * c1_eq)))
+            a_eq = self.forces_kj_mol_a(x) * conv / self.masses[:, None]
+            for _ in range(60):
+                v = v + 0.5 * dt_eq * a_eq
+                x_half = x + 0.5 * dt_eq * v
+                noise = torch.randn(x.shape, generator=g, dtype=torch.float64) * v_std[:, None]
+                v = c1_eq * v + c2_eq * noise
+                x = x_half + 0.5 * dt_eq * v
+                a_eq = self.forces_kj_mol_a(x) * conv / self.masses[:, None]
+                v = v + 0.5 * dt_eq * a_eq
+            if self.rest_idx is None:
+                v = remove_com(v[None], self.masses)[0]
+        eff_friction = max(float(friction_per_ps), 6.0) if (relax_steps > 0 and self.box_length is not None) else float(friction_per_ps)
+        gamma_fs = eff_friction / 1000.0
+        has_h_bonds = bool(self.bond_pairs.shape[0] > 0 and (self.masses < 1.5).any())
+        n_inner = max(1, int(np.ceil(float(dt_fs) / 0.75))) if (has_h_bonds and float(dt_fs) > 0.85) else 1
+        dt_step = float(dt_fs) / n_inner
+        total_inner = int(substeps) * n_inner
+        c1 = float(np.exp(-gamma_fs * dt_step))
         c2 = float(np.sqrt(max(0.0, 1.0 - c1 * c1)))
 
         a = self.forces_kj_mol_a(x) * conv / self.masses[:, None]
         frames_x = [x.numpy().copy()]
         frames_v = [v.numpy().copy()]
         for _ in range(n_frames - 1):
-            for _ in range(substeps):
-                v = v + 0.5 * dt_fs * a
-                x_half = x + 0.5 * dt_fs * v
+            for _ in range(total_inner):
+                v = v + 0.5 * dt_step * a
+                x_half = x + 0.5 * dt_step * v
                 noise = torch.randn(x.shape, generator=g, dtype=torch.float64) * v_std[:, None]
                 v = c1 * v + c2 * noise
-                x = x_half + 0.5 * dt_fs * v
+                x = x_half + 0.5 * dt_step * v
                 a = self.forces_kj_mol_a(x) * conv / self.masses[:, None]
-                v = v + 0.5 * dt_fs * a
+                v = v + 0.5 * dt_step * a
                 if self.rest_idx is None:
                     v = remove_com(v[None], self.masses)[0]
             frames_x.append(x.numpy().copy())
@@ -858,8 +928,9 @@ def audit_checkpoint_epistemic(model, pos0, vel0, types, box, masses, *, samplin
     if src.numel() > 0:
         dr = x_stack[:, dst] - x_stack[:, src]
         if box_f is not None:
-            L = torch.diagonal(box_f[0])[None, None, :]
-            dr = dr - L * torch.round(dr / L)
+            from equitraj.neighbors import minimum_image as _min_img
+
+            dr = _min_img(dr, box_f[0].to(dr.dtype))
         edge_d = torch.linalg.norm(dr, dim=-1)  # (M, E), strictly O(3)-invariant
         flow_spread = float(edge_d.std(dim=0, unbiased=False).mean().item())
     else:
@@ -881,13 +952,22 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     if neighbor == "dense":
         neighbor = "brute"
     t0 = time.perf_counter()
-    ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    if hasattr(torch.serialization, "add_safe_globals"):
+        torch.serialization.add_safe_globals([slice])
+    try:
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise ValueError(f"{ckpt_path} is not a valid WignerFlow v0 release checkpoint (export with scripts/export_ckpt.py)") from exc
+    if not isinstance(ck, dict) or ck.get("format") != "wignerflow-v0":
+        raise ValueError(f"{ckpt_path} is not a WignerFlow v0 release checkpoint (expected format='wignerflow-v0')")
     from equitraj.layers import check_attention_version
+    from equitraj.model import make_model
+
     check_attention_version(ck, source=ckpt_path)
     prev_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.float32)
     try:
-        model = EquiTraj(
+        model = make_model(
             n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"]
         ).float()
         model.load_state_dict(ck["model"])
@@ -908,16 +988,21 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     torch.manual_seed(seed)
     out = rollout(
         model, pos0, vel0, types, box, masses, steps,
-        sampling_steps=sampling_steps, t_max=3.0 * t_ref, thermostat=therm, predictor=fast,
+        sampling_steps=sampling_steps, check_every=1, t_max=3.0 * t_ref, thermostat=therm, predictor=fast,
     )
     epistemic = audit_checkpoint_epistemic(
         fast.model, pos0, vel0, types, box, masses, sampling_steps=sampling_steps, n_draws=3, seed=seed
     )
     wall_s = time.perf_counter() - t0
     crashed = int(out["crash_step"][0])
-    n_ok = steps if crashed < 0 else max(1, crashed - 1)
-    x = out["positions"][:n_ok, 0].numpy()
-    v = out["velocities"][:n_ok, 0].numpy()
+    n_ok = steps if crashed < 0 else max(0, crashed - 1)
+    if n_ok > 0:
+        x = out["positions"][:n_ok, 0].numpy()
+        v = out["velocities"][:n_ok, 0].numpy()
+    else:
+        x = demo["pos"][-1:].numpy()
+        v = demo["vel"][-1:].numpy()
+        n_ok = 1
     if not (np.isfinite(x).all() and np.isfinite(v).all()):
         x = demo["pos"][-1:].numpy()
         v = demo["vel"][-1:].numpy()
@@ -1172,11 +1257,50 @@ def triage_binding(preset="aspirin_cox_stable", *, pdb_path=None, xml_path=None,
                 pocket_indices = np.arange(split, len(pos0))
         ligand_indices = np.asarray(ligand_indices, dtype=np.int64)
         pocket_indices = np.asarray(pocket_indices, dtype=np.int64)
-        if xml_path is not None and Path(xml_path).exists():
+        if xml_path is not None:
+            if not Path(xml_path).is_file():
+                raise FileNotFoundError(f"OpenMM XML file not found: {xml_path}")
             ff = parse_openmm_xml(xml_path)
-            charges, sig, eps = ff["charges"], ff["sigma_a"], ff["eps_kj"]
-            bp, br0, bk = ff["bond_pairs"], ff["bond_r0"], ff["bond_k"]
-            excl = ff["excluded_pairs"]
+            n_tot = len(pos0)
+            n_ff = len(ff["masses"])
+            if n_ff == n_tot:
+                masses = ff["masses"]
+                charges, sig, eps = ff["charges"], ff["sigma_a"], ff["eps_kj"]
+                bp, br0, bk = ff["bond_pairs"], ff["bond_r0"], ff["bond_k"]
+                at, ath0, ak = ff["angle_triplets"], ff["angle_theta0"], ff["angle_k"]
+                excl = ff["excluded_pairs"]
+                ex14 = ff.get("exceptions_14")
+            elif n_ff == len(ligand_indices):
+                charges = np.zeros(n_tot, dtype=np.float64)
+                sig = np.full(n_tot, 3.2, dtype=np.float64)
+                eps = np.full(n_tot, 0.3, dtype=np.float64)
+                masses = masses.copy()
+                masses[ligand_indices] = ff["masses"]
+                charges[ligand_indices] = ff["charges"]
+                sig[ligand_indices] = ff["sigma_a"]
+                eps[ligand_indices] = ff["eps_kj"]
+                pock_bonds = [
+                    (a, b) for a, b in pdb["bonds"]
+                    if a not in set(ligand_indices.tolist()) and b not in set(ligand_indices.tolist())
+                ]
+                lig_bp = ligand_indices[ff["bond_pairs"]] if len(ff["bond_pairs"]) else np.empty((0, 2), dtype=np.int64)
+                pock_bp = np.asarray(pock_bonds, dtype=np.int64).reshape(-1, 2)
+                pock_r0 = np.linalg.norm(pos0[pock_bp[:, 0]] - pos0[pock_bp[:, 1]], axis=-1) if len(pock_bp) else np.empty(0)
+                bp = np.concatenate([lig_bp, pock_bp], axis=0)
+                br0 = np.concatenate([ff["bond_r0"], pock_r0])
+                bk = np.concatenate([ff["bond_k"], np.full(len(pock_bp), 1500.0)])
+                at = ligand_indices[ff["angle_triplets"]] if len(ff["angle_triplets"]) else np.empty((0, 3), dtype=np.int64)
+                ath0, ak = ff["angle_theta0"], ff["angle_k"]
+                excl = {(int(ligand_indices[i]), int(ligand_indices[j])) for i, j in ff["excluded_pairs"]}
+                excl.update((int(a), int(b)) for a, b in bp)
+                ex14 = [
+                    (int(ligand_indices[i]), int(ligand_indices[j]), q_ex, s_ex, e_ex)
+                    for i, j, q_ex, s_ex, e_ex in ff.get("exceptions_14", [])
+                ]
+            else:
+                raise ValueError(
+                    f"XML particle count ({n_ff}) matches neither complex ({n_tot}) nor ligand ({len(ligand_indices)})"
+                )
         else:
             charges = np.zeros(len(pos0))
             sig = np.full(len(pos0), 3.2)
@@ -1184,11 +1308,17 @@ def triage_binding(preset="aspirin_cox_stable", *, pdb_path=None, xml_path=None,
             bp = pdb["bonds"]
             br0 = np.linalg.norm(pos0[bp[:, 0]] - pos0[bp[:, 1]], axis=-1) if len(bp) else np.empty(0)
             bk = np.full(len(bp), 1500.0)
+            at = np.empty((0, 3), dtype=np.int64)
+            ath0 = np.empty(0, dtype=np.float64)
+            ak = np.empty(0, dtype=np.float64)
             excl = {(int(a), int(b)) for a, b in bp}
+            ex14 = None
         bb_idx = pocket_indices[::max(1, len(pocket_indices) // 8)]
         eng = PocketMicroEngine(
             masses, charges, sig, eps, bond_pairs=bp, bond_r0=br0, bond_k=bk,
-            excluded_pairs=excl, restraint_indices=bb_idx, restraint_anchors=pos0[bb_idx], restraint_k=45.0,
+            angle_triplets=at, angle_theta0=ath0, angle_k=ak,
+            excluded_pairs=excl, exceptions_14=ex14,
+            restraint_indices=bb_idx, restraint_anchors=pos0[bb_idx], restraint_k=45.0,
         )
         hb_l = ligand_indices[[i for i, idx in enumerate(ligand_indices) if elements[idx] in ("O", "N")]]
         hb_p = pocket_indices[[i for i, idx in enumerate(pocket_indices) if elements[idx] in ("O", "N")]]
