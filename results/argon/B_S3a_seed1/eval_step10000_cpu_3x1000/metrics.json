@@ -1,0 +1,190 @@
+{
+  "run": ".",
+  "checkpoint": "checkpoints/argon_flow_v0.pt",
+  "checkpoint_sha256": "4c8e035ee177bb8ad7d9abe45a95d047b5e5d49996ad8a38bff9ae9619ec3372",
+  "attention_version": "v0",
+  "data_dir": "data/argon_eval_50ps",
+  "split": "test",
+  "train_step": 10000,
+  "head": "flow",
+  "target": "residual",
+  "stride_fs": 50.0,
+  "steps": 1000,
+  "n_rollouts": 3,
+  "seeds_per_start": 1,
+  "thermostat_tau_fs": 0.0,
+  "T_ground_truth_K": 94.01140925231725,
+  "command": [
+    "python.exe",
+    "scripts/evaluate.py",
+    "--run",
+    ".",
+    "--ckpt",
+    "checkpoints/argon_flow_v0.pt",
+    "--data_dir",
+    "data/argon_eval_50ps",
+    "--steps",
+    "1000",
+    "--seeds",
+    "1",
+    "--starts",
+    "3",
+    "--sampling_steps",
+    "10",
+    "--device",
+    "cpu",
+    "--threads",
+    "8",
+    "--out",
+    "results/argon/B_S3a_seed1/eval_step10000_cpu_3x1000"
+  ],
+  "stability": {
+    "crashed": 0,
+    "crash_reasons": {
+      "nan": 0,
+      "overlap": 0,
+      "temperature": 0,
+      "frozen": 0,
+      "bond": 0
+    },
+    "crash_reason_per_rollout": [
+      null,
+      null,
+      null
+    ],
+    "t_min_K": 31.337136417439083,
+    "t_max_K": 282.03422775695174,
+    "steps_before_crash": [
+      1000,
+      1000,
+      1000
+    ],
+    "median_steps_before_crash": 1000.0
+  },
+  "temperature": {
+    "T_model_second_half_K": 91.30814858042453,
+    "rel_err": 0.02875460216363143,
+    "T_end_per_rollout": [
+      92.79032510073509,
+      91.44493580804121,
+      89.6722883280487
+    ]
+  },
+  "data_config": {
+    "constraint_tol": 1e-06,
+    "dt_fs": 5.0,
+    "equil_ps": 20.0,
+    "force_every": 10,
+    "friction_per_ps": 1.0,
+    "n_traj": 3,
+    "npt_ps": 0.0,
+    "out_dir": "data/argon_eval_50ps",
+    "platform": "numpy",
+    "precision": "double",
+    "production_ps": 55.0,
+    "save_every": 1,
+    "seed0": 1000,
+    "split": {
+      "test": [
+        0,
+        1,
+        2
+      ],
+      "train": [],
+      "val": []
+    },
+    "system": "argon",
+    "temperature_K": 95.0
+  },
+  "energy": {
+    "U_gt_per_atom": -5.370611318641248,
+    "K_gt_per_atom": 1.1674640742883227,
+    "H_gt_per_atom": -4.203147244352925,
+    "U_model_minus_gt_per_atom": -0.025999943501666678,
+    "K_model_minus_gt_per_atom": -0.033629732830559256,
+    "H_model_minus_gt_per_atom": -0.059629676332225934,
+    "H_drift_kJ_mol_ns_dof_mean": -0.44233127320071236,
+    "H_drift_kJ_mol_ns_dof_abs_max": 0.4870896702455683,
+    "H_max_excursion_per_atom": 0.07586344668750034,
+    "note": "H = U_ref(x) + K(v) evaluated on rollout frames with the ground-truth LJ force field"
+  },
+  "short_range_rmsd_A": {
+    "step_1": 0.0010412271367385983,
+    "step_10": 0.019655106589198112,
+    "step_20": 0.05817297473549843
+  },
+  "rdf": {
+    "l1": 0.05694854629298042,
+    "peak_pos_model_A": 3.690679060666097,
+    "peak_pos_gt_A": 3.703642579251451,
+    "peak_pos_err_A": 0.012963518585354272,
+    "peak_height_model": 2.898660736283149,
+    "peak_height_gt": 2.864627828721024,
+    "peak_height_rel_err": 0.011880394102475794
+  },
+  "vacf": {
+    "first_zero_model_fs": 302.50175584838496,
+    "first_zero_gt_fs": 306.36934915099306,
+    "first_zero_rel_err": 0.012623956388998854,
+    "vdos_peak_model_cm1": 25.017307139861405,
+    "vdos_peak_gt_cm1": 25.017307139861405,
+    "nyquist_cm1": 333.5640951981521,
+    "note": "both sampled every 50.0 fs, so frequencies above 334 cm^-1 are not resolved"
+  },
+  "diffusion": {
+    "D_model_cm2_s": 2.0094086976694907e-05,
+    "D_gt_cm2_s": 2.096403495317936e-05,
+    "rel_err": 0.04149716304267647,
+    "fit_range_fs": [
+      5000.0,
+      20000.0
+    ]
+  },
+  "kinematics": {
+    "stride_fs": 50.0,
+    "vacf_integration_horizon_fs": 1950.0,
+    "model": {
+      "trapezoid_residual": 0.02112716216961343,
+      "velocity_temperature_K": 91.30814858042453,
+      "displacement_temperature_K": 90.17266324698723,
+      "temperature_rel_gap": 0.012592345535222281,
+      "green_kubo_D_cm2_s": 2.0056108383762535e-05,
+      "einstein_D_cm2_s": 2.0094086976694907e-05,
+      "green_kubo_vs_einstein_rel_diff": -0.001890038247391863
+    },
+    "ground_truth": {
+      "trapezoid_residual": 0.02103845746222749,
+      "velocity_temperature_K": 93.86919137320115,
+      "displacement_temperature_K": 92.83172216466426,
+      "temperature_rel_gap": 0.011175804825602988,
+      "green_kubo_D_cm2_s": 2.166922722593551e-05,
+      "einstein_D_cm2_s": 2.096403495317936e-05,
+      "green_kubo_vs_einstein_rel_diff": 0.03363819390356454
+    },
+    "note": "Report-only position-velocity consistency check at the model stride (not part of v0_verdict); compare model values against ground_truth at the same stride."
+  },
+  "speed": {
+    "wall_s": 2938.653337240219,
+    "s_per_step_batch": 2.9386533372402193,
+    "ns_per_day_per_rollout": 1.4700611144753284,
+    "ns_per_day_all_rollouts": 4.410183343425985,
+    "device": "cpu"
+  },
+  "v0_criteria": {
+    "no_crash": "all rollouts reach the full number of steps",
+    "temperature_rel_err": 0.05,
+    "rdf_peak_pos_err_A": 0.05,
+    "rdf_peak_height_rel_err": 0.1,
+    "vacf_first_zero_rel_err": 0.1,
+    "diffusion_rel_err": 0.2
+  },
+  "v0_verdict": {
+    "no_crash": true,
+    "temperature": true,
+    "rdf_peak_position": true,
+    "rdf_peak_height": true,
+    "vacf_first_zero": true,
+    "diffusion": true,
+    "all_pass": true
+  }
+}

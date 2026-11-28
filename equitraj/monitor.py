@@ -22,7 +22,7 @@ from equitraj.pair_masks import exclusion_mask
 from equitraj.rollout import max_bond_deviation, min_pair_distance, temperature
 from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL
 
-REASONS = ("nan", "overlap", "temperature", "bond")
+REASONS = ("nan", "overlap", "temperature", "frozen", "bond")
 
 
 def kinetic_energy(vel, masses):
@@ -40,10 +40,10 @@ def _slope(t, y):
 class StabilityMonitor:
     def __init__(self, types, masses, box=None, min_dist=0.5, t_max=None, bonds=None, bond_r0=None,
                  max_bond_dev=0.5, energy_fn=None, history=20, stride_fs=1.0, n_report=20,
-                 n_constraints=0, excluded_pairs=None):
+                 n_constraints=0, excluded_pairs=None, t_min=None):
         self.types, self.masses, self.box = types, masses, box
         self.n_constraints = n_constraints
-        self.min_dist, self.t_max = min_dist, t_max
+        self.min_dist, self.t_max, self.t_min = min_dist, t_max, t_min
         self.excluded_pairs = excluded_pairs
         self.bonds, self.bond_r0, self.max_bond_dev = bonds, bond_r0, max_bond_dev
         self.energy_fn = energy_fn
@@ -82,8 +82,9 @@ class StabilityMonitor:
         flags = {"nan": nan,
                  "overlap": s["min_dist"] < self.min_dist,
                  "temperature": s["T"] > self.t_max if self.t_max is not None else none,
+                 "frozen": s["T"] < self.t_min if self.t_min is not None else none,
                  "bond": s["bond_dev"] > self.max_bond_dev if self.bonds is not None else none}
-        bad = flags["nan"] | flags["overlap"] | flags["temperature"] | flags["bond"]
+        bad = flags["nan"] | flags["overlap"] | flags["temperature"] | flags["frozen"] | flags["bond"]
 
         s_cpu = {key: val.detach().cpu() for key, val in s.items()}
         self._hist.append((step, s_cpu))
@@ -122,6 +123,10 @@ class StabilityMonitor:
         elif reason == "temperature":
             ke_atom = 0.5 * self.masses.to(v.device).double() * (v.double() ** 2).sum(-1)
             atoms = torch.argsort(ke_atom, descending=True)[:min(5, len(ke_atom))]
+            info["value"] = float(temperature(v[None], self.masses.to(v.device), self.n_constraints)[0])
+        elif reason == "frozen":
+            ke_atom = 0.5 * self.masses.to(v.device).double() * (v.double() ** 2).sum(-1)
+            atoms = torch.argsort(ke_atom, descending=False)[:min(5, len(ke_atom))]
             info["value"] = float(temperature(v[None], self.masses.to(v.device), self.n_constraints)[0])
         else:  # bond
             bonds = self.bonds.to(x.device)

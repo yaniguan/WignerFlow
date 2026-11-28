@@ -9,12 +9,17 @@ with the bundled ground-truth reference. Writes figures and demo_out/summary.jso
 import argparse
 import json
 import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import numpy as np
 import torch
 
 from equitraj import analysis, plots
-from equitraj.layers import check_attention_version
+from equitraj.layers import resolve_attention_version
 from equitraj.model import EquiTraj
 from equitraj.rollout import rollout, temperature
 
@@ -22,11 +27,12 @@ from equitraj.rollout import rollout, temperature
 def load_release(path, device):
     ck = torch.load(path, map_location="cpu", weights_only=True)
     assert ck.get("format") == "wignerflow-v0", "not a WignerFlow v0 release checkpoint"
-    check_attention_version(ck, source=path)
+    attn_ver = resolve_attention_version(ck, source=path)
+    model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
     prev_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.float32)
     try:
-        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **model_cfg)
     finally:
         torch.set_default_dtype(prev_dtype)
     model.load_state_dict(ck["model"])
@@ -50,6 +56,7 @@ def main():
     ap.add_argument("--steps", type=int, default=None, help="default: 1000 on GPU, 200 on CPU (~1 s/step)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sampling_steps", type=int, default=10, help="flow-matching ODE steps per frame")
+    ap.add_argument("--t_min_K", type=float, default=None, help="low-temperature floor in K (default: T_ref / 3; <=0 disables)")
     ap.add_argument("--out", default="demo_out")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -62,19 +69,23 @@ def main():
     demo = ck["demo"]
     box = None if demo["box"] is None else demo["box"][None]
     n_atoms = len(ck["types"])
+    t_min = float(ref["T_K"]) / 3.0 if args.t_min_K is None else (None if args.t_min_K <= 0 else float(args.t_min_K))
 
     torch.manual_seed(args.seed)
     out = rollout(model, demo["pos"][None], demo["vel"][None], ck["types"], box, ck["masses"], args.steps,
-                  sampling_steps=args.sampling_steps, t_max=3 * ref["T_K"])
+                  sampling_steps=args.sampling_steps, t_max=3 * ref["T_K"], t_min=t_min)
     crashed = int(out["crash_step"][0])
+    crash_reason = out["diagnostics"]["crash_reason"][0] if crashed >= 0 else None
     x, v = out["positions"][:, 0].numpy(), out["velocities"][:, 0].numpy()
     n_ok = args.steps if crashed < 0 else max(0, crashed - 1)
     half = n_ok // 2
     temp = temperature(torch.from_numpy(v[:n_ok]), ck["masses"]).numpy() if n_ok > 0 else np.empty(0, dtype=np.float32)
-    summary = {"checkpoint": os.path.basename(args.ckpt), "train_step": ck["train_step"], "device": str(device),
+    summary = {"checkpoint": os.path.basename(args.ckpt), "attention_version": model.attention_version,
+               "train_step": ck["train_step"], "device": str(device),
                "steps": args.steps, "stride_fs": dt, "simulated_ps": args.steps * dt / 1000,
-               "crashed_at_step": None if crashed < 0 else crashed, "wall_s": out["wall_s"],
-               "T_ref_K": ref["T_K"], "T_model_second_half_K": float(temp[half:].mean()) if n_ok > 1 else None}
+               "crashed_at_step": None if crashed < 0 else crashed, "crash_reason": crash_reason,
+               "wall_s": out["wall_s"], "T_ref_K": ref["T_K"],
+               "T_model_second_half_K": float(temp[half:].mean()) if n_ok > 1 else None}
 
     idx = np.arange(n_atoms)
     r_ref, g_ref = np.array(ref["rdf_r"]), np.array(ref["rdf_g"])

@@ -34,6 +34,36 @@ def test_kinetic_energy_units():
     assert torch.isclose(kinetic(vel, masses), torch.tensor([expected], dtype=torch.float64), rtol=1e-6)
 
 
+def test_pure_numpy_lj_argon_forces_match_potential_gradient():
+    from equitraj.simulate import _lj_argon_energy_forces_nm
+
+    rng = np.random.default_rng(42)
+    box_nm = 2.30
+    # Place pairs across repulsive, attractive, and [0.80, 0.85] nm switching regions
+    pos_nm = np.array([
+        [0.10, 0.20, 0.30],
+        [0.46, 0.22, 0.31],
+        [0.925, 0.20, 0.30],  # ~0.825 nm from atom 0 (inside switching window!)
+        [1.40, 1.30, 1.20],
+    ], dtype=np.float64) + rng.normal(0.0, 0.005, size=(4, 3))
+    pe, forces = _lj_argon_energy_forces_nm(pos_nm, box_nm)
+    pe_torch = lj_potential(torch.from_numpy(pos_nm * 10.0)[None], torch.eye(3, dtype=torch.float64) * (box_nm * 10.0))
+    assert np.isclose(pe, float(pe_torch.item()), atol=1e-10)
+
+    eps = 1.0e-6
+    fd_forces = np.zeros_like(pos_nm)
+    for i in range(len(pos_nm)):
+        for d in range(3):
+            p_plus = pos_nm.copy()
+            p_minus = pos_nm.copy()
+            p_plus[i, d] += eps
+            p_minus[i, d] -= eps
+            e_p, _ = _lj_argon_energy_forces_nm(p_plus, box_nm)
+            e_m, _ = _lj_argon_energy_forces_nm(p_minus, box_nm)
+            fd_forces[i, d] = -(e_p - e_m) / (2.0 * eps)
+    assert np.allclose(forces, fd_forces, rtol=1e-7, atol=1e-7)
+
+
 def test_lj_potential_matches_openmm():
     openmm = pytest.importorskip("openmm")
     from equitraj.systems import build_argon

@@ -60,6 +60,7 @@ def test_ocsr_query_mapping_and_refusal():
 def test_plan_argon_fixture():
     plan = sq.plan_query(_load("argon_query.json"))
     assert plan["status"] == "planned"
+    assert plan["attention_version"] == "v0"
     assert plan["simulated_ps"] == pytest.approx(2 * 50.0 / 1000)
     assert plan["checkpoint_present"] == CKPT.exists()
 
@@ -138,6 +139,8 @@ def test_run_query_one_step(release):
     finally:
         torch.set_default_dtype(previous)
     assert report["status"] == "ok"
+    assert report["attention_version"] == "v0"
+    assert report["t_min_K"] == pytest.approx(report["T_ref_K"] / 3.0)
     json.dumps(report)  # must be JSON-serializable for the reasoner
     if report["crashed_at_step"] is None:
         assert report["frames_used"] == 1

@@ -70,11 +70,12 @@ class PlainBlock(nn.Module):
 class PlainTraj(EquiTraj):
     def __init__(self, n_types, channels=128, heads=8, n_rbf=32, cutoff=5.0, k=3, n_spatial=2, n_fusion=2, n_denoiser=2,
                  head="flow", use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
-                 lmax=None, parity=None, smooth_attention=False):
+                 lmax=None, parity=None, smooth_attention=False, attention_version=None):
         nn.Module.__init__(self)  # not EquiTraj.__init__: none of the equivariant modules are wanted
         self.lmax, self.c, self.cutoff, self.k, self.n_rbf = 0, channels, cutoff, k, n_rbf
         self.head_type, self.use_velocity, self.neighbor_method = head, use_velocity, neighbor_method
         self.target, self.stride_fs = target, stride_fs
+        self.attention_version = "v1" if smooth_attention else ("v0" if attention_version is None else attention_version)
         self.target_scaling = "element_std"
         self.geometry_aware = False
         self.prior = None

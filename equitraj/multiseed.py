@@ -107,7 +107,8 @@ def evaluate_checkpoint(path, args):
             vel = torch.from_numpy(ref["v"][traj][s:s+cfg["k"]].copy())[None]
             box = ds.boxes[traj][None] if ds.periodic else None
             out = rollout(model, pos, vel, ds.types, box, ds.masses, args.steps,
-                          sampling_steps=args.sampling_steps, save_every=1, t_max=3*ref["T"])
+                          sampling_steps=args.sampling_steps, save_every=1,
+                          t_max=3 * ref["T"], t_min=ref["T"] / 3.0)
             crash = int(out["crash_step"][0])
             row = {"start": i, "trajectory_id": int(ds.traj_ids[traj]), "model_frame": s, "saved_frame": s*ds.f,
                    "seed": actual_seed, "crash_fraction": float(crash >= 0),

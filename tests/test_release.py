@@ -67,24 +67,103 @@ def test_release_checkpoint_loads_and_steps():
 
 
 @pytest.mark.skipif(not os.path.exists(CKPT), reason="release checkpoint not present")
-def test_v0_checkpoint_warns_once(capsys):
+def test_v0_checkpoint_loads_in_v0_mode_without_warning(capsys):
     pytest.importorskip("e3nn")
     pytest.importorskip("matplotlib")
     sys.path.insert(0, "scripts")
-    from demo import load_release  # noqa: PLC0415
+    from demo import load_release as demo_load_release  # noqa: PLC0415
+    from equitraj.api import load_release as api_load_release  # noqa: PLC0415
     from equitraj.layers import _WARNED_LEGACY_ATTENTION  # noqa: PLC0415
+    from lab.surrogate_query import load_release as sq_load_release  # noqa: PLC0415
 
     torch.set_default_dtype(torch.float32)
     _WARNED_LEGACY_ATTENTION.clear()
     capsys.readouterr()
 
-    load_release(CKPT, "cpu")
-    err1 = capsys.readouterr().err
-    assert err1.count("WARNING:") == 1
-    assert "v0.1.0" in err1
-
-    load_release(CKPT, "cpu")
+    for loader in (demo_load_release, api_load_release, sq_load_release):
+        model, _ = loader(CKPT, "cpu")
+        assert model.attention_version == "v0"
+        assert all(blk.attn.attention_version == "v0" for blk in model.spatial)
+        assert all(blk.attn.attention_version == "v0" for blk in model.fusion)
+        assert all(blk.attn.attention_version == "v0" for blk in model.denoiser.blocks)
     assert capsys.readouterr().err == ""
+
+
+def test_unknown_attention_version_warns_once_and_falls_back(capsys):
+    from equitraj.layers import ATTENTION_VERSION, _WARNED_LEGACY_ATTENTION, resolve_attention_version  # noqa: PLC0415
+
+    _WARNED_LEGACY_ATTENTION.clear()
+    capsys.readouterr()
+
+    ver1 = resolve_attention_version({"attention_version": "v99"}, source="mystery_ckpt.pt")
+    err1 = capsys.readouterr().err
+    assert ver1 == ATTENTION_VERSION
+    assert err1.count("WARNING:") == 1
+    assert "v99" in err1
+
+    ver2 = resolve_attention_version({"attention_version": "v99"}, source="mystery_ckpt.pt")
+    assert ver2 == ATTENTION_VERSION
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.skipif(
+    not (os.path.exists(CKPT) and os.path.exists(CKPT_V1)),
+    reason="release and reduced v1 checkpoints not present",
+)
+def test_v0_mode_reproduces_tag_v0_1_0_golden_and_v1_unchanged():
+    import json
+
+    pytest.importorskip("e3nn")
+    from equitraj.api import FrameSplitPredictor, load_release  # noqa: PLC0415
+
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "argon_flow_v0_onestep_v0_1_0.json"
+    fix = json.loads(fixture_path.read_text(encoding="utf-8"))
+    atom_idx = fix["atom_indices"]
+    seed = int(fix["seed"])
+    n_steps = int(fix["sampling_steps"])
+
+    prev = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        # 1. argon_flow_v0.pt on main in v0 mode matches tag v0.1.0 within < 1e-5 absolute
+        m_v0, ck0 = load_release(CKPT, "cpu")
+        assert m_v0.attention_version == "v0"
+        d0 = ck0["demo"]
+        pos0, vel0, box0 = d0["pos"][None].float(), d0["vel"][None].float(), d0["box"][None].float()
+        types0, masses0 = ck0["types"].long(), ck0["masses"].float()
+        noise0 = m_v0.com_free_noise(1, types0, masses0, generator=torch.Generator().manual_seed(seed), like=vel0)
+        dx0, vn0 = m_v0.predict(pos0, vel0, types0, box0, masses0, n_steps=n_steps, noise=noise0)
+
+        ref0 = fix["v0_tag_reference"]
+        dx0_ref = torch.tensor(ref0["dx_subset_A"], dtype=torch.float32)
+        vn0_ref = torch.tensor(ref0["v_new_subset_A_per_fs"], dtype=torch.float32)
+        assert (dx0[0, atom_idx] - dx0_ref).abs().max().item() < 1e-5
+        assert (vn0[0, atom_idx] - vn0_ref).abs().max().item() < 1e-5
+        assert abs(dx0.pow(2).mean().sqrt().item() - ref0["dx_rms_all_A"]) < 1e-5
+        assert abs(vn0.pow(2).mean().sqrt().item() - ref0["v_new_rms_all_A_per_fs"]) < 1e-5
+
+        dx0_fast, vn0_fast = FrameSplitPredictor(m_v0).predict(
+            pos0, vel0, types0, box0, masses0, noise=noise0, n_steps=n_steps
+        )
+        assert (dx0_fast - dx0).abs().max().item() < 1e-5
+        assert (vn0_fast - vn0).abs().max().item() < 1e-5
+
+        # 2. argon_flow_v1_cpu_reduced.pt on main stays in v1 mode with unchanged outputs
+        m_v1, ck1 = load_release(CKPT_V1, "cpu")
+        assert m_v1.attention_version == "v1"
+        d1 = ck1["demo"]
+        pos1, vel1, box1 = d1["pos"][None].float(), d1["vel"][None].float(), d1["box"][None].float()
+        types1, masses1 = ck1["types"].long(), ck1["masses"].float()
+        noise1 = m_v1.com_free_noise(1, types1, masses1, generator=torch.Generator().manual_seed(seed), like=vel1)
+        dx1, vn1 = m_v1.predict(pos1, vel1, types1, box1, masses1, n_steps=n_steps, noise=noise1)
+
+        ref1 = fix["v1_reduced_reference"]
+        dx1_ref = torch.tensor(ref1["dx_subset_A"], dtype=torch.float32)
+        vn1_ref = torch.tensor(ref1["v_new_subset_A_per_fs"], dtype=torch.float32)
+        assert (dx1[0, atom_idx] - dx1_ref).abs().max().item() < 1e-6
+        assert (vn1[0, atom_idx] - vn1_ref).abs().max().item() < 1e-6
+    finally:
+        torch.set_default_dtype(prev)
 
 
 @pytest.mark.skipif(not os.path.exists(CKPT_V1), reason="reduced v1 checkpoint not present")
@@ -191,8 +270,9 @@ def test_export_with_flag_v0_writes_v0(tmp_path, monkeypatch, capsys):
 
     _WARNED_LEGACY_ATTENTION.clear()
     capsys.readouterr()
-    load_release(str(out_pt), "cpu")
-    assert "WARNING:" in capsys.readouterr().err
+    model, _ = load_release(str(out_pt), "cpu")
+    assert model.attention_version == "v0"
+    assert capsys.readouterr().err == ""
 
 
 def test_export_uses_training_checkpoint_field(tmp_path, monkeypatch, capsys):
@@ -243,3 +323,49 @@ def test_train_checkpoints_store_attention_version(tmp_path, monkeypatch):
                  out_dir / "snapshots" / "step000001.pt"]:
         ck = torch.load(path, map_location="cpu", weights_only=False)
         assert ck["attention_version"] == ATTENTION_VERSION, path
+
+
+def test_invalid_attention_version_rejected():
+    pytest.importorskip("e3nn")
+    from equitraj.layers import GraphAttention  # noqa: PLC0415
+    from equitraj.model import EquiTraj  # noqa: PLC0415
+
+    with pytest.raises(ValueError, match="attention_version"):
+        GraphAttention(lmax=1, c=8, heads=2, n_rbf=4, cutoff=4.0, attention_version="v2")
+    with pytest.raises(ValueError, match="attention_version"):
+        EquiTraj(n_types=1, lmax=1, channels=8, heads=2, n_rbf=4, cutoff=4.0, attention_version="v2")
+
+
+def test_committed_v0_and_reduced_eval_metrics_have_energy_kinematics_and_crash_reasons():
+    import json
+    import math
+
+    root = Path(__file__).resolve().parents[1]
+    targets = [
+        (root / "results/argon/B_S3a_seed1/eval_step10000_cpu_3x1000/metrics.json", "v0", 1000, 3),
+        (root / "results/argon/cpu_reduced/v0/metrics.json", "v0", 100, 1),
+        (root / "results/argon/cpu_reduced/v1/metrics.json", "v1", 100, 1),
+    ]
+    for path, exp_ver, exp_steps, exp_roll in targets:
+        m = json.loads(path.read_text(encoding="utf-8"))
+        assert m["attention_version"] == exp_ver
+        assert m["steps"] == exp_steps and m["n_rollouts"] == exp_roll
+        reasons = m["stability"]["crash_reasons"]
+        assert "frozen" in reasons and "temperature" in reasons
+        assert sum(reasons.values()) == m["stability"]["crashed"]
+        en = m["energy"]
+        for key in ("H_drift_kJ_mol_ns_dof_mean", "U_model_minus_gt_per_atom", "K_model_minus_gt_per_atom"):
+            assert math.isfinite(en[key]), (path, key)
+        kin = m["kinematics"]
+        for arm in ("model", "ground_truth"):
+            for key in ("trapezoid_residual", "velocity_temperature_K", "displacement_temperature_K",
+                        "temperature_rel_gap", "green_kubo_D_cm2_s", "einstein_D_cm2_s"):
+                assert math.isfinite(kin[arm][key]), (path, arm, key)
+
+
+def test_docs_do_not_instruct_checkout_v0_1_0():
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("README.md", "checkpoints/README.md"):
+        txt = (root / rel).read_text(encoding="utf-8").lower()
+        assert "check out tag `v0.1.0`" not in txt
+        assert "checkout v0.1.0" not in txt

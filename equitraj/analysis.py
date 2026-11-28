@@ -6,7 +6,7 @@ Only orthorhombic boxes are supported for now (argon and Li+/EC are cubic).
 
 import numpy as np
 
-from equitraj.units import KB, per_fs_to_wavenumber
+from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL, KB, per_fs_to_wavenumber
 
 
 def box_lengths(box):
@@ -141,6 +141,112 @@ def diffusion_coefficient(t_fs, msd_values, t_min_fs, t_max_fs):
     slope = np.polyfit(t_fs[mask], msd_values[mask], 1)[0]
     d = slope / 6.0
     return d, d * 0.1  # 1 Å^2/fs = 1e-16 cm^2 / 1e-15 s = 0.1 cm^2/s
+
+
+def green_kubo_diffusion(vacf_values, dt_fs):
+    """Green-Kubo diffusion D = (1/3) * integral_0^t_max <v(0).v(t)> dt from unnormalized 3D VACF.
+
+    vacf_values: 1D array of <v_i(0).v_i(t)> in Å^2/fs^2 sampled every dt_fs.
+    Returns (D in Å^2/fs, D in cm^2/s), matching diffusion_coefficient() units.
+    """
+    c = np.asarray(vacf_values, dtype=np.float64)
+    if len(c) == 0:
+        return 0.0, 0.0
+    if len(c) == 1:
+        d = float(c[0] * dt_fs / 3.0)
+        return d, d * 0.1
+    integral = 0.5 * float(dt_fs) * float(c[0] + 2.0 * c[1:-1].sum() + c[-1])
+    d = integral / 3.0
+    return d, d * 0.1
+
+
+# ---------------------------------------------------------------- position-velocity kinematics
+
+def stride_displacements(positions, box=None):
+    """Single-stride displacements x_{t+1} - x_t (T-1, N, 3) in Å, with minimum-image wrapping if `box` is set.
+
+    `box` may be None (no PBC / already unwrapped), a single (3, 3) orthorhombic cell, or (T, 3, 3).
+    """
+    pos = np.asarray(positions, dtype=np.float64)
+    if pos.ndim != 3 or pos.shape[0] < 2:
+        raise ValueError("positions must have shape (T, N, 3) with T >= 2")
+    dx = pos[1:] - pos[:-1]
+    if box is None:
+        return dx
+    bx = np.asarray(box, dtype=np.float64)
+    if bx.ndim == 2:
+        lengths = box_lengths(bx)[None, None, :]
+        return minimum_image(dx, lengths)
+    if bx.ndim == 3:
+        lengths = np.stack([box_lengths(bx[t]) for t in range(len(dx))], axis=0)[:, None, :]
+        return minimum_image(dx, lengths)
+    raise ValueError("box must be None, (3, 3), or (T, 3, 3)")
+
+
+def trapezoid_residual(positions, velocities, dt_fs, box=None):
+    """Normalized trapezoid-rule position-velocity residual:
+        RMS(dx - 0.5 * (v_t + v_{t+1}) * dt_fs) / RMS(dx).
+    """
+    vel = np.asarray(velocities, dtype=np.float64)
+    dx = stride_displacements(positions, box=box)
+    if vel.shape != np.asarray(positions).shape:
+        raise ValueError("positions and velocities must have identical shape (T, N, 3)")
+    v_mid = 0.5 * (vel[:-1] + vel[1:])
+    res = dx - v_mid * float(dt_fs)
+    rms_res = float(np.sqrt(np.mean(np.sum(res ** 2, axis=-1))))
+    rms_dx = float(np.sqrt(np.mean(np.sum(dx ** 2, axis=-1))))
+    if rms_dx == 0.0:
+        return 0.0 if rms_res == 0.0 else float("inf")
+    return rms_res / rms_dx
+
+
+def velocity_temperature(velocities, masses, dof=None, *, n_constraints=0, com_removed=True):
+    """Mean kinetic temperature (K) computed from instantaneous velocities (T, N, 3) in Å/fs."""
+    vel = np.asarray(velocities, dtype=np.float64)
+    m = np.asarray(masses, dtype=np.float64)
+    if dof is None:
+        dof = n_dof(len(m), n_constraints, com_removed=com_removed)
+    ke = 0.5 * np.sum(m[None, :] * np.sum(vel ** 2, axis=-1), axis=-1) * AMU_A2_PER_FS2_TO_KJ_PER_MOL
+    return float(np.mean(temperature(ke, dof)))
+
+
+def displacement_temperature(positions, dt_fs, masses, dof=None, *, n_constraints=0, com_removed=True, box=None):
+    """Mean effective kinetic temperature (K) computed from finite-difference chord velocities dx / dt_fs."""
+    dx = stride_displacements(positions, box=box)
+    v_fd = dx / float(dt_fs)
+    return velocity_temperature(v_fd, masses, dof=dof, n_constraints=n_constraints, com_removed=com_removed)
+
+
+def kinematic_consistency(positions, velocities, dt_fs, masses, *, box=None, n_constraints=0,
+                          com_removed=True, max_vacf_lag=None, einstein_D_cm2_s=None):
+    """Position-velocity kinematic consistency summary at stride `dt_fs`."""
+    pos = np.asarray(positions, dtype=np.float64)
+    vel = np.asarray(velocities, dtype=np.float64)
+    m = np.asarray(masses, dtype=np.float64)
+    dof = n_dof(len(m), n_constraints, com_removed=com_removed)
+    trap = trapezoid_residual(pos, vel, dt_fs, box=box)
+    t_vel = velocity_temperature(vel, m, dof=dof)
+    t_disp = displacement_temperature(pos, dt_fs, m, dof=dof, box=box)
+    t_gap = float((t_vel - t_disp) / t_disp) if t_disp > 0 else None
+    lag = max_vacf_lag if max_vacf_lag is not None else max(1, min(len(vel) // 2, int(round(2000.0 / float(dt_fs)))))
+    lag = max(1, min(int(lag), len(vel)))
+    c_vacf = vacf(vel, lag)
+    _, d_gk_cm2_s = green_kubo_diffusion(c_vacf, dt_fs)
+    d_ein = None if einstein_D_cm2_s is None else float(einstein_D_cm2_s)
+    gk_gap = (
+        float((d_gk_cm2_s - d_ein) / abs(d_ein))
+        if (d_ein is not None and np.isfinite(d_ein) and d_ein != 0.0)
+        else None
+    )
+    return {
+        "trapezoid_residual": float(trap),
+        "velocity_temperature_K": float(t_vel),
+        "displacement_temperature_K": float(t_disp),
+        "temperature_rel_gap": t_gap,
+        "green_kubo_D_cm2_s": float(d_gk_cm2_s),
+        "einstein_D_cm2_s": d_ein,
+        "green_kubo_vs_einstein_rel_diff": gk_gap,
+    }
 
 
 # ---------------------------------------------------------------- energy

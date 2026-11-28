@@ -63,12 +63,12 @@ At every check it records each system's temperature, kinetic energy, smallest pa
 |v|, total momentum, the largest bond deviation (if bonds are given) and the potential energy (if
 `energy_fn` is given). `diagnostics` contains:
 
-- `crash_step`, `crash_reason`: per system; reasons are `nan` > `overlap` > `temperature` > `bond` in priority order
+- `crash_step`, `crash_reason`: per system; reasons are `nan` > `overlap` > `temperature` > `frozen` > `bond` in priority order
 - `crashes[b]`: `None` or `{step, reason, reasons, atoms, atom_types, value, history}`, plus `pairs`
   `[i, j, d]` for overlaps and `bonds` `[i, j, rel_dev]` for bond failures. Offending atoms are those
   with non-finite values for `nan`, the pairs below `min_dist` for `overlap` (closest first), the 5
-  highest-kinetic-energy atoms for `temperature`, and the broken bonds for `bond`. `history` holds the
-  last `history` checks of all statistics.
+  highest-kinetic-energy atoms for `temperature` (`T > t_max`), the 5 lowest-kinetic-energy atoms for
+  `frozen` (`T < t_min`), and the broken bonds for `bond`. `history` holds the last `history` checks of all statistics.
 - `T_drift_K_per_ns`, `KE_drift_kJ_mol_per_ns` (least-squares slopes vs time = step × stride_fs),
   `KE_rel_drift`; `PE_drift_kJ_mol_per_ns`, `E_drift_kJ_mol_per_ns` when `energy_fn` is set
 - `min_pair_distance`, `max_speed`, `max_momentum` (extremes before the crash)
@@ -80,13 +80,16 @@ Per-system summaries use only checks before that system's crash.
 
 - `best.pt` is unchanged and uses `legacy_score` = `100 * crash_frac + rdf_l1`.
 - `best_stable.pt` uses `selection_score`, a tuple compared lexicographically:
-  (crash fraction, −mean steps before crash, RDF L1 + relative temperature error).
+  (crash fraction, frozen-rollout indicator `1.0` if `val_crash_frozen > 0` else `0.0`, −mean steps before crash, RDF L1 + relative temperature error).
   Its value is logged as `stability_score` and stored as `best_stable` in `ckpt.pt` for resuming.
+- `t_min_K` / `t_min_factor` sets the low-temperature (`frozen`) threshold for validation and test rollouts.
+  When omitted from `eval:`, it defaults to `T_ref / 3` (symmetric with `t_max = 3 * T_ref`) and logs the applied default;
+  setting `t_min_K: null` or `<= 0` (or `--no_t_min` in `scripts/evaluate.py`) disables it.
 - `rollout_steps_select` (absent = off) runs an additional, longer validation rollout at each
   evaluation. `rollout_starts_select` sets the number of starts and defaults to `rollout_starts`. Its
   metrics are logged with the prefix `sel_`, and `selection_score` uses them when present.
-- New scalar validation metrics: `val_crash_{nan,overlap,temperature,bond}` (counts),
-  `val_min_pair_dist`, `val_abs_T_drift_K_per_ns`, `val_T_rel_err`.
+- New scalar validation metrics: `val_crash_{nan,overlap,temperature,frozen,bond}` (counts),
+  `val_min_pair_dist`, `val_abs_T_drift_K_per_ns`, `val_T_rel_err`, `val_t_min_K`.
 - Validation rollouts that crash append their diagnostics, without `series`, to
   `<out_dir>/crash_diagnostics.jsonl`.
 

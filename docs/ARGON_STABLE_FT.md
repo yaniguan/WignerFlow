@@ -19,6 +19,8 @@ loss on the last unroll step only, no prior). Validation: 4 starts × 1000 steps
 | 20000 | 2 | 0 | 1000 | 0.433 | 54.6 |
 | 22000 | 4 | 1.0 | 272.5 | — | — |
 
+> **Audit note (`t_min` low-temperature crash check):** The historical `crash frac` column above was logged before `StabilityMonitor` had a low-temperature floor (`t_min`). Under the current symmetric default `t_min = T_ref / 3` (`31.7 K` at `T_ref = 95 K`), the validation rollouts at steps **2000** (`0.28 K`), **4000** (`0.25 K`), and **12000** (`0.96 K`) are flagged as `"frozen"` crashes rather than counted as stable.
+
 Train loss: ~0.10–0.13 at m=2; at the first logged m=4 window (step 20050) 11.8 (18.8 after the resume), up to 26.0,
 settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400. No final evaluation was run.
 
@@ -55,7 +57,8 @@ settling at 0.4–0.8 (3–6× the m=2 level). The session ended at step ~22400.
   are also the defaults in `equitraj/train.py`, so older runtime configs get them too.
 - Stability options (docs/STABILITY.md): repulsion prior (0.95 r_min, 2 iterations), noise annealing
   0.02 → 0.005, overlap penalty 0.1.
-- Selection: `best_stable.pt` (crash fraction, then steps survived, then RDF + |T−T_ref|/T_ref) on 8 × 2000-step
+- Selection: `best_stable.pt` (`selection_score`: crash fraction, frozen-rollout indicator `val_crash_frozen > 0`,
+  then steps survived, then RDF + |T−T_ref|/T_ref, with `t_min = T_ref / 3` active by default) on 8 × 2000-step
   selection rollouts.
 - Final evaluation: `scripts/eval_multiseed.py` on v0 and `best_stable.pt`, test trajectory, 8 starts × 3 seeds ×
   1000 steps. Then `scripts/compare_v0.py` writes `v0_vs_v1.json` with a pass/fail on all four metrics

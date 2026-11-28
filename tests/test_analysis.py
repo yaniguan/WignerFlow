@@ -88,3 +88,53 @@ def test_csvr_samples_canonical_kinetic_energy():
     t = torch.cat(temps)
     assert abs(t.mean().item() - 100.0) < 1.5
     assert abs(t.std().item() / 100.0 - (2.0 / (3 * n - 3)) ** 0.5) < 0.02
+
+
+def test_kinematics_constant_velocity_trapezoid_residual_zero():
+    rng = np.random.default_rng(7)
+    n_times, n_atoms, dt_fs = 40, 12, 50.0
+    box_l = 18.0
+    box = np.eye(3) * box_l
+    masses = np.full(n_atoms, 39.948)
+    v0 = rng.normal(0.0, 0.0025, size=(n_atoms, 3))
+    v0 -= v0.mean(axis=0, keepdims=True)
+    x0 = rng.uniform(0.0, box_l, size=(n_atoms, 3))
+    t_grid = np.arange(n_times)[:, None, None] * dt_fs
+    pos_unwrapped = x0[None, :, :] + v0[None, :, :] * t_grid
+    pos_wrapped = np.mod(pos_unwrapped, box_l)
+    vel = np.broadcast_to(v0[None, :, :], pos_unwrapped.shape).copy()
+
+    # Exact constant-velocity motion has zero trapezoid residual both unwrapped and PBC-wrapped
+    assert analysis.trapezoid_residual(pos_unwrapped, vel, dt_fs) < 1e-12
+    assert analysis.trapezoid_residual(pos_wrapped, vel, dt_fs, box=box) < 1e-12
+    kin = analysis.kinematic_consistency(pos_wrapped, vel, dt_fs, masses, box=box)
+    assert kin["trapezoid_residual"] < 1e-12
+    assert np.isclose(kin["temperature_rel_gap"], 0.0, atol=1e-12)
+
+
+def test_kinematics_scaled_velocities_show_21_percent_temperature_gap():
+    rng = np.random.default_rng(11)
+    n_times, n_atoms, dt_fs = 50, 16, 50.0
+    masses = np.full(n_atoms, 39.948)
+    v_true = rng.normal(0.0, 0.0022, size=(n_atoms, 3))
+    v_true -= v_true.mean(axis=0, keepdims=True)
+    x0 = rng.uniform(0.0, 20.0, size=(n_atoms, 3))
+    pos = x0[None, :, :] + v_true[None, :, :] * (np.arange(n_times)[:, None, None] * dt_fs)
+    vel_scaled = np.broadcast_to((1.1 * v_true)[None, :, :], pos.shape).copy()
+
+    kin = analysis.kinematic_consistency(pos, vel_scaled, dt_fs, masses)
+    # Scaling velocities by 1.1 raises velocity temperature by 1.1^2 - 1 = 0.21 (21%) over displacement temperature
+    assert np.isclose(kin["temperature_rel_gap"], 1.1 ** 2 - 1.0, rtol=1e-6, atol=1e-8)
+    assert kin["trapezoid_residual"] > 0.09
+
+
+def test_green_kubo_diffusion_units_and_exponential_vacf():
+    dt_fs = 5.0
+    tau_fs = 120.0
+    c0 = 6.0e-6  # Å^2/fs^2
+    t = np.arange(0, 2400.0, dt_fs)
+    c_vacf = c0 * np.exp(-t / tau_fs)
+    d_a2_fs, d_cm2_s = analysis.green_kubo_diffusion(c_vacf, dt_fs)
+    expected_a2_fs = (c0 * tau_fs) / 3.0
+    assert np.isclose(d_cm2_s, 0.1 * d_a2_fs, rtol=1e-12)
+    assert np.isclose(d_a2_fs, expected_a2_fs, rtol=2e-3)

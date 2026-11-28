@@ -14,6 +14,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import threading
 import time
@@ -21,7 +22,7 @@ from pathlib import Path
 
 import torch
 
-from equitraj.layers import check_attention_version
+from equitraj.layers import resolve_attention_version
 from equitraj.model import EquiTraj, build_graph, remove_com
 from equitraj.rollout import rollout, temperature
 
@@ -32,6 +33,7 @@ AMU_PER_A3_TO_G_CM3 = 1.66053907
 MAX_ATOMS = 256
 MAX_STEPS = 20
 MIN_BOX = 12.0  # 2 x the 6 A cutoff (minimum image)
+_AUTO_T_MIN = object()
 
 
 class InputError(ValueError):
@@ -53,9 +55,10 @@ def load_release(path, device="cpu"):
     ck = torch.load(path, map_location="cpu", weights_only=True)
     if ck.get("format") != "wignerflow-v0":
         raise ValueError(f"{path} is not a WignerFlow v0 release checkpoint")
-    check_attention_version(ck, source=path)
+    attn_ver = resolve_attention_version(ck, source=path)
+    model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
     with _float32():
-        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **model_cfg)
         model.load_state_dict(ck["model"])
     return model.to(device).eval(), ck
 
@@ -158,18 +161,21 @@ class ArgonPredictor:
         return pos, vel, box
 
     def predict(self, positions, velocities, box, *, species="Ar", n_steps=1, sampling_steps=None, seed=0,
-                thermostat_K=None):
+                thermostat_K=None, t_min_K=_AUTO_T_MIN):
         """positions (3, N, 3) A and velocities (3, N, 3) A/fs, oldest frame first, 50 fs apart.
 
         Returns the next n_steps frames (each 50 fs later), their temperatures and warnings.
         Cost is about n_steps x one step. thermostat_K turns on the repo's CSVR thermostat
         (switch S6, tau = 10 strides) at that temperature; off by default (model only).
+        t_min_K sets the low-temperature ('frozen') crash threshold; omitted defaults to T_ref / 3,
+        and None or <= 0 disables it.
         """
         with _float32():
             return self._predict(positions, velocities, box, species=species, n_steps=n_steps,
-                                 sampling_steps=sampling_steps, seed=seed, thermostat_K=thermostat_K)
+                                 sampling_steps=sampling_steps, seed=seed, thermostat_K=thermostat_K,
+                                 t_min_K=t_min_K)
 
-    def _predict(self, positions, velocities, box, *, species, n_steps, sampling_steps, seed, thermostat_K):
+    def _predict(self, positions, velocities, box, *, species, n_steps, sampling_steps, seed, thermostat_K, t_min_K):
         t0 = time.perf_counter()
         sampling_steps = sampling_steps or self.sampling_steps
         pos, vel, box = self._check(positions, velocities, box, species, n_steps, sampling_steps)
@@ -183,6 +189,20 @@ class ArgonPredictor:
             if not 1.0 <= thermostat_K <= 1000.0:
                 raise InputError("thermostat_K must be 1..1000")
             therm = {"t_target": thermostat_K, "tau_fs": 10 * stride, "dt_fs": stride}
+        t_ref = thermostat_K if thermostat_K is not None else float(self.ck.get("reference", {}).get("T_K", 95.0))
+        t_max = 3.0 * max(95.0, t_ref)
+        if t_min_K is _AUTO_T_MIN:
+            eff_t_min = t_ref / 3.0
+        elif t_min_K is None:
+            eff_t_min = None
+        else:
+            try:
+                val = float(t_min_K)
+            except (TypeError, ValueError) as err:
+                raise InputError("t_min_K must be a number or null") from err
+            if not math.isfinite(val):
+                raise InputError("t_min_K must be finite")
+            eff_t_min = None if val <= 0.0 else val
         n = pos.shape[1]
         types = torch.zeros(n, dtype=torch.long)
         masses = torch.full((n,), self.mass)
@@ -194,12 +214,16 @@ class ArgonPredictor:
         if not 40 <= t_in <= 250:
             warnings.append(f"input temperature {t_in:.1f} K is far from the 95 K training data")
         out = rollout(self.model, pos[None], vel[None], types, box[None], masses, n_steps,
-                      sampling_steps=sampling_steps, predictor=self.fast, check_every=1, t_max=3 * 95.0,
-                      thermostat=therm, generator=torch.Generator().manual_seed(seed))
+                      sampling_steps=sampling_steps, predictor=self.fast, check_every=1,
+                      t_max=t_max, t_min=eff_t_min, thermostat=therm,
+                      generator=torch.Generator().manual_seed(seed))
         x, v = out["positions"][:, 0], out["velocities"][:, 0]
         crash = int(out["crash_step"][0])
+        crash_reason = out["diagnostics"]["crash_reason"][0] if crash >= 0 else None
         if crash >= 0:
-            warnings.append(f"stability monitor fired at step {crash}; frames from there on are unreliable")
+            warnings.append(
+                f"stability monitor fired at step {crash} ({crash_reason}); frames from there on are unreliable"
+            )
         return {
             "positions": x.tolist(),
             "velocities": v.tolist(),
@@ -208,9 +232,13 @@ class ArgonPredictor:
             "input_temperature_K": t_in,
             "density_g_cm3": density,
             "crash_step": None if crash < 0 else crash,
+            "crash_reason": crash_reason,
+            "attention_version": self.model.attention_version,
             "warnings": warnings,
-            "model": {"checkpoint": self.name, "sha256": self.sha256, "sampling_steps": sampling_steps,
-                      "sampler": "euler", "seed": seed, "thermostat_K": thermostat_K},
+            "model": {"checkpoint": self.name, "sha256": self.sha256,
+                      "attention_version": self.model.attention_version,
+                      "sampling_steps": sampling_steps, "sampler": "euler", "seed": seed,
+                      "thermostat_K": thermostat_K, "t_min_K": eff_t_min, "t_max_K": t_max},
             "latency_ms": (time.perf_counter() - t0) * 1e3,
         }
 
@@ -222,7 +250,10 @@ def create_app(predictor=None):
     app = FastAPI(title="WignerFlow argon CPU API")
     state = {"predictor": predictor}
     lock = threading.Lock()  # one request at a time: parallel torch calls would fight over cores
-    allowed = {"positions", "velocities", "box", "species", "n_steps", "sampling_steps", "seed", "thermostat_K"}
+    allowed = {
+        "positions", "velocities", "box", "species", "n_steps", "sampling_steps",
+        "seed", "thermostat_K", "t_min_K",
+    }
 
     @app.get("/health")
     def health():
@@ -261,6 +292,8 @@ def main(argv=None):
     ap.add_argument("--sampling-steps", type=int, default=2)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--thermostat-K", type=float, help="CSVR thermostat target; off by default")
+    ap.add_argument("--t-min-K", type=float, default=None,
+                    help="low-temperature crash floor in K (default: T_ref / 3; <=0 disables)")
     ap.add_argument("--threads", type=int, default=1)
     ap.add_argument("--out", help="write the full JSON here; stdout gets a short summary")
     args = ap.parse_args(argv)
@@ -270,9 +303,11 @@ def main(argv=None):
         req = {"positions": d["pos"], "velocities": d["vel"], "box": d["box"]}
     else:
         req = json.loads(Path(args.input).read_text())
+    t_min_arg = _AUTO_T_MIN if args.t_min_K is None else args.t_min_K
     try:
         res = p.predict(req["positions"], req["velocities"], req["box"], species=req.get("species", "Ar"),
-                        n_steps=args.n_steps, seed=args.seed, thermostat_K=args.thermostat_K)
+                        n_steps=args.n_steps, seed=args.seed, thermostat_K=args.thermostat_K,
+                        t_min_K=t_min_arg)
     except InputError as err:
         raise SystemExit(f"error: {err}") from err
     if args.out:

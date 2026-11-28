@@ -882,13 +882,14 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
         neighbor = "brute"
     t0 = time.perf_counter()
     ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    from equitraj.layers import check_attention_version
-    check_attention_version(ck, source=ckpt_path)
+    from equitraj.layers import resolve_attention_version
+    attn_ver = resolve_attention_version(ck, source=ckpt_path)
+    model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
     prev_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.float32)
     try:
         model = EquiTraj(
-            n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"]
+            n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **model_cfg
         ).float()
         model.load_state_dict(ck["model"])
     finally:
@@ -908,7 +909,8 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     torch.manual_seed(seed)
     out = rollout(
         model, pos0, vel0, types, box, masses, steps,
-        sampling_steps=sampling_steps, t_max=3.0 * t_ref, thermostat=therm, predictor=fast,
+        sampling_steps=sampling_steps, t_max=3.0 * t_ref, t_min=t_ref / 3.0,
+        thermostat=therm, predictor=fast,
     )
     epistemic = audit_checkpoint_epistemic(
         fast.model, pos0, vel0, types, box, masses, sampling_steps=sampling_steps, n_draws=3, seed=seed
@@ -979,6 +981,7 @@ def triage_checkpoint(ckpt_path=None, *, steps=24, sampling_steps=3, neighbor="v
     return {
         "mode": "checkpoint",
         "name": ckpt_path.stem,
+        "attention_version": model.attention_version,
         "engine": f"WignerFlow EquiTraj ({ck['model_cfg']['head']}, Verlet + Dual Epistemic Audit)",
         "verdict": verdict,
         "summary": badge,
