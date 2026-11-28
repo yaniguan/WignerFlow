@@ -6,7 +6,12 @@
 import glob
 import json
 import os
+import sys
 from pathlib import Path
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import yaml
 
@@ -44,7 +49,19 @@ def ground_truth_rows():
     return rows
 
 
+def _gt_energy_drifts():
+    drifts = {}
+    for path in sorted(glob.glob("results/*/ground_truth/metrics.json")):
+        system = Path(path).parts[1]
+        m = _read_json(path)
+        ed = m.get("energy_drift_kJmol_per_ns_per_dof", {})
+        if "mean" in ed:
+            drifts[system] = float(ed["mean"])
+    return drifts
+
+
 def eval_rows():
+    gt_drifts = _gt_energy_drifts()
     rows = []
     for path in sorted(glob.glob("results/*/*/eval*/metrics.json")):
         parts = Path(path).parts
@@ -52,18 +69,34 @@ def eval_rows():
         if m.get("split", "test") != "test":
             continue  # validation-set evaluations are only for choosing checkpoints
         v = m.get("v0_verdict", {})
+        system = parts[1]
         name = f"{parts[1]}/{parts[2]}" + ("" if parts[3] == "eval" else f" ({parts[3]})") + f", step {m.get('train_step', '?')}"
         st = m["stability"]
         cfg_path = os.path.join(*parts[:3], "config.yaml")
         cfg = _read_yaml(cfg_path) if os.path.exists(cfg_path) else {}
-        target = cfg.get("model", {}).get("target", "?")
+        target = cfg.get("model", {}).get("target", m.get("target", "?"))
         seed = cfg.get("seed", "?")
+        dev = str(m.get("speed", {}).get("device", ""))
+        is_cpu = dev.lower() == "cpu" or "cpu" in parts[3].lower()
+        rollout_label = f"{m['n_rollouts']} × {m['steps']}" + (" (CPU)" if is_cpu else "")
         t_m = m.get("temperature", {}).get("T_model_second_half_K")
         t_err = None if t_m is None else (t_m - m["T_ground_truth_K"]) / m["T_ground_truth_K"]
+        en = m.get("energy")
+        if isinstance(en, dict) and en.get("H_drift_kJ_mol_ns_dof_mean") is not None:
+            gt_d = gt_drifts.get(system)
+            gt_suffix = f" (gt {fmt(gt_d)})" if gt_d is not None else ""
+            h_drift_str = f"{fmt(en['H_drift_kJ_mol_ns_dof_mean'], '+.3g')}{gt_suffix}"
+            du_str = fmt(en.get("U_model_minus_gt_per_atom"), "+.3g")
+            dk_str = fmt(en.get("K_model_minus_gt_per_atom"), "+.3g")
+        else:
+            h_drift_str = "not measured"
+            du_str = "not measured"
+            dk_str = "not measured"
         rows.append(
-            f"| {name} | {m['head']} | {target} | {seed} | {m['stride_fs']:.0f} | {m['n_rollouts']} × {m['steps']} | "
+            f"| {name} | {m['head']} | {target} | {seed} | {m['stride_fs']:.0f} | {rollout_label} | "
             f"{m['n_rollouts'] - st['crashed']}/{m['n_rollouts']} | "
             f"{fmt(t_m, '.1f')} / {m['T_ground_truth_K']:.1f} ({fmt(t_err, '+.1%')}) | "
+            f"{h_drift_str} | {du_str} | {dk_str} | "
             f"{fmt(m.get('rdf', {}).get('peak_pos_err_A'))} | {fmt(m.get('rdf', {}).get('peak_height_rel_err'))} | "
             f"{fmt(m.get('vacf', {}).get('first_zero_rel_err'))} | {fmt(m.get('diffusion', {}).get('rel_err'))} | "
             f"{fmt(v.get('all_pass')) if v else '–'} |")
@@ -126,12 +159,40 @@ def main():
              "|---|---|---|---|---|---|---|"]
     lines += ground_truth_rows()
     lines += ["", "## Model rollouts", "",
-              "Errors are relative unless marked Å; the temperature column shows the signed error. v0 criteria (argon): no crash; |ΔT|/T < 5%; RDF peak position < 0.05 Å; "
-              "peak height < 10%; VACF first zero < 10%; D < 20%.", "",
-              "| Run | Head | Target | Seed | Stride (fs) | Rollouts × steps | Not crashed | T model / truth (K) | RDF peak pos (Å) | RDF peak height | VACF zero | D | v0 |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+              "Errors are relative unless marked Å; the temperature column shows the signed error. "
+              "`H drift` reports total-energy drift (`U_ref + K`, in `kJ/mol/ns/dof`) evaluated under the reference "
+              "Lennard-Jones force field next to the OpenMM NVE ground-truth drift, and `ΔU/atom`, `ΔK/atom` (in `kJ/mol`) "
+              "report second-half potential and kinetic energy offsets per atom relative to ground truth (`not measured` "
+              "for earlier runs evaluated before the `energy` block was recorded; short CPU evaluations are labeled `(CPU)` "
+              "and are distinct from the full `15 × 10000` GPU protocol). "
+              "v0 criteria (argon): no crash (`T_ref / 3 <= T <= 3 T_ref`, no NaN, no overlap); |ΔT|/T < 5%; "
+              "RDF peak position < 0.05 Å; peak height < 10%; VACF first zero < 10%; D < 20%.", "",
+              "| Run | Head | Target | Seed | Stride (fs) | Rollouts × steps | Not crashed | T model / truth (K) | H drift (kJ/mol/ns/dof) | ΔU/atom (kJ/mol) | ΔK/atom (kJ/mol) | RDF peak pos (Å) | RDF peak height | VACF zero | D | v0 |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     rows = eval_rows()
-    lines += rows if rows else ["| (no evaluated models yet) |" + " |" * 12]
+    lines += rows if rows else ["| (no evaluated models yet) |" + " |" * 15]
+    lines += [
+        "",
+        "## Reading the `kinematics` and `energy` diagnostics (`metrics.json`)",
+        "",
+        "- **Position-velocity consistency (`kinematics` block, report-only):** `scripts/evaluate.py` computes three checks "
+        "identically on surviving model rollouts and on ground-truth trajectories subsampled at the same 50 fs stride:",
+        "  1. `trapezoid_residual` = `RMS(Δx - 0.5 * (v_t + v_{t+1}) * Δt) / RMS(Δx)`. At a 50 fs stride in liquid argon, "
+        "atomic accelerations curve the trajectory between saved frames, so ground truth has a nonzero baseline (~0.021); "
+        "a substantially larger model value indicates decoupled `Δx` and `v_new` heads.",
+        "  2. `displacement_temperature_K` (from chord velocities `Δx / Δt`) vs `velocity_temperature_K` (from predicted `v`) and "
+        "`temperature_rel_gap = (T_vel - T_disp) / T_disp`. At 50 fs, chord averaging slightly filters high-frequency motion in "
+        "ground truth (`temperature_rel_gap` ~ +1.1%); a large excess gap shows velocity statistics and spatial step sizes "
+        "disagree.",
+        "  3. `green_kubo_D_cm2_s` (trapezoidal time integral `(1/3) ∫ <v(0)·v(t)> dt` over the VACF window) vs `einstein_D_cm2_s` "
+        "(linear MSD slope `slope / 6`), testing whether velocity-space memory and position-space transport give consistent "
+        "diffusivity.",
+        "- **Reference-Hamiltonian energy (`energy` block):** Direct 50 fs predictors do not integrate a conservative Hamiltonian; "
+        "`H_drift_kJ_mol_ns_dof_mean` measures linear drift of `H = U_ref(x) + K(v)` per ns per degree of freedom on surviving "
+        "rollouts, while `U_model_minus_gt_per_atom` and `K_model_minus_gt_per_atom` show whether steady-state energy errors "
+        "arise from steric configurational offset (`ΔU`) or thermal offset (`ΔK`). Note: seed 3 and seed 4 `best.pt` weights "
+        "are not tracked in git, so their `15 × 10000` energy drift rows remain `not measured` pending GPU re-evaluation.",
+    ]
     fig = stability_figure()
     if fig:
         lines += ["", "## Stability by training step", "",

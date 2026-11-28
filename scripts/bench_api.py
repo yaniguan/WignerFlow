@@ -73,8 +73,10 @@ def rollout_stats(p, steps, sampling_steps, seed, fast=True, thermostat_K=None):
     d, ref = ck["demo"], ck["reference"]
     stride = float(ck["stride_fs"])
     therm = None if thermostat_K is None else {"t_target": thermostat_K, "tau_fs": 10 * stride, "dt_fs": stride}
+    t_ref = thermostat_K if thermostat_K is not None else float(ref["T_K"])
     out = rollout(p.model, d["pos"][None], d["vel"][None], ck["types"], d["box"][None], ck["masses"], steps,
-                  sampling_steps=sampling_steps, predictor=p.fast if fast else None, t_max=3 * ref["T_K"],
+                  sampling_steps=sampling_steps, predictor=p.fast if fast else None,
+                  t_max=3 * max(float(ref["T_K"]), t_ref), t_min=t_ref / 3.0,
                   thermostat=therm, generator=torch.Generator().manual_seed(seed))
     x, v = out["positions"][:, 0].numpy(), out["velocities"][:, 0]
     half = steps // 2

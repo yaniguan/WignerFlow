@@ -55,9 +55,24 @@ def test_single_step_on_bundled_context(pred, ctx):
     assert torch.tensor(res["positions"]).shape == (2, n, 3)
     assert torch.tensor(res["velocities"]).shape == (2, n, 3)
     assert res["time_fs"] == [50.0, 100.0] and res["crash_step"] is None and not res["warnings"]
+    assert res["attention_version"] == "v0" and res["model"]["attention_version"] == "v0"
     com_v = torch.tensor(res["velocities"]).mean(1)  # equal masses
     assert com_v.abs().max() < 1e-6
     assert all(60 < t < 130 for t in res["temperature_K"])
+
+
+def test_frozen_rollout_flagged_and_disableable(pred, ctx):
+    pos, vel, box = ctx
+    # Bundled context is ~95 K; setting t_min_K=200 K immediately flags step 1 as 'frozen'
+    flagged = pred.predict(pos, vel, box, n_steps=1, sampling_steps=1, t_min_K=200.0)
+    assert flagged["crash_step"] == 1
+    assert flagged["crash_reason"] == "frozen"
+    assert any("frozen" in w for w in flagged["warnings"])
+
+    # Disabling t_min_K via 0 or None suppresses the low-temperature crash check
+    disabled = pred.predict(pos, vel * 0.01, box, n_steps=1, sampling_steps=1, t_min_K=0.0)
+    assert disabled["crash_step"] is None
+    assert disabled["model"]["t_min_K"] is None
 
 
 def test_seed_makes_requests_reproducible(pred, ctx):

@@ -8,9 +8,15 @@ import json
 import os
 
 import numpy as np
-import openmm
-import openmm.app as app
-import openmm.unit as u
+
+try:
+    import openmm
+    import openmm.app as app
+    import openmm.unit as u
+except ImportError:  # pragma: no cover - pure-wheel environments without OpenMM
+    openmm = None
+    app = None
+    u = None
 
 AVOGADRO = 6.02214076e23
 

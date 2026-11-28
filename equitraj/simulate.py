@@ -6,14 +6,23 @@ The model needs positions and velocities at the same time, so we use a custom
 velocity Verlet integrator (with RATTLE-style constraint handling).
 """
 
+import math
 import time
 
 import numpy as np
-import openmm
-import openmm.unit as u
 
-from equitraj.systems import build
+try:
+    import openmm
+    import openmm.unit as u
+    _HAS_OPENMM = True
+except ImportError:  # pragma: no cover - fallback analytical LJ integrator used for argon
+    openmm = None
+    u = None
+    _HAS_OPENMM = False
+
+from equitraj.systems import AVOGADRO, build, fcc_lattice
 from equitraj.trajfile import TrajWriter
+from equitraj.units import KB
 
 
 def velocity_verlet(dt_ps):
@@ -75,8 +84,175 @@ def equilibrate_npt(system, positions, cfg, seed):
     return (best.getPositions(asNumpy=True), best.getPeriodicBoxVectors(), best.getVelocities(asNumpy=True))
 
 
+def _lj_argon_energy_forces_nm(pos_nm, box_nm, sigma=0.3405, epsilon=0.996, r_switch=0.80, r_cut=0.85):
+    """Exact analytical switched Lennard-Jones potential (kJ/mol) and forces (kJ/mol/nm) in float64.
+
+    Matches `equitraj.systems.build_argon` and `equitraj.energy.lj_potential` identically:
+        V(r) = 4 * eps * [(sigma / r)^12 - (sigma / r)^6] * S(u),
+        u = clamp((r - r_switch) / (r_cut - r_switch), 0, 1),
+        S(u) = 1 - 10 u^3 + 15 u^4 - 6 u^5.
+    """
+    n = pos_nm.shape[0]
+    dr = pos_nm[:, None, :] - pos_nm[None, :, :]
+    dr = dr - box_nm * np.round(dr / box_nm)
+    r2 = np.sum(dr * dr, axis=-1)
+    np.fill_diagonal(r2, 1e12)
+    mask = r2 < (r_cut * r_cut)
+    if not np.any(mask):
+        return 0.0, np.zeros_like(pos_nm)
+    r = np.sqrt(r2)
+    inv_r = np.where(mask, 1.0 / r, 0.0)
+    sr2 = (sigma * inv_r) ** 2
+    sr6 = sr2 * sr2 * sr2
+    sr12 = sr6 * sr6
+    v_lj = 4.0 * epsilon * (sr12 - sr6)
+    dv_lj_dr = 4.0 * epsilon * (-12.0 * sr12 + 6.0 * sr6) * inv_r
+
+    w = r_cut - r_switch
+    u_sw = np.clip((r - r_switch) / w, 0.0, 1.0)
+    s_val = 1.0 - 10.0 * (u_sw ** 3) + 15.0 * (u_sw ** 4) - 6.0 * (u_sw ** 5)
+    in_sw = (r > r_switch) & mask
+    ds_dr = np.where(in_sw, (-30.0 * (u_sw ** 2) * ((1.0 - u_sw) ** 2)) / w, 0.0)
+
+    v_pair = np.where(mask, v_lj * s_val, 0.0)
+    dv_dr = np.where(mask, dv_lj_dr * s_val + v_lj * ds_dr, 0.0)
+    # Force on atom i from j: -dV/dr * (r_i - r_j) / r
+    f_mag_over_r = -dv_dr * inv_r
+    forces = np.sum(f_mag_over_r[:, :, None] * dr, axis=1)
+    pe = 0.5 * float(np.sum(v_pair))
+    return pe, forces
+
+
+def _run_argon_pure(cfg, seed, out_path):
+    """Deterministic float64 NVT -> NVE switched-LJ liquid argon trajectory generator without OpenMM."""
+    n_cells = 4
+    mass = 39.948  # amu (g/mol); in (nm, ps, kJ/mol) units, 1 amu * (nm/ps)^2 == 1 kJ/mol!
+    sigma, epsilon, switch_nm, cutoff_nm = 0.3405, 0.996, 0.80, 0.85
+    density_g_cm3 = 1.374
+    n_atoms = 4 * (n_cells ** 3)
+    volume_cm3 = n_atoms * mass / AVOGADRO / density_g_cm3
+    box_nm = float((volume_cm3 ** (1.0 / 3.0)) * 1e7)
+    box_mat = np.eye(3, dtype=np.float64) * box_nm
+    masses = np.full(n_atoms, mass, dtype=np.float64)
+    elements = ["Ar"] * n_atoms
+
+    rng = np.random.default_rng(int(seed))
+    x = fcc_lattice(n_cells, box_nm / n_cells).astype(np.float64)
+    x = x + rng.normal(0.0, 1e-3, size=x.shape)
+
+    # Short clamped steepest-descent relaxation from perturbed FCC lattice
+    for _ in range(40):
+        _, f_min = _lj_argon_energy_forces_nm(x, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+        f_norm = np.linalg.norm(f_min, axis=-1, keepdims=True)
+        step_nm = np.where(f_norm > 1e-12, f_min / np.maximum(f_norm, 1.0) * 1e-4, 0.0)
+        x = x + np.clip(step_nm, -2e-3, 2e-3)
+
+    temp_k = float(cfg["temperature_K"])
+    dt_ps = float(cfg["dt_fs"]) / 1000.0
+    gamma = float(cfg.get("friction_per_ps", 1.0))
+    v_std = math.sqrt(KB * temp_k / mass)  # nm/ps (since kJ/mol / (g/mol) = (nm/ps)^2)
+    v = remove_com_velocity(rng.normal(0.0, v_std, size=(n_atoms, 3)), masses)
+
+    # BAOAB Langevin NVT equilibration
+    n_equil = int(round(float(cfg["equil_ps"]) / dt_ps))
+    c1 = math.exp(-gamma * dt_ps)
+    c2 = math.sqrt(max(0.0, 1.0 - c1 * c1)) * v_std
+    _, forces = _lj_argon_energy_forces_nm(x, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+
+    def baoab_steps(n_st):
+        nonlocal x, v, forces
+        half_dt = 0.5 * dt_ps
+        inv_m = 1.0 / mass
+        for _ in range(n_st):
+            v = v + half_dt * forces * inv_m
+            x = x + half_dt * v
+            v = c1 * v + c2 * rng.standard_normal(size=v.shape)
+            x = x + half_dt * v
+            _, forces = _lj_argon_energy_forces_nm(x, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+            v = v + half_dt * forces * inv_m
+
+    baoab_steps(n_equil // 2)
+    energies = []
+    chunk = max(1, n_equil // 200)
+    for _ in range(100):
+        baoab_steps(chunk)
+        pe_s, _ = _lj_argon_energy_forces_nm(x, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+        v_clean = remove_com_velocity(v, masses)
+        ke_s = 0.5 * float(np.sum(masses[:, None] * (v_clean ** 2)))
+        energies.append(pe_s + ke_s)
+
+    v0 = remove_com_velocity(v, masses)
+    pe0, f0 = _lj_argon_energy_forces_nm(x, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+    ke0 = 0.5 * float(np.sum(masses[:, None] * (v0 ** 2)))
+    e_target = float(np.mean(energies)) if energies else (pe0 + ke0)
+    v0 = v0 * math.sqrt(max(e_target - pe0, 0.1 * ke0) / max(ke0, 1e-30))
+
+    # Float64 Velocity Verlet NVE production (unwrapped positions)
+    save_every = int(cfg["save_every"])
+    force_every = int(cfg["force_every"])
+    n_frames = int(round(float(cfg["production_ps"]) / dt_ps / save_every))
+    attrs = {
+        "system_name": "argon",
+        "force_field": f"LJ sigma={sigma} nm epsilon={epsilon} kJ/mol, switch {switch_nm}-{cutoff_nm} nm",
+        "box_nm": box_nm,
+        "density_g_cm3": density_g_cm3,
+        "temperature_K": temp_k,
+        "dt_fs": float(cfg["dt_fs"]),
+        "save_every": save_every,
+        "frame_interval_fs": float(cfg["dt_fs"]) * save_every,
+        "equil_ps": float(cfg["equil_ps"]),
+        "npt_ps": float(cfg.get("npt_ps", 0.0)),
+        "nvt_mean_total_energy_kJmol": e_target,
+        "seed": int(seed),
+        "ensemble": "NVE",
+        "integrator": "velocity Verlet (analytical switched-LJ, float64)",
+        "platform": "CPU-numpy-float64",
+        "precision": "double",
+        "constraint_tol": float(cfg.get("constraint_tol", 1e-6)),
+        "n_constraints": 0,
+        "openmm_version": "none (analytical switched-LJ fallback)",
+        "complete": False,
+    }
+    writer = TrajWriter(out_path, n_atoms, masses, elements, attrs, force_every=force_every)
+    t_start = time.time()
+    x_cur = x.copy()
+    v_cur = v0.copy()
+    pe_cur, f_cur = pe0, f0
+    inv_m = 1.0 / mass
+    half_dt = 0.5 * dt_ps
+    for i in range(n_frames):
+        if i > 0:
+            for _ in range(save_every):
+                v_cur = v_cur + half_dt * f_cur * inv_m
+                x_cur = x_cur + dt_ps * v_cur
+                pe_cur, f_cur = _lj_argon_energy_forces_nm(x_cur, box_nm, sigma, epsilon, switch_nm, cutoff_nm)
+                v_cur = v_cur + half_dt * f_cur * inv_m
+        ke_cur = 0.5 * float(np.sum(masses[:, None] * (v_cur ** 2)))
+        get_forces = (i % force_every) == 0
+        writer.add(
+            positions=x_cur.astype(np.float32),
+            velocities=v_cur.astype(np.float32),
+            forces=f_cur.astype(np.float32) if get_forces else None,
+            potential_energy=pe_cur,
+            kinetic_energy=ke_cur,
+            box=box_mat.astype(np.float32),
+            time=i * save_every * dt_ps,
+        )
+    wall = max(time.time() - t_start, 1e-9)
+    sim_ns = (n_frames - 1) * save_every * dt_ps / 1000.0
+    writer.f.attrs["complete"] = True
+    writer.f.attrs["production_wall_s"] = wall
+    writer.f.attrs["ns_per_day_with_io"] = sim_ns / wall * 86400.0
+    writer.close()
+    return {"wall_s": wall, "ns_per_day_with_io": sim_ns / wall * 86400.0, "precision": "double"}
+
+
 def run_trajectory(cfg, seed, out_path):
     """Run one independent trajectory and write it to out_path. Returns timing info."""
+    if not _HAS_OPENMM or str(cfg.get("platform", "")).lower() == "numpy":
+        if cfg.get("system") != "argon":
+            raise RuntimeError("OpenMM is not installed; pure-NumPy fallback only supports system='argon'")
+        return _run_argon_pure(cfg, seed, out_path)
     system, topology, positions, info = build(cfg["system"])
     masses = np.array([system.getParticleMass(i).value_in_unit(u.dalton) for i in range(system.getNumParticles())])
     elements = [a.element.symbol for a in topology.atoms()]

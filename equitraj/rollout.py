@@ -46,16 +46,16 @@ def max_bond_deviation(pos, bonds, r0, box=None):
 def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, save_every=1,
             min_dist=0.5, t_max=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10,
             thermostat=None, energy_fn=None, history=20, monitor=None, predictor=None,
-            constraint_projector=None, excluded_pairs=None, *, generator=None, return_state=False,
-            step_offset=0):
+            constraint_projector=None, excluded_pairs=None, *, t_min=None, generator=None,
+            return_state=False, step_offset=0):
     """Roll out B systems in parallel.
 
     pos, vel: (B, k, N, 3) context (Å, Å/fs). box: (B, 3, 3) or None. Returns a dict with saved frames (n_saved, B, N, 3),
     crash_step (B,) = first step at which a crash criterion fired (-1 if never), timing, and
     'diagnostics' (StabilityMonitor.diagnostics(): crash reasons, offending atoms, T/KE drift, ...).
-    Crash criteria: NaN, a pair closer than min_dist Å, temperature above t_max, a bond off by more
-    than max_bond_dev (relative). Crashed systems keep being integrated, but their frames after the
-    crash should be ignored.
+    Crash criteria: NaN, a pair closer than min_dist Å, temperature above t_max or below t_min ('frozen'),
+    a bond off by more than max_bond_dev (relative). Crashed systems keep being integrated, but their frames
+    after the crash should be ignored.
     thermostat: None (model only) or dict(t_target, tau_fs, dt_fs) for the CSVR switch S6.
     energy_fn: optional callable(pos (B, N, 3), box) -> (B,) potential energy in kJ/mol, tracked by the monitor.
     history: number of checks kept in crash reports. monitor: a custom StabilityMonitor (then the
@@ -82,8 +82,8 @@ def rollout(model, pos, vel, types, box, masses, n_steps, sampling_steps=10, sav
     types, masses = types.to(device), masses.to(device)
     box = None if box is None else box.to(device)
     if monitor is None:
-        monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, bonds=bonds,
-                                   bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
+        monitor = StabilityMonitor(types, masses, box=box, min_dist=min_dist, t_max=t_max, t_min=t_min,
+                                   bonds=bonds, bond_r0=bond_r0, max_bond_dev=max_bond_dev, energy_fn=energy_fn,
                                    history=history, stride_fs=getattr(model, "stride_fs", 1.0),
                                    excluded_pairs=excluded_pairs)
     projection_diagnostics = []

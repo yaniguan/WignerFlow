@@ -10,8 +10,14 @@ Writes <run>/eval/metrics.json and figures, and checks the v0 criteria for argon
 """
 
 import argparse
+import hashlib
 import json
 import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import numpy as np
 import torch
@@ -22,7 +28,9 @@ from equitraj.dataset import TrajWindows
 from equitraj.energy import kinetic, lj_potential
 from equitraj.forcefield import verlet_rollout
 from equitraj.model import EquiTraj
+from equitraj.monitor import REASONS
 from equitraj.rollout import rollout, temperature
+from equitraj.train import resolve_eval_t_min
 
 V0_CRITERIA = {  # argon, model only (no thermostat)
     "no_crash": "all rollouts reach the full number of steps",
@@ -46,6 +54,9 @@ def main():
     ap.add_argument("--starts", type=int, default=3)
     ap.add_argument("--sampling_steps", type=int, default=10)
     ap.add_argument("--thermostat_tau_fs", type=float, default=0.0, help=">0: CSVR switch S6 (reported separately)")
+    ap.add_argument("--t_min_K", type=float, default=None,
+                    help="low-temperature ('frozen') crash floor in K (default: T_gt / 3; <=0 disables)")
+    ap.add_argument("--no_t_min", action="store_true", help="disable the low-temperature frozen rollout check")
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--split", default="test", help="test for reporting; val for choosing among checkpoints")
@@ -72,6 +83,15 @@ def main():
     gt_box = [b.numpy() for b in ds.boxes]
     t_gt = float(np.mean([temperature(torch.from_numpy(v[::10].copy()), ds.masses).mean().item() for v in gt_v]))
 
+    if args.no_t_min:
+        t_min, defaulted_t_min = None, False
+    elif args.t_min_K is not None:
+        t_min, defaulted_t_min = (None if args.t_min_K <= 0.0 else float(args.t_min_K)), False
+    else:
+        t_min, defaulted_t_min = resolve_eval_t_min(cfg.get("eval"), t_gt)
+    if defaulted_t_min:
+        print(json.dumps({"eval_t_min_K": t_min, "default_applied": True, "rule": "T_gt / 3"}), flush=True)
+
     # ---- starting windows: evenly spread over the test trajectories ----
     starts = []
     for i in range(args.starts):
@@ -92,25 +112,37 @@ def main():
     thermostat = None
     if args.thermostat_tau_fs > 0:
         thermostat = {"t_target": t_gt, "tau_fs": args.thermostat_tau_fs, "dt_fs": dt}
+    t_max = 3.0 * t_gt
     if is_ff:
         out = verlet_rollout(model, pos[:, -1], vel[:, -1], ds.types, box, ds.masses, args.steps,
-                             substeps=cfg["stride_steps"], dt_fs=ds.meta["dt_fs"], save_every=1, t_max=3 * t_gt)
+                             substeps=cfg["stride_steps"], dt_fs=ds.meta["dt_fs"], save_every=1,
+                             t_max=t_max, t_min=t_min)
     else:
         out = rollout(model, pos, vel, ds.types, box, ds.masses, args.steps, sampling_steps=args.sampling_steps,
-                      save_every=1, t_max=3 * t_gt, thermostat=thermostat)
+                      save_every=1, t_max=t_max, t_min=t_min, thermostat=thermostat)
     x = out["positions"].numpy()   # (steps, B, N, 3)
     v = out["velocities"].numpy()
     crash = out["crash_step"].numpy()
     n_roll = len(labels)
     ok = crash < 0
-    m = {"run": args.run, "checkpoint": args.ckpt, "split": args.split, "train_step": int(step),
+    ckpt_file = os.path.join(args.run, args.ckpt)
+    ckpt_sha256 = hashlib.sha256(open(ckpt_file, "rb").read()).hexdigest() if os.path.isfile(ckpt_file) else None
+    m = {"run": args.run, "checkpoint": args.ckpt, "checkpoint_sha256": ckpt_sha256,
+         "attention_version": getattr(model, "attention_version", None),
+         "data_dir": cfg["data_dir"], "split": args.split, "train_step": int(step),
          "head": "forcefield+verlet" if is_ff else model.head_type, "target": "-" if is_ff else model.target,
          "stride_fs": dt, "steps": args.steps, "n_rollouts": n_roll,
-         "seeds_per_start": seeds, "thermostat_tau_fs": args.thermostat_tau_fs, "T_ground_truth_K": t_gt}
+         "seeds_per_start": seeds, "thermostat_tau_fs": args.thermostat_tau_fs, "T_ground_truth_K": t_gt,
+         "command": [os.path.basename(sys.executable), *sys.argv]}
 
     # ---- stability ----
     steps_before = np.where(ok, args.steps, crash)
-    m["stability"] = {"crashed": int((~ok).sum()), "steps_before_crash": steps_before.tolist(),
+    reasons_list = out.get("diagnostics", {}).get("crash_reason", [None] * n_roll)
+    crash_reasons = {reason: int(sum(r == reason for r in reasons_list)) for reason in REASONS}
+    m["stability"] = {"crashed": int((~ok).sum()), "crash_reasons": crash_reasons,
+                      "crash_reason_per_rollout": list(reasons_list),
+                      "t_min_K": t_min, "t_max_K": float(t_max),
+                      "steps_before_crash": steps_before.tolist(),
                       "median_steps_before_crash": float(np.median(steps_before))}
     surv_t = np.arange(0, args.steps + 1, max(1, args.steps // 200))
     survival = [(steps_before >= s).mean() for s in surv_t]
@@ -138,7 +170,9 @@ def main():
     data_sys = None
     if os.path.isfile(data_cfg_path):
         with open(data_cfg_path, encoding="utf-8") as fh:
-            data_sys = (yaml.safe_load(fh) or {}).get("system")
+            data_cfg = yaml.safe_load(fh) or {}
+            data_sys = data_cfg.get("system")
+            m["data_config"] = data_cfg
     if ds.periodic and data_sys == "argon" and ok.any():
         box0 = ds.boxes[0]
         sub = np.arange(0, n_done, max(1, n_done // 200))
@@ -251,8 +285,9 @@ def main():
                     "wavenumber (cm⁻¹)", "VDOS (normalized)", "Vibrational density of states", xlim=(0, min(km[-1], 200)))
 
     # ---- diffusion (periodic systems) ----
+    dm_val, dg_val = None, None
     if ds.periodic:
-        max_lag_msd = min(args.steps // 2, int(20000 / dt))
+        max_lag_msd = min(args.steps // 2, int(20000 / dt), min(len(xx) - 1 for xx in gt_x))
         lags = np.unique(np.linspace(0, max_lag_msd, 100).astype(int))
         msd_model = np.mean([analysis.msd(x[:, j], lags) for j in np.where(ok)[0]], axis=0)
         msd_gt = np.mean([analysis.msd(xx, lags) for xx in gt_x], axis=0)
@@ -260,10 +295,71 @@ def main():
         fit = (0.25 * t_lag[-1], t_lag[-1])
         dm = analysis.diffusion_coefficient(t_lag, msd_model, *fit)[1]
         dg = analysis.diffusion_coefficient(t_lag, msd_gt, *fit)[1]
-        m["diffusion"] = {"D_model_cm2_s": float(dm), "D_gt_cm2_s": float(dg), "rel_err": float(abs(dm - dg) / dg),
+        dm_val, dg_val = float(dm), float(dg)
+        m["diffusion"] = {"D_model_cm2_s": dm_val, "D_gt_cm2_s": dg_val, "rel_err": float(abs(dm - dg) / dg),
                           "fit_range_fs": list(fit)}
         plots.line_plot(os.path.join(out_dir, "figs", "msd.png"), [("ground truth", t_lag / 1000, msd_gt), ("model", t_lag / 1000, msd_model)],
                         "t (ps)", "MSD (Å²)", "Mean squared displacement")
+
+    # ---- position-velocity kinematic consistency (report only; not part of v0_verdict) ----
+    masses_np = ds.masses.numpy()
+    kin_slice = slice(half, n_done) if (n_done - half) >= 2 else slice(0, n_done)
+    mod_kin_rows = []
+    for j in np.where(ok)[0]:
+        xj = x[kin_slice, j]
+        vj = v[kin_slice, j]
+        if len(xj) < 2:
+            xj = np.concatenate([pos[j, -1:].numpy(), x[:, j]], axis=0)
+            vj = np.concatenate([vel[j, -1:].numpy(), v[:, j]], axis=0)
+        bx_j = None if box is None else box[j].numpy()
+        mod_kin_rows.append(
+            analysis.kinematic_consistency(
+                xj, vj, dt, masses_np, box=bx_j, n_constraints=ds.n_constraints, max_vacf_lag=max_lag
+            )
+        )
+    gt_kin_rows = [
+        analysis.kinematic_consistency(
+            xx, vv, dt, masses_np, box=(gt_box[idx_t] if ds.periodic else None),
+            n_constraints=ds.n_constraints, max_vacf_lag=max_lag,
+        )
+        for idx_t, (xx, vv) in enumerate(zip(gt_x, gt_v))
+    ]
+    _, d_gk_m = analysis.green_kubo_diffusion(c_model, dt)
+    _, d_gk_g = analysis.green_kubo_diffusion(c_gt, dt)
+    t_vel_m = float(np.mean([r["velocity_temperature_K"] for r in mod_kin_rows]))
+    t_disp_m = float(np.mean([r["displacement_temperature_K"] for r in mod_kin_rows]))
+    t_vel_g = float(np.mean([r["velocity_temperature_K"] for r in gt_kin_rows]))
+    t_disp_g = float(np.mean([r["displacement_temperature_K"] for r in gt_kin_rows]))
+    m["kinematics"] = {
+        "stride_fs": float(dt),
+        "vacf_integration_horizon_fs": float(max(0, max_lag - 1) * dt),
+        "model": {
+            "trapezoid_residual": float(np.mean([r["trapezoid_residual"] for r in mod_kin_rows])),
+            "velocity_temperature_K": t_vel_m,
+            "displacement_temperature_K": t_disp_m,
+            "temperature_rel_gap": float((t_vel_m - t_disp_m) / t_disp_m) if t_disp_m > 0 else None,
+            "green_kubo_D_cm2_s": float(d_gk_m),
+            "einstein_D_cm2_s": dm_val,
+            "green_kubo_vs_einstein_rel_diff": (
+                float((d_gk_m - dm_val) / abs(dm_val)) if (dm_val is not None and dm_val != 0.0) else None
+            ),
+        },
+        "ground_truth": {
+            "trapezoid_residual": float(np.mean([r["trapezoid_residual"] for r in gt_kin_rows])),
+            "velocity_temperature_K": t_vel_g,
+            "displacement_temperature_K": t_disp_g,
+            "temperature_rel_gap": float((t_vel_g - t_disp_g) / t_disp_g) if t_disp_g > 0 else None,
+            "green_kubo_D_cm2_s": float(d_gk_g),
+            "einstein_D_cm2_s": dg_val,
+            "green_kubo_vs_einstein_rel_diff": (
+                float((d_gk_g - dg_val) / abs(dg_val)) if (dg_val is not None and dg_val != 0.0) else None
+            ),
+        },
+        "note": (
+            "Report-only position-velocity consistency check at the model stride (not part of v0_verdict); "
+            "compare model values against ground_truth at the same stride."
+        ),
+    }
 
     # ---- speed ----
     m["speed"] = {"wall_s": out["wall_s"], "s_per_step_batch": out["wall_s"] / out["steps_done"],

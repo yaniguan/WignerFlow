@@ -98,7 +98,29 @@ def test_summarize_seeds_and_make_results_path_parts(tmp_path, monkeypatch):
     )
     make_results.main()
     assert (tmp_path / "RESULTS.md").exists()
-    assert "argon/B_S3a_seed1" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+    res_text = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+    assert "argon/B_S3a_seed1" in res_text
+    assert "not measured" in res_text
+
+    # Add a second evaluated run WITH an energy block and verify formatted energy drift + U/K offsets appear
+    eval_e_dir = tmp_path / "results" / "argon" / "B_S3a_seed1" / "eval_cpu_energy"
+    eval_e_dir.mkdir(parents=True)
+    m_with_energy = {
+        **m,
+        "speed": {"device": "cpu"},
+        "energy": {
+            "H_drift_kJ_mol_ns_dof_mean": -0.042,
+            "U_model_minus_gt_per_atom": 0.015,
+            "K_model_minus_gt_per_atom": -0.008,
+        },
+    }
+    (eval_e_dir / "metrics.json").write_text(json.dumps(m_with_energy), encoding="utf-8")
+    make_results.main()
+    res_text2 = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+    assert "-0.042 (gt 0.0001)" in res_text2
+    assert "+0.015" in res_text2
+    assert "-0.008" in res_text2
+    assert "(CPU)" in res_text2
 
 
 def test_stability_timeline_vacuum_trajectory(tmp_path):

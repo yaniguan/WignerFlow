@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from equitraj.dataset import TrajWindows
 from equitraj.forcefield import EquiFF
-from equitraj.layers import check_attention_version
+from equitraj.layers import resolve_attention_version
 from equitraj.model import make_model
 from equitraj.pair_masks import exclusions_from_bonds
 
@@ -24,13 +24,13 @@ def first_zero(t, c):
 def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     ckpt_path = os.path.join(run_dir, ckpt)
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+    attn_ver = resolve_attention_version(ck, source=ckpt_path)
     if "cfg" in ck:
         cfg = dict(ck["cfg"])
         step = ck["step"]
     else:
         if data_dir is None:
             raise ValueError("Released checkpoints require --data_dir for ground-truth evaluation")
-        check_attention_version(ck, source=ckpt_path)
         cfg = {"model": ck["model_cfg"], "k": ck["k"], "stride_steps": ck["stride_steps"]}
         step = ck["train_step"]
     if data_dir is not None:
@@ -39,6 +39,7 @@ def load_model(run_dir, ckpt, device, split="test", data_dir=None):
     if "stride_fs" in ck and not np.isclose(ds.stride_fs, ck["stride_fs"]):
         raise ValueError("Dataset stride does not match released checkpoint")
     model_cfg = dict(cfg["model"])
+    model_cfg.setdefault("attention_version", attn_ver)
     if model_cfg.get("n_ff_types") == "auto":
         model_cfg["n_ff_types"] = 0 if ds.ff_type_names is None else len(ds.ff_type_names)
     if cfg.get("kind") == "ff":

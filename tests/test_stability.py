@@ -15,7 +15,7 @@ from equitraj.model import EquiTraj
 from equitraj.monitor import StabilityMonitor
 from equitraj.prior import RepulsionPrior, estimate_rmin, overlap_penalty
 from equitraj.rollout import rollout, temperature
-from equitraj.train import noise_sigma_at, selection_score, training_loss
+from equitraj.train import noise_sigma_at, resolve_eval_t_min, selection_score, training_loss
 from equitraj.units import KB
 
 F64 = torch.float64
@@ -248,6 +248,47 @@ def test_monitor_detects_hot_temperature():
     assert c["value"] > 1000.0 and [h["step"] for h in c["history"]] == [10, 20]
 
 
+def test_rollout_flags_frozen_velocities_at_first_check():
+    model = tiny_model().float().eval()
+    x0 = grid(2, 3.0, torch.float32)
+    pos = x0[None, None].expand(2, 3, 8, 3).clone()
+    g = torch.Generator().manual_seed(4)
+    v0 = torch.randn(2, 3, 8, 3, generator=g, dtype=torch.float32) * 0.0025
+    v0 = v0 - v0.mean(dim=2, keepdim=True)
+    types = torch.zeros(8, dtype=torch.long)
+    masses = torch.full((8,), 40.0, dtype=torch.float32)
+    t_init = float(temperature(v0[:, -1], masses).min().item())
+    t_min = t_init / 3.0
+    assert t_min > 5.0
+
+    class FreezingPredictor:
+        """System 0 keeps initial velocities; system 1 freezes at step 3 (first check at step 4)."""
+
+        def __init__(self):
+            self.call = 0
+
+        def predict(self, x_ctx, v_ctx, types, box, masses, noise=None, n_steps=1):
+            self.call += 1
+            v_next = v_ctx[:, -1].clone()
+            if self.call >= 3:
+                v_next[1] = v_next[1] * 1e-3  # T drops by 10^-6, well below t_min
+            dx = torch.zeros_like(x_ctx[:, -1])
+            return dx, v_next
+
+    out = rollout(
+        model, pos, v0, types, None, masses, n_steps=6, sampling_steps=1,
+        check_every=2, t_max=3.0 * t_init, t_min=t_min, predictor=FreezingPredictor(),
+    )
+    # Checked at steps 2, 4, 6: step 2 is above t_min; step 3 cools; step 4 is the first check after T < t_min
+    assert out["crash_step"].tolist() == [-1, 4]
+    diag = out["diagnostics"]
+    assert diag["crash_reason"] == [None, "frozen"]
+    crash_info = diag["crashes"][1]
+    assert crash_info["reason"] == "frozen"
+    assert crash_info["step"] == 4
+    assert crash_info["value"] < t_min
+
+
 def test_monitor_reason_priority_bonds_and_first_crash_kept():
     x, v, types, masses = monitor_inputs()
     bonds, r0 = torch.tensor([[0, 1]]), torch.tensor([3.0], dtype=F64)
@@ -295,6 +336,48 @@ def test_selection_score_ordering():
     s1 = dict(a, sel_val_crash_frac=0.5, sel_val_steps_before_crash=3000)
     s2 = dict(c, sel_val_crash_frac=0.0, sel_val_steps_before_crash=4000)
     assert selection_score(s2) < selection_score(s1)
+
+
+def test_selection_score_ranks_frozen_below_non_frozen_and_t_min_defaults():
+    # 1. Equal crash fraction from other causes (e.g. 1/4 overlap) plus a frozen rollout (total 0.5 vs 0.25)
+    non_frozen = {
+        "val_crash_frac": 0.25,
+        "val_crash_overlap": 1.0,
+        "val_crash_frozen": 0.0,
+        "val_steps_before_crash": 800,
+        "val_rdf_l1": 0.35,
+        "val_T_rel_err": 0.08,
+    }
+    frozen_extra = {
+        "val_crash_frac": 0.50,
+        "val_crash_overlap": 1.0,
+        "val_crash_frozen": 1.0,
+        "val_steps_before_crash": 900,
+        "val_rdf_l1": 0.20,
+        "val_T_rel_err": 0.02,
+    }
+    assert selection_score(non_frozen) < selection_score(frozen_extra)
+
+    # 2. Even at equal total val_crash_frac (0.25), a validation result with frozen crashes ranks strictly worse
+    frozen_same_frac = {
+        "val_crash_frac": 0.25,
+        "val_crash_overlap": 0.0,
+        "val_crash_frozen": 1.0,
+        "val_steps_before_crash": 990,
+        "val_rdf_l1": 0.10,
+        "val_T_rel_err": 0.01,
+    }
+    assert selection_score(non_frozen) < selection_score(frozen_same_frac)
+
+    # 3. Default t_min = T_ref / 3 when omitted, custom override, and disable via None or <= 0
+    tm_def, defaulted = resolve_eval_t_min({}, 96.0)
+    assert defaulted is True and tm_def == pytest.approx(32.0)
+    tm_cfg, defaulted_cfg = resolve_eval_t_min({"t_min_K": 25.0}, 96.0)
+    assert defaulted_cfg is False and tm_cfg == pytest.approx(25.0)
+    tm_off, defaulted_off = resolve_eval_t_min({"t_min_K": None}, 96.0)
+    assert defaulted_off is False and tm_off is None
+    tm_zero, _ = resolve_eval_t_min({"t_min_factor": 0.0}, 96.0)
+    assert tm_zero is None
 
 
 def test_noise_schedule():

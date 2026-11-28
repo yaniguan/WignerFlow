@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from equitraj import so3
 
 ATTENTION_VERSION = "v1"
+VALID_ATTENTION_VERSIONS = ("v0", "v1")
 _WARNED_LEGACY_ATTENTION = set()
 # SHA-256 of committed v1 files exported before export_ckpt.py wrote attention_version
 _V1_CHECKPOINT_SHA256 = {
@@ -42,27 +43,47 @@ def _file_sha256(path):
 
 
 def check_attention_version(ck, source=None):
-    """Warn once when a v0 checkpoint (missing attention_version or 'v0') runs on v1 attention.
+    """Warn once only when a checkpoint carries an unrecognized attention_version value.
 
-    A file without the field counts as v1 when its SHA-256 is in _V1_CHECKPOINT_SHA256.
+    Checkpoints with attention_version in ('v0', 'v1') or missing the field are resolved
+    silently by resolve_attention_version() and executed with their matching GraphAttention.
     """
     ver = ck.get("attention_version")
-    if ver is None:
-        known_v1 = source is not None and os.path.isfile(source) and _file_sha256(source) in _V1_CHECKPOINT_SHA256
-        ver = "v1" if known_v1 else "v0"
-    if ver == ATTENTION_VERSION:
+    if ver is None and isinstance(ck.get("cfg"), dict):
+        ver = ck["cfg"].get("model", {}).get("attention_version")
+    if ver is None or ver in VALID_ATTENTION_VERSIONS:
         return None
     label = os.path.basename(str(source)) if source else str(ck.get("name", "checkpoint"))
-    if label in _WARNED_LEGACY_ATTENTION:
+    key = (label, str(ver))
+    if key in _WARNED_LEGACY_ATTENTION or label in _WARNED_LEGACY_ATTENTION:
         return None
     _WARNED_LEGACY_ATTENTION.add(label)
+    _WARNED_LEGACY_ATTENTION.add(key)
     msg = (
-        f"WARNING: {label} has attention_version='{ver}', while current GraphAttention uses "
-        f"'{ATTENTION_VERSION}' (cutoff envelope inside softmax + zero-logit sink). "
-        f"Check out tag v0.1.0 to reproduce the published v0 numbers."
+        f"WARNING: {label} has unknown attention_version={ver!r}; "
+        f"falling back to '{ATTENTION_VERSION}'."
     )
     print(msg, file=sys.stderr, flush=True)
     return msg
+
+
+def resolve_attention_version(ck, source=None):
+    """Resolve the GraphAttention mode ('v0' or 'v1') for a checkpoint dictionary.
+
+    - Explicit 'v0' or 'v1' returns that mode with no warning.
+    - Missing field returns 'v1' if `source` matches _V1_CHECKPOINT_SHA256, else 'v0' (no warning).
+    - Unknown values warn once via check_attention_version() and fall back to ATTENTION_VERSION ('v1').
+    """
+    ver = ck.get("attention_version")
+    if ver is None and isinstance(ck.get("cfg"), dict):
+        ver = ck["cfg"].get("model", {}).get("attention_version")
+    if ver is None:
+        known_v1 = source is not None and os.path.isfile(source) and _file_sha256(source) in _V1_CHECKPOINT_SHA256
+        return "v1" if known_v1 else "v0"
+    if ver in VALID_ATTENTION_VERSIONS:
+        return ver
+    check_attention_version(ck, source=source)
+    return ATTENTION_VERSION
 
 
 # ---------------------------------------------------------------- radial functions
@@ -255,26 +276,35 @@ def segment_softmax(logits, index, n):
     return ex / denom[index]
 
 
+def segment_softmax_v0(logits, index, n):
+    """Softmax of logits (E, H) over all edges sharing the same receiving node (tag v0.1.0)."""
+    h = logits.shape[1]
+    idx = index[:, None].expand(-1, h)
+    max_per_node = torch.full((n, h), -torch.inf, dtype=logits.dtype, device=logits.device)
+    max_per_node = max_per_node.scatter_reduce(0, idx, logits, reduce="amax", include_self=True)
+    ex = torch.exp(logits - max_per_node[index])
+    denom = torch.zeros((n, h), dtype=logits.dtype, device=logits.device).index_add_(0, index, ex)
+    return ex / (denom[index] + 1e-16)
+
+
 class GraphAttention(nn.Module):
     """Equivariant attention over neighbors (a simplified Equiformer-v2 block).
 
-    For each edge src -> dst:
-      1. rotate x_src and x_dst into the edge frame and concatenate them
-      2. scale each l by a learned function of the distance (invariant)
-      3. h = SO2Linear(...)                              (E, S, C)
-      4. attention logits from the l=0 part of h plus log(envelope(d)) (E, heads),
-         softmax over edges into dst with a zero-logit, zero-value sink: weights sum
-         to <= 1 and each edge's weight goes smoothly to 0 as its envelope -> 0
-         (zero envelope masks the edge)
-      5. value = SO2Linear(Gate(h)), rotated back to the global frame
-      6. sum of attention * value into dst, then a linear layer
+    Supports two attention modes:
+      - 'v1' (default): attention logits include log(envelope(d)) inside segment_softmax with a
+        zero-logit, zero-value sink, so edge weights go smoothly to 0 as d -> cutoff.
+      - 'v0' (tag v0.1.0): plain neighbor softmax over logits(h[:, 0, :]) followed by
+        post-multiplication alpha * envelope(d), matching checkpoints trained under v0.1.0.
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0, attention_version="v1"):
         super().__init__()
         assert c % heads == 0
+        if attention_version not in VALID_ATTENTION_VERSIONS:
+            raise ValueError(f"attention_version must be one of {VALID_ATTENTION_VERSIONS}, got {attention_version!r}")
         self.lmax, self.c, self.heads, self.n_rbf, self.cutoff = lmax, c, heads, n_rbf, cutoff
         self.edge_dim = int(edge_dim)
+        self.attention_version = attention_version
         self.radial = MLP([n_rbf + self.edge_dim, 64, (lmax + 1) * 2 * c])
         self.so2_1 = SO2Linear(lmax, 2 * c, c, parity)
         self.logits = MLP([c, c, heads])
@@ -295,10 +325,14 @@ class GraphAttention(nn.Module):
         rad = self.radial(rbf).view(e, self.lmax + 1, 2 * self.c)
         h = self.so2_1(per_l_scale(xe, rad, self.lmax))
         env = envelope(dist, self.cutoff)
-        # Avoid log(0) in backward even for masked edges.
-        log_env = torch.where(env > 0, env, torch.ones_like(env)).log()
-        log_env = log_env.masked_fill(env <= 0, -torch.inf)
-        alpha = segment_softmax(self.logits(h[:, 0, :]) + log_env[:, None], dst, x.shape[0])  # (E, heads)
+        if self.attention_version == "v0":
+            alpha = segment_softmax_v0(self.logits(h[:, 0, :]), dst, x.shape[0])  # (E, heads)
+            alpha = alpha * env[:, None]
+        else:
+            # Avoid log(0) in backward even for masked edges.
+            log_env = torch.where(env > 0, env, torch.ones_like(env)).log()
+            log_env = log_env.masked_fill(env <= 0, -torch.inf)
+            alpha = segment_softmax(self.logits(h[:, 0, :]) + log_env[:, None], dst, x.shape[0])  # (E, heads)
         v = so3.from_edge_frame(wigner, self.so2_2(self.gate(h)))  # (E, S, C)
         v = v.view(e, v.shape[1], self.heads, self.c // self.heads) * alpha[:, None, :, None]
         agg = torch.zeros_like(x).index_add_(0, dst, v.view(e, v.shape[1], self.c).to(x.dtype))
@@ -308,10 +342,12 @@ class GraphAttention(nn.Module):
 class Block(nn.Module):
     """x + attention(norm(x)), then x + feedforward(norm(x))."""
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, parity=True, edge_dim=0, attention_version="v1"):
         super().__init__()
         self.norm1 = EquivariantRMSNorm(lmax, c)
-        self.attn = GraphAttention(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim)
+        self.attn = GraphAttention(
+            lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim, attention_version=attention_version
+        )
         self.norm2 = EquivariantRMSNorm(lmax, c)
         self.ff = FeedForward(lmax, c, 2 * c)
 

@@ -24,14 +24,16 @@ from equitraj.units import AMU_A2_PER_FS2_TO_KJ_PER_MOL
 
 class EquiFF(nn.Module):
     def __init__(self, n_types, lmax=2, channels=64, heads=8, n_rbf=32, cutoff=6.0, n_spatial=3, parity=True,
-                 neighbor_method="brute_force", **_unused):
+                 neighbor_method="brute_force", attention_version="v1", **_unused):
         super().__init__()
         # reuse the encoder pieces of EquiTraj, then drop what a force field does not need
         net = EquiTraj(n_types, lmax=lmax, channels=channels, heads=heads, n_rbf=n_rbf, cutoff=cutoff, k=1,
-                       n_spatial=n_spatial, n_fusion=0, head="regression", parity=parity, neighbor_method=neighbor_method)
+                       n_spatial=n_spatial, n_fusion=0, head="regression", parity=parity,
+                       neighbor_method=neighbor_method, attention_version=attention_version)
         for name in ["temporal", "fusion", "readout", "y_out"]:
             delattr(net, name)
         self.net = net
+        self.attention_version = attention_version
         self.lmax, self.cutoff, self.neighbor_method = lmax, cutoff, neighbor_method
         self.energy = MLP([channels, channels, 1])
         self.register_buffer("force_scale", torch.ones(1))  # std of the training forces, kJ/mol/Å
@@ -57,12 +59,14 @@ class EquiFF(nn.Module):
 
 
 def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs, save_every=1, min_dist=0.5, t_max=None,
-                   bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10, n_constraints=0):
+                   t_min=None, bonds=None, bond_r0=None, max_bond_dev=0.5, check_every=10, n_constraints=0):
     """Velocity Verlet with the learned forces. One output step = `substeps` Verlet steps of dt_fs (= one stride).
 
     pos, vel: (B, N, 3) the current frame (not a context window). Returns the same dict as rollout.rollout so that
     scripts/evaluate.py can analyse it unchanged. Positions are accumulated in float64.
     """
+    from equitraj.monitor import StabilityMonitor
+
     param = next(model.parameters())
     device, dtype = param.device, param.dtype
     b = pos.shape[0]
@@ -75,6 +79,9 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
     def acc(xx):
         return model.forces(xx.to(dtype), types, None if box is None else box.to(dtype)).double() * inv_m[None, :, None]
 
+    monitor = StabilityMonitor(types, masses.float(), box=box, min_dist=min_dist, t_max=t_max, t_min=t_min,
+                               bonds=bonds, bond_r0=bond_r0, max_bond_dev=max_bond_dev,
+                               stride_fs=substeps * dt_fs, n_constraints=n_constraints)
     crash = torch.full((b,), -1, dtype=torch.long, device=device)
     saved_x, saved_v = [], []
     a = acc(x)
@@ -89,12 +96,7 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
             saved_x.append(x.float().cpu())
             saved_v.append(v.float().cpu())
         if step % check_every == 0 or step == n_steps:
-            bad = ~torch.isfinite(x).all(dim=(1, 2)) | ~torch.isfinite(v).all(dim=(1, 2))
-            bad |= min_pair_distance(x.float(), box) < min_dist
-            if t_max is not None:
-                bad |= temperature(v.float(), masses.float(), n_constraints) > t_max
-            if bonds is not None:
-                bad |= max_bond_deviation(x.float(), bonds.to(device), bond_r0.to(device), box=box) > max_bond_dev
+            bad = monitor.check(step, x, v.float())
             crash = torch.where((crash < 0) & bad, torch.full_like(crash, step), crash)
             if (crash >= 0).all():
                 break
@@ -102,4 +104,4 @@ def verlet_rollout(model, pos, vel, types, box, masses, n_steps, substeps, dt_fs
         torch.cuda.synchronize()
     return {"positions": torch.stack(saved_x) if saved_x else None,
             "velocities": torch.stack(saved_v) if saved_v else None, "crash_step": crash.cpu(),
-            "steps_done": step, "wall_s": time.time() - t0}
+            "steps_done": step, "wall_s": time.time() - t0, "diagnostics": monitor.diagnostics()}

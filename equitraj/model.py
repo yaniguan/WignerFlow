@@ -94,12 +94,15 @@ class Denoiser(nn.Module):
     interpolated candidate frame x_t + tau * dx(y_tau).
     """
 
-    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity, edge_dim=0):
+    def __init__(self, lmax, c, heads, n_rbf, cutoff, n_blocks, parity, edge_dim=0, attention_version="v1"):
         super().__init__()
         self.c = c
         self.y_in = nn.Linear(2, c, bias=False)  # 2 input vectors -> c vector channels
         self.scalar_in = MLP([c + 3, c, c])
-        self.blocks = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim) for _ in range(n_blocks)])
+        self.blocks = nn.ModuleList([
+            Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=edge_dim, attention_version=attention_version)
+            for _ in range(n_blocks)
+        ])
         self.readout = EquivariantLinear(lmax, c, c)
         self.y_out = nn.Linear(c, 2, bias=False)
 
@@ -120,7 +123,8 @@ class EquiTraj(nn.Module):
                  n_spatial=2, n_fusion=2, n_denoiser=2, head="flow", parity=True,
                  use_velocity=True, neighbor_method="brute_force", target="residual", stride_fs=1.0,
                  repulsion_prior=None, n_ff_types=0, use_charges=False, max_bond_hops=0,
-                 geometry_aware=False, target_scaling="element_std", stride_conditioning=False):
+                 geometry_aware=False, target_scaling="element_std", stride_conditioning=False,
+                 attention_version="v1"):
         super().__init__()
         if isinstance(n_ff_types, bool) or int(n_ff_types) != n_ff_types or n_ff_types < 0:
             raise ValueError("n_ff_types must be a nonnegative integer")
@@ -128,6 +132,8 @@ class EquiTraj(nn.Module):
             raise ValueError("max_bond_hops must be a nonnegative integer")
         if target_scaling not in ("element_std", "mass"):
             raise ValueError(f"target_scaling must be 'element_std' or 'mass', got {target_scaling!r}")
+        if attention_version not in ("v0", "v1"):
+            raise ValueError(f"attention_version must be 'v0' or 'v1', got {attention_version!r}")
         if not math.isfinite(stride_fs) or stride_fs <= 0:
             raise ValueError("stride_fs must be finite and positive")
         self.lmax, self.c, self.cutoff, self.k = lmax, channels, cutoff, k
@@ -143,6 +149,7 @@ class EquiTraj(nn.Module):
         self.geometry_aware = bool(geometry_aware)
         self.target_scaling = target_scaling
         self.stride_conditioning = bool(stride_conditioning)
+        self.attention_version = attention_version
         c = channels
         bond_dim = min(16, c) if self.max_bond_hops > 0 else 0
         self.edge_dim = (1 if self.use_charges else 0) + bond_dim
@@ -174,14 +181,25 @@ class EquiTraj(nn.Module):
         self.scalar_in = MLP([c + 3, c, c])
         self.edge_radial = MLP([n_rbf + self.edge_dim, 64, (lmax + 1) * c])
         self.edge_type = nn.Linear(c, c, bias=False)
-        self.spatial = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim) for _ in range(n_spatial)])
+        self.spatial = nn.ModuleList([
+            Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim,
+                  attention_version=self.attention_version)
+            for _ in range(n_spatial)
+        ])
         self.temporal = TemporalAttention(lmax, c, heads, k_max=max(16, int(k)))
-        self.fusion = nn.ModuleList([Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim) for _ in range(n_fusion)])
+        self.fusion = nn.ModuleList([
+            Block(lmax, c, heads, n_rbf, cutoff, parity, edge_dim=self.edge_dim,
+                  attention_version=self.attention_version)
+            for _ in range(n_fusion)
+        ])
         if head == "regression":
             self.readout = EquivariantLinear(lmax, c, c)
             self.y_out = nn.Linear(c, 2, bias=False)
         else:
-            self.denoiser = Denoiser(lmax, c, heads, n_rbf, cutoff, n_denoiser, parity, edge_dim=self.edge_dim)
+            self.denoiser = Denoiser(
+                lmax, c, heads, n_rbf, cutoff, n_denoiser, parity, edge_dim=self.edge_dim,
+                attention_version=self.attention_version,
+            )
         # optional short-range repulsion applied to predictions (equitraj/prior.py); when disabled no
         # module or buffer is registered, so state dicts are the same as before
         self.prior = None

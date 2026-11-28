@@ -79,14 +79,18 @@ def build_argon_seeds_panel() -> dict:
 
 
 def build_argon_rollout_and_curves() -> dict:
+    from equitraj.layers import resolve_attention_version
+
     ckpt_path = ROOT / "checkpoints" / "argon_flow_v0.pt"
     torch.set_default_dtype(torch.float32)
     ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    attn_ver = resolve_attention_version(ck, source=ckpt_path)
+    model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
     model = EquiTraj(
         n_types=len(ck["elements"]),
         k=ck["k"],
         stride_fs=ck["stride_fs"],
-        **ck["model_cfg"],
+        **model_cfg,
     ).eval()
     model.load_state_dict(ck["model"])
 
@@ -107,6 +111,7 @@ def build_argon_rollout_and_curves() -> dict:
         n_steps,
         sampling_steps=6,
         t_max=3.0 * float(ref["T_K"]),
+        t_min=float(ref["T_K"]) / 3.0,
     )
     ctx_pos = demo["pos"].numpy() % box_l
     fut_pos = out["positions"][:, 0].numpy() % box_l

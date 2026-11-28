@@ -178,12 +178,15 @@ def _load_audit_system(target_id: str, precision: str = "float32", seed: int = 0
         if not ckpt_p.exists():
             ckpt_p = CKPTS_DIR / "argon_flow_v0.pt"
         ck = torch.load(ckpt_p, map_location="cpu", weights_only=True)
+        from equitraj.layers import resolve_attention_version
+        attn_ver = resolve_attention_version(ck, source=ckpt_p)
+        model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
         model = EquiTraj(
             n_types=len(ck["elements"]),
             k=ck["k"],
             stride_fs=ck["stride_fs"],
             repulsion_prior={"enabled": True, "rmin": 3.15, "strength": 0.65, "width": 0.08},
-            **ck["model_cfg"],
+            **model_cfg,
         ).to(dtype=dtype).eval()
         model.load_state_dict(ck["model"], strict=False)
 

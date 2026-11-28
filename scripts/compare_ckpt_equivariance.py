@@ -12,6 +12,7 @@ from pathlib import Path
 import torch
 
 from equitraj.dataset import TrajWindows
+from equitraj.layers import resolve_attention_version
 from equitraj.model import EquiTraj
 
 
@@ -30,12 +31,14 @@ def main():
     results = []
     for path in args.checkpoints:
         ck = torch.load(path, map_location='cpu', weights_only=True)
+        attn_ver = resolve_attention_version(ck, source=path)
+        model_cfg = {**ck['model_cfg'], 'attention_version': attn_ver}
         ds = TrajWindows(args.data, 'test', ck['stride_steps'], ck['k'])
         for dtype in (torch.float32, torch.float64):
             # Set before construction so constant buffers also start at requested precision.
             torch.set_default_dtype(dtype)
             model = EquiTraj(n_types=len(ck['elements']), k=ck['k'],
-                             stride_fs=ck['stride_fs'], **ck['model_cfg']).to(dtype).eval()
+                             stride_fs=ck['stride_fs'], **model_cfg).to(dtype).eval()
             model.load_state_dict(ck['model'])
             for trial in range(args.trials):
                 torch.manual_seed(args.seed + trial)

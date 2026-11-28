@@ -57,22 +57,23 @@ python scripts/pocket_md.py serve --port 8765      # launch local zero-dependenc
 - **Residual targets.** Predicts the change relative to coasting at constant velocity, which stops the system from cooling every step.
 - **Two heads.** Deterministic regression or equivariant conditional flow matching.
 - **Anti-drift training.** Teacher forcing, input noise and unrolled training with a curriculum.
-- **Honest evaluation.** Model-only 10⁴-step rollouts, scored on crashes, temperature, RDF, VACF and diffusion, with every seed reported.
+- **Honest evaluation.** Model-only 10⁴-step rollouts, scored on crashes (NaN, steric overlap, and symmetric temperature bounds `T_ref / 3 <= T <= 3 T_ref`), temperature, reference-Hamiltonian total-energy drift (`H = U_ref + K`), position-velocity kinematic consistency, RDF, VACF and diffusion, with every seed reported.
 
 ## Results
 
-Argon, 256 atoms, flow head, 15 rollouts × 10⁴ steps (0.5 ns each) per seed, model only, no thermostat.
+Argon, 256 atoms, flow head, 15 rollouts × 10⁴ steps (0.5 ns each) per seed, model only, no thermostat (plus a 3 × 1000-step CPU audit for reference-force-field energy drift).
 
 | Result | Value | Source |
 |---|---|---|
-| Seeds stable for 10⁴ steps (no crash) | **4 of 5** | [`docs/release_v0.md`](docs/release_v0.md) ("How robust is this?"), [`results/argon/B_S3a_seeds.md`](results/argon/B_S3a_seeds.md) |
+| Seeds stable for 10⁴ steps (no crash, `T_ref / 3 <= T <= 3 T_ref`) | **4 of 5** (`min T_end = 79.6 K > 31.6 K`) | [`docs/release_v0.md`](docs/release_v0.md) ("How robust is this?"), [`results/argon/B_S3a_seeds.md`](results/argon/B_S3a_seeds.md) |
 | Seeds meeting every v0 criterion | **2 of 5** | same |
-| Released checkpoint: temperature vs truth | −6.0% | [`docs/release_v0.md`](docs/release_v0.md) |
+| Released checkpoint: temperature vs truth (15 × 10⁴ GPU / 3 × 10³ CPU) | −6.0% / −2.9% | [`docs/release_v0.md`](docs/release_v0.md), [`RESULTS.md`](RESULTS.md) |
+| Released checkpoint: total-energy drift `H = U_ref + K` (3 × 10³ CPU) | **−0.442 kJ/mol/ns/dof** (`ΔU = −0.026`, `ΔK = −0.034` kJ/mol/atom; NVE truth `−6.58e−5`; 15 × 10⁴ GPU pending) | [`RESULTS.md`](RESULTS.md), [`results/argon/B_S3a_seed1/eval_step10000_cpu_3x1000/metrics.json`](results/argon/B_S3a_seed1/eval_step10000_cpu_3x1000/metrics.json) |
 | Rollout speed, one A100, batch 1 | **25.8 ns/day** (5.97 steps/s) | [`results/profiling/a100_oct29/profile.log`](results/profiling/a100_oct29/profile.log), made by [`scripts/profile_run.py`](scripts/profile_run.py) |
 
-v0 criteria: no crash; temperature within 5%; RDF peak position within 0.05 Å and height within 10%; VACF first zero within 10%; diffusion within 20%. Full tables: [`RESULTS.md`](RESULTS.md).
+v0 criteria: no crash (`T_ref / 3 <= T <= 3 T_ref`, no NaN, no overlap); temperature within 5%; RDF peak position within 0.05 Å and height within 10%; VACF first zero within 10%; diffusion within 20%. Full tables (including reference-force-field energy drift and position-velocity kinematic consistency): [`RESULTS.md`](RESULTS.md).
 
-Note: The v0 table above and `checkpoints/argon_flow_v0.pt` come from tag `v0.1.0` (before the `GraphAttention` cutoff-envelope and zero-logit sink update on `main`). Check out tag `v0.1.0` to reproduce those numbers.
+Note: `checkpoints/argon_flow_v0.pt` was trained under tag `v0.1.0` (`attention_version="v0"`). On `main`, `EquiTraj` and all release loaders (`scripts/demo.py`, `equitraj/api.py`, `lab/surrogate_query.py`, `scripts/evaluate.py`, and `equitraj/pocket.py`) automatically run `v0` checkpoints with their exact training-time `v0` attention (no tag checkout needed), while `v1` checkpoints use the cutoff-continuous `v1` attention (`log(envelope)` inside `segment_softmax` with a zero-logit sink).
 
 ## How it works
 
@@ -106,7 +107,7 @@ checkpoints/  small .pt weights (~8 MB) and SHA-256 checksums
 - **v0, argon only.** Li⁺/EC, alanine dipeptide, the stride sweep and the baselines come later ([PLAN.md](PLAN.md)).
 - **Checkpoint choice matters.** Temperature can swing by tens of percent between checkpoints 2000 steps apart; one seed crashes at ~4000 steps.
 - **Not faster than classical MD yet.** OpenMM runs argon faster on a CPU. The payoff would come from replacing ab initio MD.
-- Under periodic boundaries the box breaks global rotation symmetry; equivariance is local only. The model has no Hamiltonian.
+- Under periodic boundaries the box breaks global rotation symmetry; equivariance is local only. The model has no Hamiltonian and therefore exhibits measurable total-energy drift under the reference force field (`−0.442 kJ/mol/ns/dof` in 3 × 1000-step CPU rollouts vs `−6.58e−5` for OpenMM NVE; full 15 × 10⁴ GPU energy audit pending).
 - The full-data stable fine-tune ([docs/ARGON_STABLE_FT.md](docs/ARGON_STABLE_FT.md)) has no final evaluation yet.
 
 Training, data generation and evaluation commands: [docs/release_v0.md](docs/release_v0.md), [RESULTS.md](RESULTS.md) and `scripts/`.

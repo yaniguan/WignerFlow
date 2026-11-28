@@ -18,6 +18,7 @@ this run only. It is not a benchmark result.
 import argparse
 import contextlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ REPORT_SCHEMA = "wignerflow.surrogate_report/v1"
 REGISTRY = {
     "argon": {
         "checkpoint": "checkpoints/argon_flow_v0.pt",
+        "attention_version": "v0",
         "elements": ["Ar"],
         "n_atoms": 256,
         "stride_fs": 50.0,
@@ -76,7 +78,7 @@ def validate_query(query):
     if not isinstance(query, dict):
         return ["query must be a JSON object"]
     errors = []
-    allowed = {"schema", "system", "smiles", "n_steps", "sampling_steps", "seed", "device", "question"}
+    allowed = {"schema", "system", "smiles", "n_steps", "sampling_steps", "seed", "device", "question", "t_min_K"}
     extra = sorted(set(query) - allowed)
     if extra:
         errors.append(f"unknown keys: {extra}")
@@ -110,6 +112,10 @@ def validate_query(query):
         errors.append("seed must be an int")
     if query.get("device", "cpu") not in ("cpu", "cuda"):
         errors.append("device must be 'cpu' or 'cuda'")
+    if "t_min_K" in query and query["t_min_K"] is not None:
+        tm = query["t_min_K"]
+        if isinstance(tm, bool) or not isinstance(tm, (int, float)) or not math.isfinite(float(tm)):
+            errors.append("t_min_K must be a finite number or null")
     return errors
 
 
@@ -157,6 +163,7 @@ def plan_query(query):
         "status": "planned",
         "system": sys_key,
         "checkpoint": entry["checkpoint"],
+        "attention_version": entry["attention_version"],
         "checkpoint_present": ckpt.exists(),
         "n_atoms": entry["n_atoms"],
         "n_steps": q["n_steps"],
@@ -189,7 +196,7 @@ def load_release(path, device="cpu"):
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     import torch
-    from equitraj.layers import check_attention_version
+    from equitraj.layers import resolve_attention_version
     from equitraj.model import EquiTraj
 
     if hasattr(torch.serialization, "add_safe_globals"):
@@ -197,9 +204,10 @@ def load_release(path, device="cpu"):
     ck = torch.load(path, map_location="cpu", weights_only=True)
     if ck.get("format") != "wignerflow-v0":
         raise ValueError(f"{path} is not a WignerFlow v0 release checkpoint")
-    check_attention_version(ck, source=path)
+    attn_ver = resolve_attention_version(ck, source=path)
+    model_cfg = {**ck["model_cfg"], "attention_version": attn_ver}
     with _float32_default():
-        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **ck["model_cfg"])
+        model = EquiTraj(n_types=len(ck["elements"]), k=ck["k"], stride_fs=ck["stride_fs"], **model_cfg)
         model.load_state_dict(ck["model"])
     return model.to(device).eval(), ck
 
@@ -216,19 +224,27 @@ def run_query(query, model_and_ckpt=None):
 
     model, ck = model_and_ckpt or load_release(ROOT / plan["checkpoint"], plan["device"])
     demo, ref = ck["demo"], ck["reference"]
+    t_ref = float(ref["T_K"])
+    if "t_min_K" in query:
+        raw_tm = query["t_min_K"]
+        t_min = None if (raw_tm is None or float(raw_tm) <= 0.0) else float(raw_tm)
+    else:
+        t_min = t_ref / 3.0
     box = None if demo["box"] is None else demo["box"][None]
     gen = torch.Generator(device=plan["device"]).manual_seed(plan["seed"])
     with _float32_default():
         out = rollout(model, demo["pos"][None], demo["vel"][None], ck["types"], box, ck["masses"],
-                      plan["n_steps"], sampling_steps=plan["sampling_steps"], t_max=3 * ref["T_K"],
-                      generator=gen)
+                      plan["n_steps"], sampling_steps=plan["sampling_steps"],
+                      t_max=3.0 * t_ref, t_min=t_min, generator=gen)
     crash = int(out["crash_step"][0])
     n_ok = plan["n_steps"] if crash < 0 else max(crash - 1, 0)
     x, v = out["positions"][:n_ok, 0], out["velocities"][:n_ok, 0]
-    report = {**plan, "status": "ok", "train_step": ck["train_step"],
+    attn_used = getattr(model, "attention_version", ck.get("attention_version", plan["attention_version"]))
+    report = {**plan, "status": "ok", "attention_version": attn_used, "train_step": ck["train_step"],
               "crashed_at_step": None if crash < 0 else crash,
               "crash_reason": out["diagnostics"]["crash_reason"][0] if crash >= 0 else None,
-              "frames_used": n_ok, "wall_s": float(out["wall_s"]), "T_ref_K": float(ref["T_K"]),
+              "frames_used": n_ok, "wall_s": float(out["wall_s"]), "T_ref_K": t_ref,
+              "t_min_K": t_min, "t_max_K": 3.0 * t_ref,
               "T_model_mean_K": None, "T_rel_err": None, "min_pair_distance_A": None,
               "caveats": list(CAVEATS)}
     if n_ok > 0:

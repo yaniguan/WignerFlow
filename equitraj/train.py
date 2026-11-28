@@ -407,13 +407,45 @@ def validation_starts(ds, k, n_starts, n_steps):
     return np.array(valid)[np.linspace(0, len(valid) - 1, n_starts).astype(int)]
 
 
-def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None, n_constraints=0):
+_AUTO_T_MIN = object()
+
+
+def resolve_eval_t_min(ec, t_ref):
+    """Resolve low-temperature crash threshold `t_min` (K) for validation rollouts.
+
+    Returns `(t_min_K_or_None, defaulted)`. When omitted from `eval:` config, defaults to
+    `t_ref / 3.0` (symmetric with `t_max = 3 * t_ref`). Setting `t_min_K: null` or `<= 0`
+    (or `t_min_factor: null` / `<= 0`) disables the frozen-rollout check.
+    """
+    ec = ec or {}
+    if "t_min_K" in ec or "t_min" in ec:
+        raw = ec.get("t_min_K", ec.get("t_min"))
+        if raw is None or raw is False or float(raw) <= 0.0:
+            return None, False
+        return float(raw), False
+    if "t_min_factor" in ec:
+        fac = ec["t_min_factor"]
+        if fac is None or fac is False or float(fac) <= 0.0:
+            return None, False
+        return float(fac) * float(t_ref), False
+    return float(t_ref) / 3.0, True
+
+
+def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_ref, diag_sink=None,
+                       n_constraints=0, t_min=_AUTO_T_MIN):
     """Short rollouts from evenly spaced validation windows. Returns stability and RDF metrics.
 
     Only windows with n_steps frames of ground truth after them are used as starts.
     diag_sink: optional list; the rollout's crash diagnostics are appended to it.
     n_constraints: removed from the degrees of freedom in the temperature (0 by default).
+    t_min: low-temperature ('frozen') crash threshold in K; defaults to t_ref / 3 when omitted,
+        and is disabled when None or <= 0.
     """
+    eff_t_min = (
+        float(t_ref) / 3.0
+        if t_min is _AUTO_T_MIN
+        else (None if (t_min is None or t_min is False or float(t_min) <= 0.0) else float(t_min))
+    )
     starts = validation_starts(ds, model.k, n_starts, n_steps)
     items = [ds[i] for i in starts]
     pos = torch.stack([it[0][:model.k] for it in items])
@@ -423,13 +455,15 @@ def validation_rollout(model, ds, n_starts, n_steps, sampling_steps, device, t_r
     bonds = getattr(ds, "bonds", None)
     excl = exclusions_from_bonds(bonds, len(ds.types)) if bonds is not None and len(bonds) > 0 else None
     out = rollout(model, pos, vel, ds.types, box, ds.masses, n_steps,
-                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref,
+                  sampling_steps=sampling_steps, save_every=every, t_max=3 * t_ref, t_min=eff_t_min,
                   excluded_pairs=excl)
     crash = out["crash_step"]
     crashed = crash >= 0
     metrics = {"val_crash_frac": crashed.float().mean().item(),
                "val_steps_before_crash": torch.where(crashed, crash, torch.full_like(crash, n_steps)).float().mean().item(),
                "val_rollout_wall_s": out["wall_s"]}
+    if eff_t_min is not None:
+        metrics["val_t_min_K"] = float(eff_t_min)
     diag = out["diagnostics"]
     for reason in REASONS:
         metrics[f"val_crash_{reason}"] = float(sum(r == reason for r in diag["crash_reason"]))
@@ -486,15 +520,27 @@ def temperature_aware_score(m, t_weight=1.0):
 
 def selection_score(m):
     """Stability-first ranking key for best_stable.pt; lower (tuple comparison) is better:
-        1. crash fraction, 2. longer mean steps before crash, 3. RDF L1 + relative temperature error.
+        1. total crash fraction,
+        2. frozen-rollout indicator (1.0 if any rollout froze below t_min else 0.0),
+        3. longer mean steps before crash,
+        4. RDF L1 + relative temperature error.
     Uses the longer selection rollouts (keys prefixed sel_, eval.rollout_steps_select) when present.
     Missing structural metrics (all rollouts crashed) count as a large error.
     """
     p = "sel_" if "sel_val_crash_frac" in m else ""
+    crash_frac = float(m[p + "val_crash_frac"])
+    frozen_count = float(m.get(p + "val_crash_frozen", 0.0))
+    t_end = m.get(p + "val_T_end")
+    t_min_k = m.get(p + "val_t_min_K")
+    has_frozen = (
+        1.0
+        if (frozen_count > 0.0 or (t_end is not None and t_min_k is not None and float(t_end) < float(t_min_k)))
+        else 0.0
+    )
     err = m.get(p + "val_rdf_l1", 10.0) + m.get(p + "val_T_rel_err", 1.0)
     if not np.isfinite(err):
         err = 1e9
-    return (float(m[p + "val_crash_frac"]), -float(m[p + "val_steps_before_crash"]), float(err))
+    return (crash_frac, has_frozen, -float(m[p + "val_steps_before_crash"]), float(err))
 
 
 def _as_cpu_byte(tensor):
@@ -695,7 +741,9 @@ def main():
         model.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         step, best = ck["step"], ck["best"]
-        best_stable = tuple(ck["best_stable"]) if ck.get("best_stable") is not None else None
+        raw_bs = ck.get("best_stable")
+        if raw_bs is not None:
+            best_stable = (raw_bs[0], 0.0, raw_bs[1], raw_bs[2]) if len(raw_bs) == 3 else tuple(raw_bs)
         apply_resume_rng(ck, seed, step, data_gen, batch_sampler, len(train_ds))
         if isinstance(ck.get("rng"), dict) and "torch" in ck["rng"]:
             print(f"resumed from step {step}", flush=True)
@@ -754,7 +802,7 @@ def main():
                      "best_stable": None if best_stable is None else list(best_stable), "cfg": cfg,
                      "elements": train_ds.elements, "rng": capture_rng_state(),
                      "loader": batch_sampler.state_dict(), "spike_guard": guard.state_dict(),
-                     "attention_version": ATTENTION_VERSION}, path)
+                     "attention_version": getattr(model, "attention_version", ATTENTION_VERSION)}, path)
 
     if args.no_tensorboard:
         class ScalarWriter:
@@ -768,6 +816,9 @@ def main():
     # opt-in: count constrained degrees of freedom in the temperature (off by default; argon has none)
     n_con = val_ds.n_constraints if tc.get("constrained_dof", False) else 0
     t_ref = temperature(torch.stack([val_ds[i][1][0] for i in range(0, len(val_ds), max(1, len(val_ds) // 20))]), val_ds.masses, n_con).mean().item()
+    val_t_min, defaulted_t_min = resolve_eval_t_min(ec, t_ref)
+    if defaulted_t_min:
+        print(json.dumps({"eval_t_min_K": val_t_min, "default_applied": True, "rule": "T_ref / 3"}), flush=True)
     last_ckpt, t_start, running = time.time(), time.time(), []
     rewarmup = int(tc.get("rewarmup_steps", 0))
     gnorms = []
@@ -789,11 +840,11 @@ def main():
                 diags = []
                 metrics.update(validation_rollout(model, val_ds, ec.get("rollout_starts", 4), ec.get("rollout_steps", 500),
                                                   ec.get("sampling_steps", 10), device, t_ref, diag_sink=diags,
-                                                  n_constraints=n_con))
+                                                  n_constraints=n_con, t_min=val_t_min))
                 if ec.get("rollout_steps_select"):  # longer rollouts used only for best_stable.pt
                     sel = validation_rollout(model, val_ds, ec.get("rollout_starts_select", ec.get("rollout_starts", 4)),
                                              ec["rollout_steps_select"], ec.get("sampling_steps", 10), device, t_ref,
-                                             diag_sink=diags, n_constraints=n_con)
+                                             diag_sink=diags, n_constraints=n_con, t_min=val_t_min)
                     metrics.update({"sel_" + key: value for key, value in sel.items()})
             for key, value in metrics.items():
                 if key != "step":
@@ -816,7 +867,7 @@ def main():
             # keep every evaluated checkpoint: short validation rollouts do not predict 10^4-step
             # stability well (argon v0), so checkpoints are re-ranked later with long validation rollouts
             atomic_save({"model": model.state_dict(), "step": step, "cfg": cfg, "elements": train_ds.elements,
-                         "attention_version": ATTENTION_VERSION},
+                         "attention_version": getattr(model, "attention_version", ATTENTION_VERSION)},
                         os.path.join(out_dir, "snapshots", f"step{step:06d}.pt"))
         log.write(json.dumps(metrics) + "\n")
         log.flush()

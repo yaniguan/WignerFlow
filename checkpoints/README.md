@@ -22,4 +22,4 @@ python scripts/export_ckpt.py --run results/argon/cpu_reduced/train --ckpt snaps
 
 `--attention-version` is needed because these training runs do not store `attention_version`. Runs from the current `equitraj/train.py` store it, and the export uses that value.
 
-Note: `argon_flow_v0.pt` was trained and evaluated with tag `v0.1.0`, before the `GraphAttention` cutoff-envelope and zero-logit sink update in `equitraj/layers.py`. Check out tag `v0.1.0` to reproduce the published v0 table.
+Note: `argon_flow_v0.pt` was trained with the `v0` graph attention from tag `v0.1.0` (neighbor softmax followed by post-multiplication by the smooth cutoff envelope). On `main`, `EquiTraj` and all checkpoint loaders (`scripts/demo.py`, `equitraj/api.py`, `lab/surrogate_query.py`, `scripts/evaluate.py`, and `equitraj/pocket.py`) automatically run `v0` checkpoints in `attention_version="v0"` mode directly on `main` (no tag switch needed), while `v1` checkpoints (`argon_flow_v1_cpu_reduced.pt` and new training runs) use `attention_version="v1"` (log-envelope inside `segment_softmax` with a zero-logit sink).
